@@ -92,7 +92,7 @@ class TestOpenAIProviderInit:
     def test_init_with_custom_params(self):
         """带自定义参数初始化。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = OpenAIProvider(
+            OpenAIProvider(
                 api_key="test-key",
                 model="gpt-3.5-turbo",
                 base_url="https://custom.api.com",
@@ -108,9 +108,11 @@ class TestOpenAIProviderInit:
 
     def test_init_missing_openai_package(self):
         """缺少 openai 包时抛出 ImportError。"""
-        with patch.dict("sys.modules", {"openai": None}):
-            with pytest.raises(ImportError, match="openai package is required"):
-                OpenAIProvider(api_key="test-key")
+        with (
+            patch.dict("sys.modules", {"openai": None}),
+            pytest.raises(ImportError, match="openai package is required"),
+        ):
+            OpenAIProvider(api_key="test-key")
 
 
 class TestOpenAIProviderComplete:

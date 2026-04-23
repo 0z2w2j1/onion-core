@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from onion_core.providers.domestic import (
     DashScopeProvider,
     DeepSeekProvider,
@@ -29,7 +27,7 @@ class TestDeepSeekProvider:
     def test_init_custom_model(self):
         """自定义模型。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = DeepSeekProvider(
+            DeepSeekProvider(
                 api_key="sk-test",
                 model="deepseek-reasoner",
                 max_tokens=1000,
@@ -53,7 +51,7 @@ class TestZhipuAIProvider:
     def test_init_custom_model(self):
         """自定义模型。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = ZhipuAIProvider(
+            ZhipuAIProvider(
                 api_key="test-key",
                 model="glm-4-flash",
                 max_tokens=2048,
@@ -76,7 +74,7 @@ class TestMoonshotProvider:
     def test_init_custom_model(self):
         """自定义模型。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = MoonshotProvider(
+            MoonshotProvider(
                 api_key="sk-test",
                 model="moonshot-v1-32k",
                 temperature=0.3,
@@ -99,7 +97,7 @@ class TestDashScopeProvider:
     def test_init_custom_model(self):
         """自定义模型。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = DashScopeProvider(
+            DashScopeProvider(
                 api_key="sk-test",
                 model="qwen-max",
                 max_tokens=1500,

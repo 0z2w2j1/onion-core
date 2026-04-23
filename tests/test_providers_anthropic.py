@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -70,7 +69,7 @@ class TestAnthropicProviderInit:
     def test_init_with_custom_params(self):
         """带自定义参数初始化。"""
         with patch("anthropic.AsyncAnthropic") as mock_client:
-            provider = AnthropicProvider(
+            AnthropicProvider(
                 api_key="test-key",
                 model="claude-3-opus-20240229",
                 max_tokens=2048,
@@ -84,9 +83,11 @@ class TestAnthropicProviderInit:
 
     def test_init_missing_anthropic_package(self):
         """缺少 anthropic 包时抛出 ImportError。"""
-        with patch.dict("sys.modules", {"anthropic": None}):
-            with pytest.raises(ImportError, match="anthropic package is required"):
-                AnthropicProvider(api_key="test-key")
+        with (
+            patch.dict("sys.modules", {"anthropic": None}),
+            pytest.raises(ImportError, match="anthropic package is required"),
+        ):
+            AnthropicProvider(api_key="test-key")
 
 
 class TestAnthropicProviderSplitMessages:

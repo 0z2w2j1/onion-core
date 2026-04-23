@@ -15,7 +15,7 @@ class TestLocalProvider:
     def test_init_basic(self):
         """基本初始化。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = LocalProvider(
+            LocalProvider(
                 base_url="http://localhost:8000/v1",
                 model="llama-3",
             )
@@ -26,7 +26,7 @@ class TestLocalProvider:
     def test_init_with_custom_api_key(self):
         """自定义 API Key。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = LocalProvider(
+            LocalProvider(
                 base_url="http://localhost:8000/v1",
                 api_key="my-secret-key",
             )
@@ -55,7 +55,7 @@ class TestOllamaProvider:
     def test_init_custom_base_url(self):
         """自定义 base_url。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = OllamaProvider(
+            OllamaProvider(
                 model="mistral",
                 base_url="http://192.168.1.100:11434/v1",
             )
@@ -64,7 +64,7 @@ class TestOllamaProvider:
 
     def test_init_with_params(self):
         """带参数初始化。"""
-        with patch("openai.AsyncOpenAI") as mock_client:
+        with patch("openai.AsyncOpenAI"):
             provider = OllamaProvider(
                 model="qwen2.5",
                 max_tokens=2048,
@@ -80,21 +80,21 @@ class TestLMStudioProvider:
     def test_init_default(self):
         """默认初始化。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = LMStudioProvider()
+            LMStudioProvider()
             call_kwargs = mock_client.call_args[1]
             assert call_kwargs["base_url"] == "http://localhost:1234/v1"
             assert call_kwargs["api_key"] == "lm-studio"
 
     def test_init_custom_model(self):
         """自定义模型。"""
-        with patch("openai.AsyncOpenAI") as mock_client:
+        with patch("openai.AsyncOpenAI"):
             provider = LMStudioProvider(model="llama-3-8b")
             assert "llama-3-8b" in provider.name.lower()
 
     def test_init_custom_base_url(self):
         """自定义 base_url。"""
         with patch("openai.AsyncOpenAI") as mock_client:
-            provider = LMStudioProvider(
+            LMStudioProvider(
                 base_url="http://192.168.1.50:1234/v1",
             )
             call_kwargs = mock_client.call_args[1]
@@ -102,7 +102,7 @@ class TestLMStudioProvider:
 
     def test_init_with_params(self):
         """带参数初始化。"""
-        with patch("openai.AsyncOpenAI") as mock_client:
+        with patch("openai.AsyncOpenAI"):
             provider = LMStudioProvider(
                 model="gemma-2",
                 max_tokens=1024,
@@ -145,17 +145,19 @@ class TestLocalProviderEdgeCases:
 
     def test_ollama_requires_model(self):
         """Ollama 需要提供 model 参数。"""
-        with patch("openai.AsyncOpenAI"):
-            # model 是必需参数，不提供会报错
-            with pytest.raises(TypeError):
-                OllamaProvider()  # type: ignore
+        with (
+            patch("openai.AsyncOpenAI"),
+            pytest.raises(TypeError),
+        ):
+            OllamaProvider()  # type: ignore
 
     def test_local_requires_base_url(self):
         """LocalProvider 需要提供 base_url。"""
-        with patch("openai.AsyncOpenAI"):
-            # base_url 是必需参数
-            with pytest.raises(TypeError):
-                LocalProvider()  # type: ignore
+        with (
+            patch("openai.AsyncOpenAI"),
+            pytest.raises(TypeError),
+        ):
+            LocalProvider()  # type: ignore
 
     def test_lmstudio_default_values(self):
         """LMStudio 的默认值。"""
