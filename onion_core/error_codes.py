@@ -255,7 +255,20 @@ class OnionErrorWithCode(Exception):
         self.cause = cause
         self.extra: dict[str, Any] = extra or {}
         display_msg = message or ERROR_MESSAGES.get(code, "Unknown error")
-        full_msg = f"[{code}] {display_msg}"
+        # Extract category from error code (e.g., "S" from "ONI-S100")
+        category_code = code.split("-")[1][0] if "-" in code else "UNKNOWN"
+        category_name = {
+            "S": "security",
+            "R": "rate_limit",
+            "C": "circuit_breaker",
+            "P": "provider",
+            "M": "middleware",
+            "V": "validation",
+            "T": "timeout",
+            "F": "fallback",
+            "I": "internal",
+        }.get(category_code, "unknown")
+        full_msg = f"[{code}] [{category_name}] {display_msg}"
         if cause:
             full_msg += f" (caused by: {type(cause).__name__}: {cause})"
         super().__init__(full_msg)
