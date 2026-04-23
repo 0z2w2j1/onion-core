@@ -64,7 +64,7 @@ include = ["onion_core*"]
 # ── pytest ──────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "benchmarks"]
+testpaths = ["tests"]
 addopts = "-v --tb=short --cov=onion_core --cov-report=term-missing"
 
 [tool.benchmark]

@@ -103,8 +103,8 @@ class OpenAIProvider(LLMProvider):
                 except Exception:
                     args = {"_raw": tc.function.arguments}
                 tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
+                    id=str(tc.id),
+                    name=str(tc.function.name),
                     arguments=args,
                 ))
 
