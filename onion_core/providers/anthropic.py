@@ -136,10 +136,22 @@ class AnthropicProvider(LLMProvider):
 
         content_text = "".join(text_parts) if text_parts else None
 
+        # 将 Anthropic 的 stop_reason 映射到 FinishReason 枚举
+        from ..models import FinishReason
+        finish_reason_map: dict[str, FinishReason] = {
+            "end_turn": FinishReason.STOP,
+            "max_tokens": FinishReason.LENGTH,
+            "stop_sequence": FinishReason.STOP,
+            "tool_use": FinishReason.TOOL_CALLS,
+            "pause_turn": FinishReason.STOP,
+            "refusal": FinishReason.CONTENT_FILTER,
+        }
+        mapped_reason = finish_reason_map.get(resp.stop_reason) if resp.stop_reason else None
+
         return LLMResponse(
             content=content_text,
             tool_calls=tool_calls,
-            finish_reason=resp.stop_reason,
+            finish_reason=mapped_reason,
             usage=UsageStats(
                 prompt_tokens=resp.usage.input_tokens,
                 completion_tokens=resp.usage.output_tokens,
