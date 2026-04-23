@@ -41,7 +41,8 @@ jobs:
         with:
           file: ./coverage.xml
           flags: unittests
-          token: ${{ secrets.CODECOV_TOKEN }}
+          # Note: Public repos don't need a token. If you add CODECOV_TOKEN secret, uncomment the next line.
+          # token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   lint:
