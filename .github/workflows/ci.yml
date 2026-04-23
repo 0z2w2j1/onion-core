@@ -80,7 +80,7 @@ jobs:
 
       - name: Run mypy
         run: |
-          mypy onion_core/ --clear-cache
+          rm -rf .mypy_cache/
           mypy onion_core/ --strict
 
   benchmark:
