@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from .models import RetryOutcome
 
 # 为避免循环导入，运行时直接使用 models 模块
-def _get_retry_outcome():
+def _get_retry_outcome() -> type[RetryOutcome]:
     from .models import RetryOutcome
     return RetryOutcome
 
@@ -222,7 +222,7 @@ def ERROR_RETRY_POLICY() -> dict[ErrorCode, RetryOutcome]:
     """延迟解析错误码到 RetryOutcome 的映射，避免循环导入。"""
     global _ERROR_RETRY_POLICY_CACHE
     if _ERROR_RETRY_POLICY_CACHE is None:
-        RetryOutcome = _get_retry_outcome()  # type: ignore[name-defined]
+        RetryOutcome = _get_retry_outcome()
         _ERROR_RETRY_POLICY_CACHE = {
             code: RetryOutcome(val) for code, val in _ERROR_RETRY_STR.items()
         }

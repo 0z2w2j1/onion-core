@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult
@@ -33,13 +34,13 @@ except ImportError:
     _PROM_AVAILABLE = False
 
 
-def _make_counter(name, desc, labels):
+def _make_counter(name: str, desc: str, labels: list[str]) -> Any:
     if _PROM_AVAILABLE:
         return Counter(name, desc, labels)
     return _NoOpMetric()
 
 
-def _make_histogram(name, desc, labels, buckets=None):
+def _make_histogram(name: str, desc: str, labels: list[str], buckets: list[float] | None = None) -> Any:
     if _PROM_AVAILABLE:
         kwargs = {"buckets": buckets} if buckets else {}
         return Histogram(name, desc, labels, **kwargs)
@@ -47,11 +48,11 @@ def _make_histogram(name, desc, labels, buckets=None):
 
 
 class _NoOpMetric:
-    def labels(self, **kw): return self
-    def inc(self, *a): pass
-    def observe(self, *a): pass
-    def set(self, *a): pass
-    def dec(self, *a): pass
+    def labels(self, **kw: Any) -> _NoOpMetric: return self
+    def inc(self, *a: Any) -> None: pass
+    def observe(self, *a: Any) -> None: pass
+    def set(self, *a: Any) -> None: pass
+    def dec(self, *a: Any) -> None: pass
 
 
 # ── 全局指标（模块级单例，避免重复注册）────────────────────────────────────────

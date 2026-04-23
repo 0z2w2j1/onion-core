@@ -25,7 +25,7 @@ request_id 作为 trace attribute 传播，工具调用创建子 span。
 from __future__ import annotations
 
 import logging
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult

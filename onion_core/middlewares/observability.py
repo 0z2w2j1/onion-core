@@ -19,7 +19,7 @@ class TraceIdFilter(logging.Filter):
     """将当前协程的 trace_id 注入每条日志记录。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.trace_id = _trace_id_var.get()  # type: ignore[attr-defined]
+        record.trace_id = _trace_id_var.get()
         return True
 
 
