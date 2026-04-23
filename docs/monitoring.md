@@ -407,15 +407,218 @@ class CustomMetricsMiddleware(MetricsMiddleware):
 
 ## 2. Prometheus 指标
 
-Onion Core 通过 `prometheus-client` 暴露以下指标（详见英文版第 2 节）。
+Onion Core 通过 `prometheus-client` 暴露以下指标：
+
+### 2.1 请求指标
+
+| 指标 | 类型 | 标签 | 描述 |
+|------|------|------|------|
+| `onion_requests_total` | Counter | `pipeline_name`, `model`, `finish_reason`, `status` | 管道请求总数 |
+| `onion_request_duration_seconds` | Histogram | `pipeline_name`, `model` | 管道请求延迟（桶：0.1秒 - 30秒） |
+| `onion_active_requests` | Gauge | `pipeline_name` | 当前正在处理的请求数 |
+
+### 2.2 Token 使用指标
+
+| 指标 | 类型 | 标签 | 描述 |
+|------|------|------|------|
+| `onion_tokens_total` | Counter | `pipeline_name`, `model`, `type` | 消耗的总 token 数（`type`：prompt/completion） |
+
+### 2.3 工具调用指标
+
+| 指标 | 类型 | 标签 | 描述 |
+|------|------|------|------|
+| `onion_tool_calls_total` | Counter | `pipeline_name`, `tool_name`, `status` | 工具调用总数（`status`：ok/error/blocked） |
 
 ## 3. Alertmanager 告警规则
 
-告警规则配置见英文版第 3 节 `alertmanager_rules.yml`。
+将以下内容保存为 `alertmanager_rules.yml` 并将其包含在您的 Prometheus Alertmanager 配置中：
+
+```yaml
+groups:
+  - name: onion_core_alerts
+    rules:
+      # ── 高错误率 ────────────────────────────────────────────────
+      - alert: OnionCoreHighErrorRate
+        expr: |
+          sum(rate(onion_requests_total{status="error"}[5m])) 
+          / 
+          sum(rate(onion_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "Onion Core 错误率高 (>5%)"
+          description: |
+            过去 5 分钟的错误率为 {{ $value | humanizePercentage }}。
+            管道：{{ $labels.pipeline_name }}
+          runbook_url: "https://wiki.internal/runbooks/onion-core-high-error-rate"
+
+      # ── 高延迟 (P95) ─────────────────────────────────────────────
+      - alert: OnionCoreHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(onion_request_duration_seconds_bucket[5m])) 
+            by (le, pipeline_name, model)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Onion Core P95 延迟高 (>10秒)"
+          description: |
+            管道 {{ $labels.pipeline_name }}，模型 {{ $labels.model }} 的 P95 延迟为 {{ $value | humanizeDuration }}。
+          runbook_url: "https://wiki.internal/runbooks/onion-core-high-latency"
+
+      # ── 熔断器开启 ───────────────────────────────────────────
+      - alert: OnionCoreCircuitBreakerOpen
+        expr: |
+          # 注意：这需要从 CircuitBreaker 导出自定义指标
+          # 目前通过日志监控或添加自定义指标
+          absent(onion_requests_total) == 0
+        for: 1m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "可能的熔断器激活"
+          description: |
+            过去 1 分钟未观察到请求。检查熔断器是否开启。
+            调查提供商健康状况和回退链。
+
+      # ── Token 预算超出 ──────────────────────────────────────────
+      - alert: OnionCoreTokenBudgetExceeded
+        expr: |
+          sum(increase(onion_tokens_total{type="completion"}[1h])) > 1000000
+        for: 0m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "小时级 token 预算超出 (>1M tokens)"
+          description: |
+            过去 1 小时消耗了 {{ $value | humanize }} 个完成 token。
+            审查使用模式并考虑速率限制。
+
+      # ── 工具调用失败率 ─────────────────────────────────────────
+      - alert: OnionCoreToolCallFailureRate
+        expr: |
+          sum(rate(onion_tool_calls_total{status="error"}[5m])) 
+          / 
+          sum(rate(onion_tool_calls_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "工具调用失败率高 (>10%)"
+          description: |
+            工具调用错误率为 {{ $value | humanizePercentage }}。
+            检查工具实现和外部依赖。
+
+      # ── 无活跃请求 (可能宕机) ──────────────────────────
+      - alert: OnionCoreNoActiveRequests
+        expr: |
+          sum(onion_active_requests) == 0
+          and
+          sum(increase(onion_requests_total[15m])) > 100
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "尽管有近期流量但无活跃请求"
+          description: |
+            系统在过去 15 分钟收到 {{ $value }} 个请求，但有 0 个活跃请求。
+            可能的服务中断或部署问题。
+```
 
 ## 4. Grafana 仪表板
 
-Grafana 仪表板 JSON 配置见英文版第 4 节。
+将以下 JSON 导入 Grafana 以可视化 Onion Core 指标：
+
+```json
+{
+  "dashboard": {
+    "title": "Onion Core - 生产监控",
+    "tags": ["onion-core", "llm", "agent"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "请求速率和错误率",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(onion_requests_total[5m])) by (pipeline_name)",
+            "legendFormat": "{{pipeline_name}} - 总计"
+          },
+          {
+            "expr": "sum(rate(onion_requests_total{status=\"error\"}[5m])) by (pipeline_name)",
+            "legendFormat": "{{pipeline_name}} - 错误"
+          }
+        ],
+        "yaxes": [{"label": "请求/秒"}, {"label": ""}]
+      },
+      {
+        "title": "P95/P99 延迟",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(onion_request_duration_seconds_bucket[5m])) by (le, pipeline_name))",
+            "legendFormat": "{{pipeline_name}} - P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(onion_request_duration_seconds_bucket[5m])) by (le, pipeline_name))",
+            "legendFormat": "{{pipeline_name}} - P99"
+          }
+        ],
+        "yaxes": [{"label": "秒"}, {"label": ""}]
+      },
+      {
+        "title": "Token 使用量 (每小时)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(increase(onion_tokens_total{type=\"prompt\"}[1h])) by (model)",
+            "legendFormat": "{{model}} - 提示 Token"
+          },
+          {
+            "expr": "sum(increase(onion_tokens_total{type=\"completion\"}[1h])) by (model)",
+            "legendFormat": "{{model}} - 完成 Token"
+          }
+        ],
+        "yaxes": [{"label": "token/小时"}, {"label": ""}]
+      },
+      {
+        "title": "活跃请求数",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "sum(onion_active_requests)",
+            "legendFormat": "活跃"
+          }
+        ],
+        "thresholds": "50,100",
+        "colorValue": true
+      },
+      {
+        "title": "工具调用成功率",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(onion_tool_calls_total{status=\"ok\"}[5m])) / sum(rate(onion_tool_calls_total[5m]))",
+            "legendFormat": "成功率"
+          }
+        ],
+        "yaxes": [{"label": "比率", "min": 0, "max": 1}, {"label": ""}]
+      }
+    ],
+    "time": {"from": "now-6h", "to": "now"},
+    "refresh": "30s"
+  }
+}
+```
 
 ## 5. SLO/SLI 定义
 
@@ -431,11 +634,28 @@ Grafana 仪表板 JSON 配置见英文版第 4 节。
 
 ### 5.2 服务等级目标 (SLO)
 
-详见英文版第 5.2 节，包含四个核心 SLO：
-- SLO-1: 请求可用性 (99.9%)
-- SLO-2: 响应延迟 (P95 ≤ 5s)
-- SLO-3: Token 预算控制
-- SLO-4: 工具可靠性 (≥ 95%)
+#### SLO-1: 请求可用性
+- **目标**: 99.9% 的请求成功完成 (status != "error")
+- **窗口**: 30 天滚动窗口
+- **错误预算**: 0.1% = 每月约 43 分钟停机时间
+- **告警阈值**: 错误率 > 5% 持续 5 分钟
+
+#### SLO-2: 响应延迟
+- **目标**: 95% 的请求在 5 秒内完成
+- **窗口**: 7 天滚动窗口
+- **测量**: `histogram_quantile(0.95, onion_request_duration_seconds)`
+- **告警阈值**: P95 > 10秒 持续 10 分钟
+
+#### SLO-3: Token 预算
+- **目标**: 保持在月度 token 预算内
+- **预算**: 每个部署可配置（默认：1000万 token/月）
+- **告警阈值**: 剩余 7+ 天时已消耗 80% 预算
+
+#### SLO-4: 工具可靠性
+- **目标**: 95% 的工具调用成功执行
+- **窗口**: 24 小时滚动窗口
+- **测量**: `onion_tool_calls_total{status="ok"} / onion_tool_calls_total`
+- **告警阈值**: 失败率 > 10% 持续 5 分钟
 
 ### 5.3 错误预算策略
 
@@ -447,19 +667,111 @@ Grafana 仪表板 JSON 配置见英文版第 4 节。
 | **10×** | 冻结非关键部署 | 直到稳定 |
 | **14×** | 声明事故，全员参与 | 上报领导层 |
 
+**计算**: `消耗速率 = 实际错误率 / 允许错误率`
+
+示例：如果允许错误率为 0.1%，实际为 1%，则消耗速率 = 10×
+
 ---
 
 ## 6. 生产部署检查清单
 
-详见英文版第 6 节，包括部署前、部署后和持续运营的检查项。
+### 6.1 部署前
+
+- [ ] 配置 Prometheus 抓取端点 (`/metrics`)
+- [ ] 导入 Alertmanager 规则
+- [ ] 导入 Grafana 仪表板
+- [ ] 为关键告警设置 PagerDuty/OpsGenie 集成
+- [ ] 为每个环境定义 token 预算（开发/测试/生产）
+- [ ] 根据预期 QPS 配置速率限制
+
+### 6.2 部署后
+
+- [ ] 验证指标正在被抓取（检查 Prometheus 目标）
+- [ ] 确认告警正确触发（使用合成错误测试）
+- [ ] 验证 Grafana 仪表板显示数据
+- [ ] 设置每周 SLO 审查会议
+- [ ] 为常见告警场景编写操作手册
+
+### 6.3 持续运营
+
+- [ ] 每周审查错误预算消耗速率
+- [ ] 根据历史数据调整告警阈值
+- [ ] 随着新功能的添加更新仪表板
+- [ ] 进行季度 SLO 回顾
 
 ## 7. 常见告警故障排除
 
-详见英文版第 7 节，涵盖高错误率、高延迟和熔断器激活的诊断步骤。
+### 高错误率
+
+**症状**: `OnionCoreHighErrorRate` 告警触发
+
+**调查步骤**:
+1. 检查提供商健康状态（OpenAI/Anthropic 等）
+2. 审查回退提供商链激活情况
+3. 检查熔断器状态日志
+4. 验证 API 密钥和网络连接
+
+**常见原因**:
+- 上游提供商中断
+- API 凭证无效
+- 提供商速率限制
+- 网络问题
+
+### 高延迟
+
+**症状**: `OnionCoreHighLatencyP95` 告警触发
+
+**调查步骤**:
+1. 检查提供商响应时间
+2. 审查中间件处理开销
+3. 检查上下文窗口大小（大上下文 = 更慢）
+4. 验证到提供商端点的网络延迟
+
+**优化建议**:
+- 启用上下文截断 (`ContextWindowMiddleware`)
+- 对长响应使用流式传输
+- 为重复查询实现缓存
+- 对于延迟敏感的用例考虑更快的模型
+
+### 熔断器激活
+
+**症状**: 多个回退提供商激活，吞吐量降低
+
+**调查步骤**:
+1. 检查哪个提供商触发了熔断器
+2. 审查失败模式（超时与错误）
+3. 验证恢复超时设置
+4. 监控 HALF_OPEN 状态转换
+
+**恢复操作**:
+- 等待自动恢复（默认：30秒）
+- 如需要手动重置熔断器
+- 扩展回退提供商容量
+- 调查失败的根本原因
 
 ## 8. 自定义指标扩展
 
-扩展 `MetricsMiddleware` 添加自定义指标的方法见英文版第 8 节。
+要添加自定义指标，请扩展 `MetricsMiddleware`：
+
+```python
+from onion_core.observability.metrics import MetricsMiddleware
+from prometheus_client import Counter
+
+class CustomMetricsMiddleware(MetricsMiddleware):
+    def __init__(self, pipeline_name: str = "default"):
+        super().__init__(pipeline_name)
+        self._custom_metric = Counter(
+            "onion_custom_events_total",
+            "自定义业务事件",
+            ["event_type"]
+        )
+    
+    async def process_response(self, context, response):
+        # 记录自定义指标
+        if response.content and len(response.content) > 1000:
+            self._custom_metric.labels(event_type="long_response").inc()
+        return await super().process_response(context, response)
+```
 
 ## 9. 参考资料
 
