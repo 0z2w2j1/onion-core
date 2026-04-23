@@ -7,9 +7,9 @@
 [![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-146%20passed-brightgreen.svg)](https://github.com/0z2w2j1/onion-core/actions)
-[![Coverage](https://img.shields.io/badge/coverage-74%25-yellow.svg)](https://github.com/0z2w2j1/onion-core/actions)
-[![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)](https://github.com/0z2w2j1/onion-core/actions)
+[![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/CI/badge.svg)](https://github.com/0z2w2j1/onion-core/actions)
+[![Coverage](https://img.shields.io/badge/coverage-74%25-yellow.svg)]()
+[![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)]()
 
 [English](#english) | [中文](#中文)
 
