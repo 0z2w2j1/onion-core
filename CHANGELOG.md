@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Synchronous API wrapper** for non-async environments (Flask/Django/scripts)
+  - New `Pipeline.run_sync()` method for synchronous calls
+  - New `Pipeline.stream_sync()` method for synchronous streaming
+  - New `Pipeline.execute_tool_call_sync()` and `execute_tool_result_sync()` methods
+  - New `Pipeline.startup_sync()` and `shutdown_sync()` methods
+  - Synchronous context manager support (`with Pipeline(...) as p:`)
+  - Full test coverage with 9 new test cases
+  - Example code in `examples/sync_api_example.py`
 - New unified error code system (`onion_core/error_codes.py`)
   - Defines `ErrorCode` enum covering Security / RateLimit / CircuitBreaker / Provider / Middleware / Validation / Timeout / Fallback / Internal nine major error categories
   - New `OnionErrorWithCode` exception base class supporting error codes, cause chain, and extra fields
@@ -67,6 +75,14 @@
 
 ### 新增
 
+- **同步 API 封装**，适用于非异步环境（Flask/Django/脚本）
+  - 新增 `Pipeline.run_sync()` 方法用于同步调用
+  - 新增 `Pipeline.stream_sync()` 方法用于同步流式调用
+  - 新增 `Pipeline.execute_tool_call_sync()` 和 `execute_tool_result_sync()` 方法
+  - 新增 `Pipeline.startup_sync()` 和 `shutdown_sync()` 方法
+  - 支持同步上下文管理器（`with Pipeline(...) as p:`）
+  - 完整的测试覆盖，新增 9 个测试用例
+  - 示例代码位于 `examples/sync_api_example.py`
 - 新增统一错误码系统 (`onion_core/error_codes.py`)
   - 定义 `ErrorCode` 枚举，覆盖 Security / RateLimit / CircuitBreaker / Provider / Middleware / Validation / Timeout / Fallback / Internal 九大类错误
   - 新增 `OnionErrorWithCode` 异常基类，支持错误码、cause 链、extra 字段

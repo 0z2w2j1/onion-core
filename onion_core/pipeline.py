@@ -17,7 +17,7 @@ import asyncio
 import logging
 import random
 import types
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Iterator
 from typing import TypeVar, overload
 
 from .base import BaseMiddleware
@@ -527,6 +527,74 @@ class Pipeline:
             encoding_name=config.context_window.encoding_name,
         ))
         return p
+
+    # ------------------------------------------------------------------
+    # 同步 API 封装
+    # ------------------------------------------------------------------
+
+    def run_sync(self, context: AgentContext) -> LLMResponse:
+        """
+        同步版本的 run() 方法，适用于非异步环境（如 Flask/Django）。
+
+        内部使用 asyncio.run() 执行异步调用，线程安全。
+
+        用法：
+            with Pipeline(provider=MyProvider()) as p:
+                response = p.run_sync(context)
+        """
+        return asyncio.run(self.run(context))
+
+    def stream_sync(self, context: AgentContext) -> Iterator[StreamChunk]:
+        """
+        同步版本的 stream() 方法，将异步生成器包装为同步生成器。
+
+        用法：
+            with Pipeline(provider=MyProvider()) as p:
+                for chunk in p.stream_sync(context):
+                    print(chunk.delta, end="", flush=True)
+        """
+        async def _collect_chunks() -> list[StreamChunk]:
+            chunks = []
+            async for chunk in self.stream(context):
+                chunks.append(chunk)
+            return chunks
+
+        chunks = asyncio.run(_collect_chunks())
+        yield from chunks
+
+    def execute_tool_call_sync(
+        self, context: AgentContext, tool_call: ToolCall
+    ) -> ToolCall:
+        """同步版本的 execute_tool_call()。"""
+        return asyncio.run(self.execute_tool_call(context, tool_call))
+
+    def execute_tool_result_sync(
+        self, context: AgentContext, result: ToolResult
+    ) -> ToolResult:
+        """同步版本的 execute_tool_result()。"""
+        return asyncio.run(self.execute_tool_result(context, result))
+
+    def startup_sync(self) -> None:
+        """同步版本的 startup()。"""
+        asyncio.run(self.startup())
+
+    def shutdown_sync(self) -> None:
+        """同步版本的 shutdown()。"""
+        asyncio.run(self.shutdown())
+
+    def __enter__(self) -> Pipeline:
+        """支持同步上下文管理器协议。"""
+        self.startup_sync()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
+        """同步上下文管理器退出。"""
+        self.shutdown_sync()
 
 
 MiddlewareManager = Pipeline  # 向后兼容别名

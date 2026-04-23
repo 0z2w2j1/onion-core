@@ -119,6 +119,41 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+#### Synchronous API (for Flask/Django/Scripts)
+
+```python
+from onion_core import Pipeline, AgentContext, Message, EchoProvider
+from onion_core.middlewares import (
+    SafetyGuardrailMiddleware,
+    ContextWindowMiddleware,
+    ObservabilityMiddleware,
+)
+
+# Use synchronous context manager
+with Pipeline(
+    provider=EchoProvider(),
+    max_retries=2,
+    enable_circuit_breaker=True,
+) as p:
+    p.add_middleware(ObservabilityMiddleware())
+    p.add_middleware(SafetyGuardrailMiddleware())
+    p.add_middleware(ContextWindowMiddleware(max_tokens=2000))
+
+    ctx = AgentContext(messages=[
+        Message(role="user", content="My phone is 13812345678")
+    ])
+    response = p.run_sync(ctx)  # Note: run_sync instead of await p.run()
+    print(response.content)
+    # Output: Echo: My phone is ***127899999
+
+# Streaming also has sync version
+with Pipeline(provider=EchoProvider()) as p:
+    ctx = AgentContext(messages=[Message(role="user", content="Hello")])
+    for chunk in p.stream_sync(ctx):  # Note: stream_sync instead of p.stream()
+        if chunk.delta:
+            print(chunk.delta, end="", flush=True)
+```
+
 ---
 
 ### Core Features
@@ -211,9 +246,9 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.5.0 (Alpha) |
+| Version | 0.6.0 (Beta) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 194+ tests, 85% coverage |
+| Test Coverage | 203+ tests, 85% coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -226,6 +261,7 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] GitHub Actions CI pipeline
 - [x] Unified error code system (ErrorCode enum + OnionErrorWithCode)
 - [x] Degradation strategy documentation
+- [x] Synchronous API wrapper (for Flask/Django/scripts)
 - [x] 85% test coverage (Phase 1 target: 90% for v1.0)
 
 ### 📋 Roadmap
@@ -360,6 +396,41 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+#### 同步 API（适用于 Flask/Django/脚本）
+
+```python
+from onion_core import Pipeline, AgentContext, Message, EchoProvider
+from onion_core.middlewares import (
+    SafetyGuardrailMiddleware,
+    ContextWindowMiddleware,
+    ObservabilityMiddleware,
+)
+
+# 使用同步上下文管理器
+with Pipeline(
+    provider=EchoProvider(),
+    max_retries=2,
+    enable_circuit_breaker=True,
+) as p:
+    p.add_middleware(ObservabilityMiddleware())
+    p.add_middleware(SafetyGuardrailMiddleware())
+    p.add_middleware(ContextWindowMiddleware(max_tokens=2000))
+
+    ctx = AgentContext(messages=[
+        Message(role="user", content="我的手机号是 13812345678")
+    ])
+    response = p.run_sync(ctx)  # 注意：使用 run_sync 而非 await p.run()
+    print(response.content)
+    # 输出：Echo: 我的手机号是 ***127899999
+
+# 流式也有同步版本
+with Pipeline(provider=EchoProvider()) as p:
+    ctx = AgentContext(messages=[Message(role="user", content="你好")])
+    for chunk in p.stream_sync(ctx):  # 注意：使用 stream_sync 而非 p.stream()
+        if chunk.delta:
+            print(chunk.delta, end="", flush=True)
+```
+
 ---
 
 ### 核心功能
@@ -452,9 +523,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.5.0（Alpha） |
+| 版本 | 0.6.0（Beta） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 194+ 个测试，85% 覆盖率 |
+| 测试覆盖 | 203+ 个测试，85% 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -467,6 +538,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] GitHub Actions CI 流水线
 - [x] 统一错误码系统（ErrorCode 枚举 + OnionErrorWithCode）
 - [x] 降级策略文档
+- [x] 同步 API 封装（适用于 Flask/Django/脚本）
 - [x] 85% 测试覆盖率（v1.0 目标：90%）
 
 ### 📋 路线图
