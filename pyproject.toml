@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onion-core"
+version = "0.5.0"
+description = "Agent middleware framework — onion-model pipeline for LLM applications"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["llm", "agent", "middleware", "pipeline", "ai", "onion"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "tiktoken>=0.5",
+]
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.20"]
+domestic = ["openai>=1.0"]
+otel = [
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+]
+prometheus = ["prometheus-client>=0.17"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
+all = [
+    "onion-core[yaml,openai,anthropic,domestic,otel,prometheus,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/onion-core"
+Repository = "https://github.com/your-org/onion-core"
+Issues = "https://github.com/your-org/onion-core/issues"
+Documentation = "https://github.com/your-org/onion-core/blob/main/docs/api_reference.md"
+Changelog = "https://github.com/your-org/onion-core/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["onion_core*"]
+
+# ── pytest ──────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "benchmarks"]
+addopts = "-v --tb=short --cov=onion_core --cov-report=term-missing"
+
+[tool.benchmark]
+asyncio_mode = "auto"
+
+# ── ruff (linter) ────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+# ── mypy ─────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_return_any = true
+disallow_any_generics = true
+warn_unused_ignores = true

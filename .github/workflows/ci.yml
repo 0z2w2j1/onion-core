@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=onion_core \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=90 \
+            -v
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff>=0.4
+
+      - name: Run ruff
+        run: |
+          ruff check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all]"
+
+      - name: Run mypy
+        run: |
+          mypy onion_core/ --strict
+
+  benchmark:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: Run benchmarks
+        run: |
+          pytest benchmarks/ --benchmark-only --benchmark-json=benchmark.json
+        continue-on-error: true
+
+      - name: Compare with baseline
+        run: |
+          python -c "
+import json
+import sys
+
+with open('benchmark.json') as f:
+    current = json.load(f)
+
+try:
+    with open('benchmark_baseline.json') as f:
+        baseline = json.load(f)
+except FileNotFoundFoundError:
+    print('No baseline, saving current as baseline')
+    with open('benchmark_baseline.json', 'w') as f:
+        json.dump(current, f)
+    sys.exit(0)
+
+regressions = []
+for bn in current['benchmarks']:
+    for bl in baseline['benchmarks']:
+        if bn['name'] == bl['name']:
+            curr_time = bn['mean']
+            base_time = bl['mean']
+            if curr_time > base_time * 1.1:
+                regressions.append(f'{bnname}: {curr_time:.2f}ms vs {base_time:.2f}ms (regression)')
+
+if regressions:
+    print('PERFORMANCE REGRESSIONS DETECTED:')
+    for r in regressions:
+        print(f'  - {r}')
+    sys.exit(1)
+else:
+    print('No performance regressions detected')
+"

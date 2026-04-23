@@ -1,0 +1,173 @@
+"""
+Onion Core - Anthropic Provider 适配器
+
+依赖：pip install anthropic>=0.20
+
+用法：
+    from onion_core.providers.anthropic import AnthropicProvider
+    provider = AnthropicProvider(api_key="sk-ant-...", model="claude-3-5-sonnet-20241022")
+    pipeline = Pipeline(provider=provider)
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import AsyncIterator, List, Optional
+
+from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
+from ..provider import LLMProvider
+
+logger = logging.getLogger("onion_core.providers.anthropic")
+
+# Anthropic 的 system 消息需要单独传，不在 messages 列表里
+_DEFAULT_MAX_TOKENS = 4096
+
+
+class AnthropicProvider(LLMProvider):
+    """
+    Anthropic Messages API 适配器。
+
+    支持：
+      - 非流式调用（complete）
+      - 流式调用（stream）
+      - 工具调用（tool_use）
+      - system 消息自动提取
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "claude-3-5-sonnet-20241022",
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+        temperature: float = 1.0,
+        base_url: Optional[str] = None,
+    ) -> None:
+        try:
+            import anthropic as _anthropic
+        except ImportError:
+            raise ImportError(
+                "anthropic package is required: pip install anthropic>=0.20"
+            )
+
+        self._model = model
+        self._max_tokens = max_tokens
+        self._temperature = temperature
+        self._client = _anthropic.AsyncAnthropic(
+            api_key=api_key,
+            **({"base_url": base_url} if base_url else {}),
+        )
+
+    @property
+    def name(self) -> str:
+        return f"AnthropicProvider({self._model})"
+
+    def _split_messages(self, context: AgentContext) -> tuple[str, list[dict]]:
+        """
+        Anthropic API 要求：
+        - system 消息单独传
+        - tool 结果消息需要包含 tool_use_id，格式为 content block list
+        返回 (system_text, messages_list)。
+        """
+        system_parts = []
+        messages = []
+        for msg in context.messages:
+            if msg.role == "system":
+                system_parts.append(msg.text_content if hasattr(msg, "text_content") else msg.content)
+            elif msg.role == "tool":
+                # Anthropic tool_result 格式：必须包含 tool_use_id
+                tool_use_id = msg.name or "unknown"
+                content_text = msg.text_content if hasattr(msg, "text_content") else msg.content
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": content_text,
+                    }],
+                })
+            else:
+                role = "user" if msg.role == "user" else "assistant"
+                content = msg.content if isinstance(msg.content, str) else [
+                    {"type": b.type, **({"text": b.text} if b.text else {})}
+                    for b in msg.content
+                ]
+                messages.append({"role": role, "content": content})
+        return "\n\n".join(system_parts), messages
+
+    def _build_tools(self, context: AgentContext) -> list[dict] | None:
+        """从 context.config 读取工具定义（Anthropic tool_use 格式）。"""
+        return context.config.get("tools")
+
+    async def complete(self, context: AgentContext) -> LLMResponse:
+        system, messages = self._split_messages(context)
+        kwargs: dict = dict(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            messages=messages,
+            temperature=self._temperature,
+        )
+        if system:
+            kwargs["system"] = system
+        tools = self._build_tools(context)
+        if tools:
+            kwargs["tools"] = tools
+
+        try:
+            resp = await self._client.messages.create(**kwargs)
+        except Exception as exc:
+            raise ProviderError(f"Anthropic API error: {exc}") from exc
+
+        # 拼接所有 text block，而不是只保留最后一个
+        text_parts: List[str] = []
+        tool_calls = []
+        for block in resp.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                tool_calls.append(ToolCall(
+                    id=block.id,
+                    name=block.name,
+                    arguments=block.input or {},
+                ))
+
+        content_text = "".join(text_parts) if text_parts else None
+
+        return LLMResponse(
+            content=content_text,
+            tool_calls=tool_calls,
+            finish_reason=resp.stop_reason,
+            usage=UsageStats(
+                prompt_tokens=resp.usage.input_tokens,
+                completion_tokens=resp.usage.output_tokens,
+                total_tokens=resp.usage.input_tokens + resp.usage.output_tokens,
+            ) if resp.usage else None,
+            model=resp.model,
+            raw=resp,
+        )
+
+    async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
+        system, messages = self._split_messages(context)
+        kwargs: dict = dict(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            messages=messages,
+            temperature=self._temperature,
+        )
+        if system:
+            kwargs["system"] = system
+
+        index = 0
+        try:
+            async with self._client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    yield StreamChunk(delta=text, index=index)
+                    index += 1
+                # 最后一个 chunk 携带 finish_reason
+                final = await stream.get_final_message()
+                yield StreamChunk(
+                    delta="",
+                    finish_reason=final.stop_reason,
+                    index=index,
+                )
+        except Exception as exc:
+            raise ProviderError(f"Anthropic streaming error: {exc}") from exc
