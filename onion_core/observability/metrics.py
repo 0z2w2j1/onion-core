@@ -73,7 +73,7 @@ _REQUEST_LATENCY = _make_histogram(
 _TOKEN_USAGE = _make_counter(
     "onion_tokens_total",
     "Total tokens consumed",
-    ["pipeline_name", "model", "type"],  # type: prompt |completion
+    ["pipeline_name", "model", "type"],  # values: prompt, completion
 )
 
 _TOOL_CALLS_TOTAL = _make_counter(
