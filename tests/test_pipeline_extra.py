@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from onion_core import AgentContext, EchoProvider, Message, Pipeline
-from onion_core.models import CircuitBreakerError
-from onion_core.middlewares import ObservabilityMiddleware, SafetyGuardrailMiddleware
+from onion_core.middlewares import ObservabilityMiddleware
 
 
 @pytest.fixture
@@ -66,13 +65,13 @@ class TestPipelineCircuitBreaker:
     async def test_circuit_breaker_enabled_by_default(self):
         provider = EchoProvider(reply="test")
         pipeline = Pipeline(provider=provider)
-        assert pipeline._enable_circuit_breaker == True
+        assert pipeline._enable_circuit_breaker
 
     @pytest.mark.asyncio
     async def test_circuit_breaker_disabled(self):
         provider = EchoProvider(reply="test")
         pipeline = Pipeline(provider=provider, enable_circuit_breaker=False)
-        assert pipeline._enable_circuit_breaker == False
+        assert not pipeline._enable_circuit_breaker
 
 
 class TestPipelineRetryDetails:

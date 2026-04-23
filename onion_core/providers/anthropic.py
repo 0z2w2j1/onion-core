@@ -12,7 +12,7 @@ Onion Core - Anthropic Provider 适配器
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterator, List, Optional
+from collections.abc import AsyncIterator
 
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
@@ -40,14 +40,14 @@ class AnthropicProvider(LLMProvider):
         model: str = "claude-3-5-sonnet-20241022",
         max_tokens: int = _DEFAULT_MAX_TOKENS,
         temperature: float = 1.0,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
     ) -> None:
         try:
             import anthropic as _anthropic
         except ImportError:
             raise ImportError(
                 "anthropic package is required: pip install anthropic>=0.20"
-            )
+            ) from err
 
         self._model = model
         self._max_tokens = max_tokens
@@ -118,7 +118,7 @@ class AnthropicProvider(LLMProvider):
             raise ProviderError(f"Anthropic API error: {exc}") from exc
 
         # 拼接所有 text block，而不是只保留最后一个
-        text_parts: List[str] = []
+        text_parts: list[str] = []
         tool_calls = []
         for block in resp.content:
             if block.type == "text":

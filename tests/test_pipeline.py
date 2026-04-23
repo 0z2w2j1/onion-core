@@ -7,20 +7,16 @@ import asyncio
 import pytest
 
 from onion_core import (
-    AgentContext,
     EchoProvider,
     LLMResponse,
-    Message,
     Pipeline,
     StreamChunk,
     ToolCall,
     ToolResult,
 )
 from onion_core.base import BaseMiddleware
-from onion_core.middlewares import ObservabilityMiddleware, SafetyGuardrailMiddleware
 
 from .conftest import make_context
-
 
 # ── 基础调用 ─────────────────────────────────────────────────────────────────
 
@@ -92,7 +88,8 @@ async def test_startup_idempotent():
 
     class CountMW(BaseMiddleware):
         async def startup(self):
-            nonlocal count; count += 1
+            nonlocal count
+            count += 1
         async def process_request(self, ctx): return ctx
         async def process_response(self, ctx, r): return r
         async def process_stream_chunk(self, ctx, c): return c
@@ -281,12 +278,14 @@ async def test_onion_reverse_order(hook, expected):
             def name(self): return label
             async def process_request(self, ctx): return ctx
             async def process_response(self, ctx, r):
-                if hook == "response": order.append(label)
+                if hook == "response":
+                    order.append(label)
                 return r
             async def process_stream_chunk(self, ctx, c): return c
             async def on_tool_call(self, ctx, tc): return tc
             async def on_tool_result(self, ctx, r):
-                if hook == "tool_result": order.append(label)
+                if hook == "tool_result":
+                    order.append(label)
                 return r
             async def on_error(self, ctx, e): pass
         return T()

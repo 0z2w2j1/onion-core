@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 配置系统
 
@@ -17,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,8 +25,8 @@ logger = logging.getLogger("onion_core.config")
 
 
 class SafetyConfig(BaseModel):
-    blocked_keywords: List[str] = Field(default_factory=list)
-    blocked_tools: List[str] = Field(default_factory=list)
+    blocked_keywords: list[str] = Field(default_factory=list)
+    blocked_tools: list[str] = Field(default_factory=list)
     enable_pii_masking: bool = True
 
 
@@ -43,9 +42,9 @@ class ObservabilityConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    middleware_timeout: Optional[float] = None
+    middleware_timeout: float | None = None
     max_retries: int = 0
-    provider_timeout: Optional[float] = None
+    provider_timeout: float | None = None
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
@@ -69,10 +68,10 @@ class OnionConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
-    extra: Dict[str, Any] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "OnionConfig":
+    def from_file(cls, path: str | Path) -> OnionConfig:
         """从 JSON/YAML 文件加载配置，环境变量仍可覆盖文件值。"""
         p = Path(path)
         if not p.exists():
@@ -88,7 +87,7 @@ class OnionConfig(BaseSettings):
                 import yaml  # type: ignore
                 data = yaml.safe_load(p.read_text(encoding="utf-8"))
             except ImportError:
-                raise ImportError("pip install pyyaml to use YAML config files")
+                raise ImportError("pip install pyyaml to use YAML config files") from err
         else:
             raise ValueError(f"Unsupported config format: {suffix}")
 
@@ -96,7 +95,7 @@ class OnionConfig(BaseSettings):
         return cls.model_validate(data)
 
     @classmethod
-    def from_env(cls) -> "OnionConfig":
+    def from_env(cls) -> OnionConfig:
         """纯从环境变量加载配置。"""
         return cls()
 
@@ -110,6 +109,6 @@ class OnionConfig(BaseSettings):
             return section
         return getattr(section, parts[1].replace(".", "_"), default)
 
-    def to_context_config(self) -> Dict[str, Any]:
+    def to_context_config(self) -> dict[str, Any]:
         """序列化为 AgentContext.config 格式。"""
         return {"onion": self.model_dump()}

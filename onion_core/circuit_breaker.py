@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 熔断器实现
 """
@@ -8,9 +7,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional
 
-from .models import CircuitState, CircuitBreakerError
+from .models import CircuitBreakerError, CircuitState
 
 logger = logging.getLogger("onion_core.circuit_breaker")
 
@@ -41,18 +39,17 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._success_count = 0
-        self._last_failure_time: Optional[float] = None
+        self._last_failure_time: float | None = None
         self._lock = asyncio.Lock()
 
     @property
     def state(self) -> CircuitState:
         """获取当前熔断器状态（含自动重置检查）。"""
-        if self._state == CircuitState.OPEN and self._last_failure_time:
-            if time.time() - self._last_failure_time >= self.recovery_timeout:
-                # 实际更新内部状态，否则 record_success/record_failure 永远看不到 HALF_OPEN
-                self._state = CircuitState.HALF_OPEN
-                self._success_count = 0
-                logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
+        if self._state == CircuitState.OPEN and self._last_failure_time and time.time() - self._last_failure_time >= self.recovery_timeout:
+            # 实际更新内部状态，否则 record_success/record_failure 永远看不到 HALF_OPEN
+            self._state = CircuitState.HALF_OPEN
+            self._success_count = 0
+            logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
         return self._state
 
     async def check_call(self) -> None:

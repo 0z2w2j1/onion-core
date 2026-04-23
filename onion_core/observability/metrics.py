@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult
@@ -28,7 +27,7 @@ from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResul
 logger = logging.getLogger("onion_core.metrics")
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Histogram
     _PROM_AVAILABLE = True
 except ImportError:
     _PROM_AVAILABLE = False

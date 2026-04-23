@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 统一错误码定义
 
@@ -29,8 +28,8 @@ Onion Core - 统一错误码定义
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import RetryOutcome
@@ -43,7 +42,7 @@ def _get_retry_outcome():
 
 # ── 错误码枚举 ─────────────────────────────────────────────────────────────────
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """
     统一错误码。
 
@@ -103,7 +102,7 @@ class ErrorCode(str, Enum):
 
 # ── 错误码 → 默认消息映射 ─────────────────────────────────────────────────────
 
-ERROR_MESSAGES: Dict[ErrorCode, str] = {
+ERROR_MESSAGES: dict[ErrorCode, str] = {
     # Security
     ErrorCode.SECURITY_BLOCKED_KEYWORD: "Request blocked: blocked keyword detected in input",
     ErrorCode.SECURITY_PII_DETECTED: "Request blocked: PII (Personally Identifiable Information) detected in input",
@@ -163,7 +162,7 @@ ERROR_MESSAGES: Dict[ErrorCode, str] = {
 #
 # 使用字符串值避免循环导入，运行时通过 _resolve_retry_outcome() 转为枚举。
 
-_ERROR_RETRY_STR: Dict[ErrorCode, str] = {
+_ERROR_RETRY_STR: dict[ErrorCode, str] = {
     # Security → FATAL（安全拦截不应重试）
     ErrorCode.SECURITY_BLOCKED_KEYWORD: "fatal",
     ErrorCode.SECURITY_PII_DETECTED: "fatal",
@@ -216,10 +215,10 @@ _ERROR_RETRY_STR: Dict[ErrorCode, str] = {
 }
 
 # 运行时缓存
-_ERROR_RETRY_POLICY_CACHE: Optional[Dict[ErrorCode, RetryOutcome]] = None
+_ERROR_RETRY_POLICY_CACHE: dict[ErrorCode, RetryOutcome] | None = None
 
 
-def ERROR_RETRY_POLICY() -> Dict[ErrorCode, RetryOutcome]:
+def ERROR_RETRY_POLICY() -> dict[ErrorCode, RetryOutcome]:
     """延迟解析错误码到 RetryOutcome 的映射，避免循环导入。"""
     global _ERROR_RETRY_POLICY_CACHE
     if _ERROR_RETRY_POLICY_CACHE is None:
@@ -248,13 +247,13 @@ class OnionErrorWithCode(Exception):
     def __init__(
         self,
         code: ErrorCode,
-        message: Optional[str] = None,
-        cause: Optional[Exception] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        message: str | None = None,
+        cause: Exception | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         self.code = code
         self.cause = cause
-        self.extra: Dict[str, Any] = extra or {}
+        self.extra: dict[str, Any] = extra or {}
         display_msg = message or ERROR_MESSAGES.get(code, "Unknown error")
         full_msg = f"[{code}] {display_msg}"
         if cause:
@@ -274,7 +273,7 @@ class OnionErrorWithCode(Exception):
         from .models import RetryOutcome as RO
         return self.retry_outcome == RO.FATAL
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为字典，便于日志结构化和 API 返回。"""
         return {
             "error_code": self.code,
@@ -290,8 +289,8 @@ class OnionErrorWithCode(Exception):
 
 def security_error(
     code: ErrorCode = ErrorCode.SECURITY_BLOCKED_KEYWORD,
-    message: Optional[str] = None,
-    extra: Optional[Dict[str, Any]] = None,
+    message: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> OnionErrorWithCode:
     """构造安全类错误。"""
     return OnionErrorWithCode(code=code, message=message, extra=extra)
@@ -299,9 +298,9 @@ def security_error(
 
 def provider_error(
     code: ErrorCode = ErrorCode.PROVIDER_INVALID_REQUEST,
-    message: Optional[str] = None,
-    cause: Optional[Exception] = None,
-    extra: Optional[Dict[str, Any]] = None,
+    message: str | None = None,
+    cause: Exception | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> OnionErrorWithCode:
     """构造 Provider 类错误。"""
     return OnionErrorWithCode(code=code, message=message, cause=cause, extra=extra)
@@ -309,9 +308,9 @@ def provider_error(
 
 def fallback_error(
     code: ErrorCode = ErrorCode.FALLBACK_EXHAUSTED,
-    message: Optional[str] = None,
-    cause: Optional[Exception] = None,
-    extra: Optional[Dict[str, Any]] = None,
+    message: str | None = None,
+    cause: Exception | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> OnionErrorWithCode:
     """构造降级相关错误。"""
     return OnionErrorWithCode(code=code, message=message, cause=cause, extra=extra)

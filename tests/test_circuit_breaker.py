@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 熔断器测试
 """
@@ -6,9 +5,11 @@ Onion Core - 熔断器测试
 from __future__ import annotations
 
 import asyncio
+
 import pytest
-from onion_core import Pipeline, AgentContext, Message, EchoProvider, LLMResponse
-from onion_core.models import CircuitBreakerError, ProviderError
+
+from onion_core import AgentContext, EchoProvider, LLMResponse, Message, Pipeline
+from onion_core.models import CircuitBreakerError
 
 
 class FlakyProvider(EchoProvider):
@@ -41,7 +42,7 @@ async def test_circuit_breaker_trips():
     ctx = AgentContext(messages=[Message(role="user", content="hi")])
     
     # 前 3 次调用应该抛出 ConnectionError
-    for i in range(fail_threshold):
+    for _ in range(fail_threshold):
         with pytest.raises(ConnectionError):
             await p.run(ctx)
             

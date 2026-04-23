@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 核心数据模型定义
 """
@@ -6,8 +5,8 @@ Onion Core - 核心数据模型定义
 from __future__ import annotations
 
 import uuid
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,7 +46,7 @@ class CircuitBreakerError(OnionError):
 
 # ── CircuitBreaker 状态 ──────────────────────────────────────────────────────
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """熔断器状态枚举。"""
     CLOSED = "closed"        # 正常：请求通过
     OPEN = "open"            # 熔断：请求直接拒绝
@@ -56,7 +55,7 @@ class CircuitState(str, Enum):
 
 # ── RetryPolicy ──────────────────────────────────────────────────────────────
 
-class RetryOutcome(str, Enum):
+class RetryOutcome(StrEnum):
     """重试决策结果。"""
     RETRY = "retry"          # 可重试（网络/超时类）
     FALLBACK = "fallback"    # 不可重试但可 Fallback（限流/服务不可用）
@@ -118,7 +117,7 @@ class RetryPolicy:
         return self.classify(exc) == RetryOutcome.FATAL
 
 
-class FinishReason(str, Enum):
+class FinishReason(StrEnum):
     """LLM 响应结束原因枚举。"""
     STOP = "stop"
     LENGTH = "length"
@@ -136,10 +135,10 @@ class ImageUrl(BaseModel):
 class ContentBlock(BaseModel):
     """多模态内容块，支持文本和图片。"""
     type: Literal["text", "image_url", "image"]
-    text: Optional[str] = None
-    image_url: Optional[ImageUrl] = None
+    text: str | None = None
+    image_url: ImageUrl | None = None
     # Anthropic base64 图片
-    source: Optional[Dict[str, Any]] = None
+    source: dict[str, Any] | None = None
 
 
 class Message(BaseModel):
@@ -150,8 +149,8 @@ class Message(BaseModel):
     兼容 OpenAI vision 和 Anthropic multimodal API。
     """
     role: MessageRole
-    content: Union[str, List[ContentBlock]]
-    name: Optional[str] = None
+    content: str | list[ContentBlock]
+    name: str | None = None
 
     @property
     def text_content(self) -> str:
@@ -169,24 +168,24 @@ class AgentContext(BaseModel):
     request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     session_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    messages: List[Message] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    config: Dict[str, Any] = Field(default_factory=dict)
+    messages: list[Message] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolCall(BaseModel):
     """LLM 发起的工具调用请求。"""
     id: str
     name: str
-    arguments: Dict[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolResult(BaseModel):
     """工具执行结果。"""
     tool_call_id: str
     name: str
-    result: Optional[Union[str, Dict[str, Any], List[Any]]] = None
-    error: Optional[str] = None
+    result: str | dict[str, Any] | list[Any] | None = None
+    error: str | None = None
 
     @property
     def is_error(self) -> bool:
@@ -202,12 +201,12 @@ class UsageStats(BaseModel):
 
 class LLMResponse(BaseModel):
     """LLM 调用的标准化响应。"""
-    content: Optional[str] = None
-    tool_calls: List[ToolCall] = Field(default_factory=list)
-    finish_reason: Optional[FinishReason] = None
-    usage: Optional[UsageStats] = None
-    model: Optional[str] = None
-    raw: Optional[Any] = None
+    content: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    finish_reason: FinishReason | None = None
+    usage: UsageStats | None = None
+    model: str | None = None
+    raw: Any | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -221,12 +220,12 @@ class LLMResponse(BaseModel):
 class StreamChunk(BaseModel):
     """流式响应的单个数据块。"""
     delta: str = ""
-    tool_call_delta: Optional[Dict[str, Any]] = None
-    finish_reason: Optional[FinishReason] = None
+    tool_call_delta: dict[str, Any] | None = None
+    finish_reason: FinishReason | None = None
     index: int = 0
 
 
-class MiddlewareEvent(str, Enum):
+class MiddlewareEvent(StrEnum):
     """中间件生命周期事件类型。"""
     ON_REQUEST = "on_request"
     ON_RESPONSE = "on_response"

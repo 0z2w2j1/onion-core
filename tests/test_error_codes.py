@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-
 from onion_core.error_codes import (
-    ErrorCode,
     ERROR_MESSAGES,
-    OnionErrorWithCode,
     ERROR_RETRY_POLICY,
-    security_error,
-    provider_error,
+    ErrorCode,
+    OnionErrorWithCode,
     fallback_error,
+    provider_error,
+    security_error,
 )
 
 
@@ -90,11 +88,10 @@ class TestOnionErrorWithCode:
 
     def test_is_fatal_property(self):
         err_fatal = OnionErrorWithCode(code=ErrorCode.VALIDATION_INVALID_CONFIG)
-        from onion_core.models import RetryOutcome
-        assert err_fatal.is_fatal == True
+        assert err_fatal.is_fatal
 
         err_retry = OnionErrorWithCode(code=ErrorCode.TIMEOUT_PROVIDER)
-        assert err_retry.is_fatal == False
+        assert not err_retry.is_fatal
 
     def test_to_dict(self):
         err = OnionErrorWithCode(

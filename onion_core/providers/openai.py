@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
@@ -36,10 +36,10 @@ class OpenAIProvider(LLMProvider):
         self,
         api_key: str,
         model: str = "gpt-4o",
-        base_url: Optional[str] = None,
-        organization: Optional[str] = None,
-        default_headers: Optional[dict] = None,
-        max_tokens: Optional[int] = None,
+        base_url: str | None = None,
+        organization: str | None = None,
+        default_headers: dict | None = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         try:
@@ -47,7 +47,7 @@ class OpenAIProvider(LLMProvider):
         except ImportError:
             raise ImportError(
                 "openai package is required: pip install openai>=1.0"
-            )
+            ) from err
 
         self._model = model
         self._max_tokens = max_tokens

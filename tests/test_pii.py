@@ -8,7 +8,7 @@ import pytest
 
 from onion_core import AgentContext, EchoProvider, Message, Pipeline
 from onion_core.middlewares import SafetyGuardrailMiddleware
-from onion_core.middlewares.safety import PiiRule, BUILTIN_PII_RULES
+from onion_core.middlewares.safety import BUILTIN_PII_RULES, PiiRule
 
 
 def mask(text: str, rules=None) -> str:
@@ -65,7 +65,7 @@ def test_phone_cn_masking(text, should_mask):
     ("price $12.50 today", False),       # 价格不应被误匹配
 ])
 def test_phone_intl_masking(text, should_mask):
-    result = mask(text)
+    mask(text)
     intl_rule = next(r for r in BUILTIN_PII_RULES if r.name == "phone_intl")
     matched = bool(intl_rule.pattern.search(text))
     assert matched == should_mask
@@ -141,8 +141,8 @@ async def test_stream_pii_masking():
 @pytest.mark.asyncio
 async def test_stream_buffer_cleaned_on_error():
     """流中途出错时，PII 缓冲区应被清理。"""
-    from onion_core.provider import LLMProvider
     from onion_core.models import StreamChunk
+    from onion_core.provider import LLMProvider
 
     class ErrorProvider(LLMProvider):
         async def complete(self, ctx): ...
@@ -164,7 +164,7 @@ async def test_stream_buffer_cleaned_on_error():
 # ── 配置系统 ─────────────────────────────────────────────────────────────────
 
 def test_config_code_construction():
-    from onion_core import OnionConfig, ContextWindowConfig, SafetyConfig
+    from onion_core import ContextWindowConfig, OnionConfig, SafetyConfig
     cfg = OnionConfig(
         context_window=ContextWindowConfig(max_tokens=8000, keep_rounds=4),
         safety=SafetyConfig(enable_pii_masking=False),
@@ -187,6 +187,7 @@ def test_config_env(monkeypatch):
 def test_config_env_invalid_value_ignored(monkeypatch):
     """pydantic-settings 会对无效环境变量值抛出 ValidationError（严格的类型校验是预期行为）。"""
     from pydantic import ValidationError
+
     from onion_core import OnionConfig
     monkeypatch.setenv("ONION__CONTEXT_WINDOW__MAX_TOKENS", "not_a_number")
     with pytest.raises(ValidationError):
@@ -195,6 +196,7 @@ def test_config_env_invalid_value_ignored(monkeypatch):
 
 def test_config_json_file(tmp_path):
     import json
+
     from onion_core import OnionConfig
     cfg_data = {
         "context_window": {"max_tokens": 2000, "keep_rounds": 1},
@@ -224,6 +226,7 @@ def test_message_valid_roles(role):
 
 def test_message_invalid_role():
     from pydantic import ValidationError
+
     from onion_core import Message
     with pytest.raises(ValidationError):
         Message(role="banana", content="test")

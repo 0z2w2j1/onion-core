@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - Pipeline（核心调度引擎）
 
@@ -17,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Any, AsyncIterator, Awaitable, Dict, List, Optional, TypeVar, overload
+from collections.abc import AsyncIterator, Awaitable
+from typing import TypeVar, overload
 
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
+from .config import OnionConfig
 from .models import (
     AgentContext,
     CircuitBreakerError,
@@ -59,12 +60,12 @@ class Pipeline:
         self,
         provider: LLMProvider,
         name: str = "default",
-        middleware_timeout: Optional[float] = None,
-        provider_timeout: Optional[float] = None,
+        middleware_timeout: float | None = None,
+        provider_timeout: float | None = None,
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
-        fallback_providers: Optional[List[LLMProvider]] = None,
-        retry_policy: Optional[RetryPolicy] = None,
+        fallback_providers: list[LLMProvider] | None = None,
+        retry_policy: RetryPolicy | None = None,
         enable_circuit_breaker: bool = True,
         circuit_failure_threshold: int = 5,
         circuit_recovery_timeout: float = 30.0,
@@ -85,7 +86,7 @@ class Pipeline:
         """
         self.name = name
         self._provider = provider
-        self._fallback_providers: List[LLMProvider] = fallback_providers or []
+        self._fallback_providers: list[LLMProvider] = fallback_providers or []
         self._middleware_timeout = middleware_timeout
         self._provider_timeout = provider_timeout
         self._max_retries = max_retries
@@ -94,7 +95,7 @@ class Pipeline:
 
         # 熔断器配置
         self._enable_circuit_breaker = enable_circuit_breaker
-        self._circuit_breakers: Dict[int, CircuitBreaker] = {}
+        self._circuit_breakers: dict[int, CircuitBreaker] = {}
         if enable_circuit_breaker:
             for p in [self._provider] + self._fallback_providers:
                 p_name = f"{type(p).__name__}_{id(p)}"
@@ -105,22 +106,22 @@ class Pipeline:
                 )
 
         self._lock = asyncio.Lock()
-        self._middlewares: List[BaseMiddleware] = []
-        self._sorted_cache: Optional[List[BaseMiddleware]] = None
+        self._middlewares: list[BaseMiddleware] = []
+        self._sorted_cache: list[BaseMiddleware] | None = None
         self._started = False
 
     # ------------------------------------------------------------------
     # 中间件注册
     # ------------------------------------------------------------------
 
-    def add_middleware(self, middleware: BaseMiddleware) -> "Pipeline":
+    def add_middleware(self, middleware: BaseMiddleware) -> Pipeline:
         """注册中间件，支持链式调用。应在 startup() 前完成。"""
         self._middlewares.append(middleware)
         self._sorted_cache = None
         logger.info("Middleware registered: %s (priority=%d)", middleware.name, middleware.priority)
         return self
 
-    async def add_middleware_async(self, middleware: BaseMiddleware) -> "Pipeline":
+    async def add_middleware_async(self, middleware: BaseMiddleware) -> Pipeline:
         """运行时并发安全注册中间件。"""
         async with self._lock:
             self._middlewares.append(middleware)
@@ -130,13 +131,13 @@ class Pipeline:
             await middleware.startup()
         return self
 
-    def _get_sorted_middlewares(self) -> List[BaseMiddleware]:
+    def _get_sorted_middlewares(self) -> list[BaseMiddleware]:
         if self._sorted_cache is None:
             self._sorted_cache = sorted(self._middlewares, key=lambda mw: mw.priority)
         return self._sorted_cache
 
     @property
-    def middlewares(self) -> List[BaseMiddleware]:
+    def middlewares(self) -> list[BaseMiddleware]:
         return list(self._get_sorted_middlewares())
 
     @property
@@ -156,7 +157,7 @@ class Pipeline:
                 logger.warning("Pipeline.startup() called more than once, skipping.")
                 return
 
-            started: List[BaseMiddleware] = []
+            started: list[BaseMiddleware] = []
             logger.info("Pipeline '%s' starting up (%d middlewares)...", self.name, len(self._middlewares))
 
             for mw in self._get_sorted_middlewares():
@@ -199,7 +200,7 @@ class Pipeline:
                 names = ", ".join(n for n, _ in errors)
                 raise RuntimeError(f"Shutdown errors in middlewares: {names}")
 
-    async def __aenter__(self) -> "Pipeline":
+    async def __aenter__(self) -> Pipeline:
         await self.startup()
         return self
 
@@ -259,7 +260,7 @@ class Pipeline:
         主 provider 全部重试失败后，依次尝试 fallback_providers。
         """
         all_providers = [self._provider] + self._fallback_providers
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
 
         for provider_idx, provider in enumerate(all_providers):
             is_fallback = provider_idx > 0
@@ -338,36 +339,36 @@ class Pipeline:
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[AgentContext], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[AgentContext], mw: BaseMiddleware | None = None
     ) -> AgentContext: ...
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[LLMResponse], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[LLMResponse], mw: BaseMiddleware | None = None
     ) -> LLMResponse: ...
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[StreamChunk], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[StreamChunk], mw: BaseMiddleware | None = None
     ) -> StreamChunk: ...
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[ToolCall], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[ToolCall], mw: BaseMiddleware | None = None
     ) -> ToolCall: ...
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[ToolResult], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[ToolResult], mw: BaseMiddleware | None = None
     ) -> ToolResult: ...
 
     @overload
     async def _call_middleware(
-        self, coro: Awaitable[_T], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[_T], mw: BaseMiddleware | None = None
     ) -> _T: ...
 
     async def _call_middleware(
-        self, coro: Awaitable[_T], mw: Optional[BaseMiddleware] = None
+        self, coro: Awaitable[_T], mw: BaseMiddleware | None = None
     ) -> _T:
         timeout = (mw.timeout if mw is not None and mw.timeout is not None
                    else self._middleware_timeout)
@@ -482,10 +483,10 @@ class Pipeline:
     @classmethod
     def from_config(
         cls,
-        provider: "LLMProvider",
-        config: "OnionConfig",
+        provider: LLMProvider,
+        config: OnionConfig,
         name: str = "default",
-    ) -> "Pipeline":
+    ) -> Pipeline:
         """
         从 OnionConfig 构建 Pipeline，自动配置内置中间件。
 
@@ -493,9 +494,9 @@ class Pipeline:
             cfg = OnionConfig.from_file("onion.json")
             pipeline = Pipeline.from_config(provider=MyProvider(), config=cfg)
         """
+        from .middlewares.context import ContextWindowMiddleware
         from .middlewares.observability import ObservabilityMiddleware
         from .middlewares.safety import SafetyGuardrailMiddleware
-        from .middlewares.context import ContextWindowMiddleware
 
         p = cls(
             provider=provider,
