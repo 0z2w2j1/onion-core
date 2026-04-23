@@ -4,10 +4,12 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/your-org/onion-core)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-110%20passed-brightgreen.svg)]()
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-146%20passed-brightgreen.svg)](https://github.com/0z2w2j1/onion-core/actions)
+[![Coverage](https://img.shields.io/badge/coverage-74%25-yellow.svg)](https://github.com/0z2w2j1/onion-core/actions)
+[![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)](https://github.com/0z2w2j1/onion-core/actions)
 
 [English](#english) | [中文](#中文)
 
@@ -209,9 +211,27 @@ Or from file (`onion.json` / `onion.yaml`):
 | Item | Status |
 |------|--------|
 | Version | 0.5.0 (Alpha) |
-| Python Support | 3.9, 3.10, 3.11, 3.12 |
-| Test Coverage | 110 tests, ~71% coverage |
+| Python Support | 3.11, 3.12 |
+| Test Coverage | 146 tests, 74% coverage |
+| Type Check | mypy -- strict ✓ |
+| CI/CD | GitHub Actions ✓ |
 | License | MIT |
+
+### 🚧 Development Progress (Phase 1: Foundation)
+
+- [x] Type hints with mypy strict mode
+- [x] Benchmark tests for middleware latency
+- [x] GitHub Actions CI pipeline
+- [x] 74% test coverage (Phase 1 target: 90% for v1.0)
+
+### 📋 Roadmap
+
+| Phase | Target | Status |
+|-------|--------|--------|
+| Phase 1 | Foundation & Standardization | ✅ Complete |
+| Phase 2 | Performance Optimization | 🔄 Planned |
+| Phase 3 | Advanced Features | 🔄 Planned |
+| v1.0 | Production Ready | 🔄 Planned |
 
 > ⚠️ **Note:** This is an alpha release. APIs may change without notice until v1.0.
 
@@ -429,9 +449,27 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | 项目 | 状态 |
 |------|------|
 | 版本 | 0.5.0（Alpha） |
-| Python 支持 | 3.9、3.10、3.11、3.12 |
-| 测试覆盖 | 110 个测试，约 71% 覆盖率 |
+| Python 支持 | 3.11、3.12 |
+| 测试覆盖 | 146 个测试，74% 覆盖率 |
+| 类型检查 | mypy -- strict ✓ |
+| CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
+
+### 🚧 开发进度（第一阶段：基础与标准化）
+
+- [x] mypy 严格类型检查
+- [x] 中间件性能基准测试
+- [x] GitHub Actions CI 流水线
+- [x] 74% 测试覆盖率（v1.0 目标：90%）
+
+### 📋 路线图
+
+| 阶段 | 目标 | 状态 |
+|------|------|------|
+| 第一阶段 | 基础与标准化 | ✅ 已完成 |
+| 第二阶段 | 性能优化 | 🔄 计划中 |
+| 第三阶段 | 高级功能 | 🔄 计划中 |
+| v1.0 | 生产就绪 | 🔄 计划中 |
 
 > ⚠️ **注意：** 当前为 Alpha 版本，API 可能在 v1.0 之前发生变化。
 
