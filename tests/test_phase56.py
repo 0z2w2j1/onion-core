@@ -272,26 +272,19 @@ async def test_metrics_middleware_noop():
 @pytest.mark.asyncio
 async def test_metrics_middleware_with_tool_calls():
     """Test metrics middleware tracks tool calls."""
+    from onion_core.models import ToolCall, ToolResult
     from onion_core.observability.metrics import MetricsMiddleware
-    
-    registry = ToolRegistry()
-    
-    @registry.register
-    async def dummy_tool(x: str) -> str:
-        return f"result: {x}"
-    
-    p = Pipeline(provider=EchoProvider()).add_middleware(MetricsMiddleware())
-    ctx = make_context()
     
     # Simulate tool call tracking
     mw = MetricsMiddleware(pipeline_name="test")
     await mw.startup()
     
+    ctx = make_context()
     tc = ToolCall(id="t1", name="dummy_tool", arguments={"x": "test"})
-    tc = await mw.on_tool_call(ctx, tc)
+    await mw.on_tool_call(ctx, tc)
     
     result = ToolResult(tool_call_id="t1", name="dummy_tool", result="ok")
-    result = await mw.on_tool_result(ctx, result)
+    await mw.on_tool_result(ctx, result)
     
     await mw.shutdown()
 
@@ -299,8 +292,8 @@ async def test_metrics_middleware_with_tool_calls():
 @pytest.mark.asyncio
 async def test_metrics_middleware_stream():
     """Test metrics middleware with streaming."""
-    from onion_core.observability.metrics import MetricsMiddleware
     from onion_core.models import FinishReason, StreamChunk
+    from onion_core.observability.metrics import MetricsMiddleware
     
     mw = MetricsMiddleware(pipeline_name="stream-test")
     await mw.startup()
