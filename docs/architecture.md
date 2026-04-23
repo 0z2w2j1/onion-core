@@ -1,6 +1,6 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.5.0 | Date: 2026-04-23
+> Version: 0.5.0 | Date: 2026-04-24
 
 ## 1. Overview
 
@@ -314,7 +314,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.9+ |
+| Language | Python 3.11+ |
 | Data Validation | Pydantic v2 |
 | Token Counting | tiktoken |
 | Logging | standard `logging` + custom `JsonFormatter` |
@@ -345,13 +345,13 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 | **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
 | **Version** | 0.5.0 (Alpha) — API may change without notice |
 | **Documentation** | Primarily Chinese README; English docs added in this release |
-| **CI/CD** | No GitHub Actions or Docker configuration yet |
+| **CI/CD** | GitHub Actions configured for testing and linting |
 
 ---
 
 # Onion Core - 架构设计文档
 
-> 版本：0.5.0 | 日期：2026-04-23
+> 版本：0.5.0 | 日期：2026-04-24
 
 ## 1. 概述
 
@@ -665,7 +665,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 | 层级 | 技术 |
 |-------|------------|
-| 语言 | Python 3.9+ |
+| 语言 | Python 3.11+ |
 | 数据验证 | Pydantic v2 |
 | Token 计数 | tiktoken |
 | 日志 | 标准 `logging` + 自定义 `JsonFormatter` |
@@ -696,4 +696,4 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 | **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
 | **版本** | 0.5.0（Alpha）— API 可能随时变更 |
 | **文档** | 主要中文 README；本版本添加英文文档 |
-| **CI/CD** | 暂无 GitHub Actions 或 Docker 配置 |
+| **CI/CD** | GitHub Actions 已配置用于测试和代码检查 |

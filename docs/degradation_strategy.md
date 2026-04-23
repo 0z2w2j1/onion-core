@@ -1,6 +1,6 @@
 # Onion Core - Degradation Strategy Document
 
-> Version: v0.5.0 | Updated: 2026-04-23
+> Version: v0.5.0 | Updated: 2026-04-24
 
 ## 1. Overview
 
@@ -313,7 +313,7 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 # Onion Core - 降级策略文档
 
-> 版本：v0.5.0 | 更新日期：2026-04-23
+> 版本：v0.5.0 | 更新日期：2026-04-24
 
 ## 1. 概述
 

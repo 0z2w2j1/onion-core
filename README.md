@@ -10,6 +10,7 @@
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg)](https://github.com/0z2w2j1/onion-core/actions)
 [![Coverage](https://img.shields.io/badge/coverage-74%25-yellow.svg)]()
 [![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)]()
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)]()
 
 [English](#english) | [中文](#中文)
 
@@ -212,8 +213,9 @@ Or from file (`onion.json` / `onion.yaml`):
 |------|--------|
 | Version | 0.5.0 (Alpha) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 146 tests, 74% coverage |
+| Test Coverage | 146+ tests, 74% coverage |
 | Type Check | mypy -- strict ✓ |
+| Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | License | MIT |
 
@@ -222,6 +224,8 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Type hints with mypy strict mode
 - [x] Benchmark tests for middleware latency
 - [x] GitHub Actions CI pipeline
+- [x] Unified error code system (ErrorCode enum + OnionErrorWithCode)
+- [x] Degradation strategy documentation
 - [x] 74% test coverage (Phase 1 target: 90% for v1.0)
 
 ### 📋 Roadmap
@@ -450,8 +454,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 |------|------|
 | 版本 | 0.5.0（Alpha） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 146 个测试，74% 覆盖率 |
+| 测试覆盖 | 146+ 个测试，74% 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
+| 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
 
@@ -460,6 +465,8 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] mypy 严格类型检查
 - [x] 中间件性能基准测试
 - [x] GitHub Actions CI 流水线
+- [x] 统一错误码系统（ErrorCode 枚举 + OnionErrorWithCode）
+- [x] 降级策略文档
 - [x] 74% 测试覆盖率（v1.0 目标：90%）
 
 ### 📋 路线图

@@ -22,18 +22,24 @@
   - Error serialization, structured logging, HTTP API response examples
   - Custom error code extension method
   - Complete error code reference table
+- Ruff linter integration for code quality
+- Updated documentation dates to 2026-04-24
 - `pyproject.toml` new `Documentation` URL
-- `README.md` new documentation sections
+- `README.md` updated with new features and badges
 
 ### Changed
 
 - `onion_core/__init__.py` new exports `ErrorCode`, `OnionErrorWithCode`, `ERROR_MESSAGES`, `ERROR_RETRY_POLICY`, etc.
 - `onion_core/models.py` fixed `CircuitState` class definition location
+- Updated Python version requirement to 3.11+ (from 3.9+)
+- Enhanced Pipeline with improved circuit breaker and fallback provider coordination
+- Improved middleware fault isolation with better error handling
 
 ### Fixed
 
 - Fixed circular import issue between `models.py` and `error_codes.py` (resolved via `TYPE_CHECKING` + lazy import)
 - Restored deleted `CircuitState` enum definition in `models.py`
+- Documentation date consistency across all files
 
 ---
 
@@ -79,18 +85,24 @@
   - 错误序列化、结构化日志、HTTP API 响应示例
   - 自定义错误码扩展方法
   - 完整错误码参考表
+- 集成 Ruff 代码检查工具
+- 更新所有文档日期至 2026-04-24
 - `pyproject.toml` 新增 `Documentation` URL
-- `README.md` 新增文档章节
+- `README.md` 更新新功能和徽章
 
 ### 更改
 
 - `onion_core/__init__.py` 新增导出 `ErrorCode`, `OnionErrorWithCode`, `ERROR_MESSAGES`, `ERROR_RETRY_POLICY` 等
 - `onion_core/models.py` 修复 `CircuitState` 类定义位置（此前编辑失误导致结构错误）
+- Python 版本要求更新至 3.11+（从 3.9+）
+- 增强 Pipeline 的熔断器和 Fallback Provider 协调机制
+- 改进中间件故障隔离和错误处理
 
 ### 修复
 
 - 修复 `models.py` 与 `error_codes.py` 之间的循环导入问题（通过 `TYPE_CHECKING` + 延迟导入解决）
 - 恢复 `models.py` 中被误删的 `CircuitState` 枚举定义
+- 修复所有文档日期一致性问题
 
 ---
 
