@@ -1,6 +1,6 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.5.0 | Date: 2026-04-24
+> Version: 0.6.0 | Date: 2026-04-24
 
 ## 1. Overview
 
@@ -337,13 +337,12 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. Limitations (v0.5.0)
+## 9. Limitations (v0.6.0)
 
 | Area | Limitation |
 |------|------------|
-| **Sync support** | No synchronous API; all operations are async-only |
 | **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
-| **Version** | 0.5.0 (Alpha) — API may change without notice |
+| **Version** | 0.6.0 (Beta) — API may change without notice |
 | **Documentation** | Primarily Chinese README; English docs added in this release |
 | **CI/CD** | GitHub Actions configured for testing and linting |
 
@@ -351,7 +350,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 # Onion Core - 架构设计文档
 
-> 版本：0.5.0 | 日期：2026-04-24
+> 版本：0.6.0 | 日期：2026-04-24
 
 ## 1. 概述
 
@@ -688,12 +687,11 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. 限制 (v0.5.0)
+## 9. 限制 (v0.6.0)
 
 | 领域 | 限制 |
 |------|------------|
-| **同步支持** | 无同步 API；所有操作仅异步 |
 | **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
-| **版本** | 0.5.0（Alpha）— API 可能随时变更 |
+| **版本** | 0.6.0（Beta）— API 可能随时变更 |
 | **文档** | 主要中文 README；本版本添加英文文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试和代码检查 |

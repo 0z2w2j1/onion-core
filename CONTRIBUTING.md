@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Onion Core! This document provides guidelines and workflows for contributing.
 
-> **Note:** This project is in Alpha (v0.5.0). APIs may change until v1.0.
+> **Note:** This project is in Beta (v0.6.0). APIs may change until v1.0.
 
 ---
 
@@ -135,7 +135,7 @@ Feel free to open a GitHub Issue for any questions about contributing.
 
 感谢您对 Onion Core 的关注！本文档提供贡献指南和工作流程。
 
-> **注意：** 此项目处于 Alpha 阶段（v0.5.0）。在 v1.0 之前，API 可能会发生变化。
+> **注意：** 此项目处于 Beta 阶段（v0.6.0）。在 v1.0 之前，API 可能会发生变化。
 
 ---
 

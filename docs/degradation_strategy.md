@@ -1,6 +1,6 @@
 # Onion Core - Degradation Strategy Document
 
-> Version: v0.5.0 | Updated: 2026-04-24
+> Version: v0.6.0 | Updated: 2026-04-24
 
 ## 1. Overview
 
@@ -307,13 +307,13 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 | Version | Date | Change Content |
 |------|------|----------|
-| v0.5.0 | 2026-04-23 | Initial version, defined error codes and degradation strategy |
+| v0.6.0 | 2026-04-24 | Initial version, defined error codes and degradation strategy |
 
 ---
 
 # Onion Core - 降级策略文档
 
-> 版本：v0.5.0 | 更新日期：2026-04-24
+> 版本：v0.6.0 | 更新日期：2026-04-24
 
 ## 1. 概述
 
@@ -620,4 +620,4 @@ pipeline._fallback_providers = [anthropic_provider, local_provider]
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v0.5.0 | 2026-04-23 | 初始版本，定义错误码与降级策略 |
+| v0.6.0 | 2026-04-24 | 初始版本，定义错误码与降级策略 |
