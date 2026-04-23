@@ -53,10 +53,10 @@ class AnthropicProvider(LLMProvider):
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
-        self._client = _anthropic.AsyncAnthropic(
-            api_key=api_key,
-            **({"base_url": base_url} if base_url else {}),
-        )
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self._client = _anthropic.AsyncAnthropic(**client_kwargs)
 
     @property
     def name(self) -> str:
@@ -168,9 +168,20 @@ class AnthropicProvider(LLMProvider):
                     index += 1
                 # 最后一个 chunk 携带 finish_reason
                 final = await stream.get_final_message()
+                # 将 Anthropic 的 stop_reason 映射到 FinishReason 枚举
+                from ..models import FinishReason
+                finish_reason_map: dict[str, FinishReason] = {
+                    "end_turn": FinishReason.STOP,
+                    "max_tokens": FinishReason.LENGTH,
+                    "stop_sequence": FinishReason.STOP,
+                    "tool_use": FinishReason.TOOL_CALLS,
+                    "pause_turn": FinishReason.STOP,
+                    "refusal": FinishReason.CONTENT_FILTER,
+                }
+                mapped_reason = finish_reason_map.get(final.stop_reason) if final.stop_reason else None
                 yield StreamChunk(
                     delta="",
-                    finish_reason=final.stop_reason,
+                    finish_reason=mapped_reason,
                     index=index,
                 )
         except Exception as exc:

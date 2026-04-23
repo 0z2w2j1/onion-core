@@ -42,7 +42,7 @@ def _make_counter(name: str, desc: str, labels: list[str]) -> Any:
 
 def _make_histogram(name: str, desc: str, labels: list[str], buckets: list[float] | None = None) -> Any:
     if _PROM_AVAILABLE:
-        kwargs = {"buckets": buckets} if buckets else {}
+        kwargs: dict[str, Any] = {"buckets": buckets} if buckets else {}
         return Histogram(name, desc, labels, **kwargs)
     return _NoOpMetric()
 
@@ -83,7 +83,7 @@ _TOOL_CALLS_TOTAL = _make_counter(
     ["pipeline_name", "tool_name", "status"],  # status: ok | error | blocked
 )
 
-_ACTIVE_REQUESTS = _NoOpMetric()
+_ACTIVE_REQUESTS: Any = _NoOpMetric()
 if _PROM_AVAILABLE:
     from prometheus_client import Gauge as _Gauge
     _ACTIVE_REQUESTS = _Gauge(
