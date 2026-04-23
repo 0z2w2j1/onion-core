@@ -269,6 +269,67 @@ async def test_metrics_middleware_noop():
     assert isinstance(resp, LLMResponse)
 
 
+@pytest.mark.asyncio
+async def test_metrics_middleware_with_tool_calls():
+    """Test metrics middleware tracks tool calls."""
+    from onion_core.observability.metrics import MetricsMiddleware
+    
+    registry = ToolRegistry()
+    
+    @registry.register
+    async def dummy_tool(x: str) -> str:
+        return f"result: {x}"
+    
+    p = Pipeline(provider=EchoProvider()).add_middleware(MetricsMiddleware())
+    ctx = make_context()
+    
+    # Simulate tool call tracking
+    mw = MetricsMiddleware(pipeline_name="test")
+    await mw.startup()
+    
+    tc = ToolCall(id="t1", name="dummy_tool", arguments={"x": "test"})
+    tc = await mw.on_tool_call(ctx, tc)
+    
+    result = ToolResult(tool_call_id="t1", name="dummy_tool", result="ok")
+    result = await mw.on_tool_result(ctx, result)
+    
+    await mw.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_metrics_middleware_stream():
+    """Test metrics middleware with streaming."""
+    from onion_core.observability.metrics import MetricsMiddleware
+    from onion_core.models import FinishReason, StreamChunk
+    
+    mw = MetricsMiddleware(pipeline_name="stream-test")
+    await mw.startup()
+    
+    ctx = make_context()
+    ctx = await mw.process_request(ctx)
+    
+    chunk = StreamChunk(delta="hello", finish_reason=FinishReason.STOP)
+    chunk = await mw.process_stream_chunk(ctx, chunk)
+    
+    await mw.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_metrics_middleware_error_handling():
+    """Test metrics middleware error tracking."""
+    from onion_core.observability.metrics import MetricsMiddleware
+    
+    mw = MetricsMiddleware(pipeline_name="error-test")
+    await mw.startup()
+    
+    ctx = make_context()
+    ctx = await mw.process_request(ctx)
+    
+    await mw.on_error(ctx, RuntimeError("test error"))
+    
+    await mw.shutdown()
+
+
 # ── TracingMiddleware（no-op 模式）────────────────────────────────────────────
 
 @pytest.mark.asyncio

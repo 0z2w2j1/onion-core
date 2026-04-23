@@ -103,3 +103,103 @@ class TestProtocols:
 
         tracer = DummyTracer()
         assert isinstance(tracer, TracerLike)
+
+
+class TestTracingMiddlewareWithMetadata:
+    """Test TracingMiddleware metadata handling."""
+
+    @pytest.mark.asyncio
+    async def test_process_request_sets_metadata(self, context):
+        """Test that process_request stores span in metadata (even if no-op)."""
+        mw = TracingMiddleware(service_name="test", pipeline_name="test-pipeline")
+        await mw.startup()
+        result = await mw.process_request(context)
+        # When OTel not available, metadata should not have span
+        assert "_otel_span" not in result.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_process_response_cleans_metadata(self, context):
+        """Test that process_response cleans up metadata."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        context.metadata["_otel_span"] = "dummy"
+        response = LLMResponse(content="test", model="gpt-4", finish_reason=FinishReason.STOP)
+        result = await mw.process_response(context, response)
+        assert "_otel_span" not in context.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_process_stream_chunk_with_finish_reason(self, context):
+        """Test stream chunk processing with finish reason."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        context.metadata["_otel_span"] = "dummy"
+        chunk = StreamChunk(delta="", finish_reason=FinishReason.STOP)
+        result = await mw.process_stream_chunk(context, chunk)
+        assert "_otel_span" not in context.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_on_tool_call_stores_span_in_metadata(self, context):
+        """Test tool call span storage in metadata."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        tool_call = ToolCall(id="tc-123", name="search", arguments={"query": "test"})
+        result = await mw.on_tool_call(context, tool_call)
+        assert f"_otel_tool_span_{tool_call.id}" not in context.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_on_tool_result_cleans_tool_span(self, context):
+        """Test tool result cleans up tool span from metadata."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        context.metadata["_otel_tool_span_tc-123"] = "dummy"
+        result_in = ToolResult(tool_call_id="tc-123", name="search", result="ok")
+        result = await mw.on_tool_result(context, result_in)
+        assert "_otel_tool_span_tc-123" not in context.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_on_tool_result_with_error(self, context):
+        """Test tool result with error status."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        context.metadata["_otel_tool_span_tc-456"] = "dummy"
+        result_in = ToolResult(tool_call_id="tc-456", name="calc", error="Division by zero")
+        result = await mw.on_tool_result(context, result_in)
+        assert result.is_error
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_on_error_clears_span(self, context):
+        """Test error handler clears span from metadata."""
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        context.metadata["_otel_span"] = "dummy"
+        await mw.on_error(context, RuntimeError("test failure"))
+        assert "_otel_span" not in context.metadata
+        await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_full_lifecycle_integration(self, context):
+        """Test complete middleware lifecycle."""
+        mw = TracingMiddleware(service_name="integration-test", pipeline_name="main")
+        await mw.startup()
+        
+        # Request
+        ctx = await mw.process_request(context)
+        
+        # Response
+        response = LLMResponse(
+            content="Hello",
+            model="test-model",
+            finish_reason=FinishReason.STOP
+        )
+        response = await mw.process_response(ctx, response)
+        
+        # Error handling
+        await mw.on_error(ctx, ValueError("simulated error"))
+        
+        await mw.shutdown()
