@@ -68,8 +68,6 @@ class TestPipelineHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_circuit_breaker_states(self):
         """Test that health check reports circuit breaker states correctly."""
-        from unittest.mock import AsyncMock, patch
-
         from onion_core.models import CircuitState
 
         async with Pipeline(
