@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict, deque
+from typing import Any
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
@@ -92,7 +93,7 @@ class RateLimitMiddleware(BaseMiddleware):
     async def on_error(self, context: AgentContext, error: Exception) -> None:
         logger.error("[%s] RateLimitMiddleware error: %s", context.request_id, error)
 
-    def get_usage(self, session_id: str) -> dict:
+    def get_usage(self, session_id: str) -> dict[str, Any]:
         now = time.monotonic()
         # 注意：此方法为同步，仅做快照读取，不修改结构，竞态影响可接受
         window = self._windows.get(session_id, deque())

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
@@ -38,7 +39,7 @@ class OpenAIProvider(LLMProvider):
         model: str = "gpt-4o",
         base_url: str | None = None,
         organization: str | None = None,
-        default_headers: dict | None = None,
+        default_headers: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
@@ -63,19 +64,19 @@ class OpenAIProvider(LLMProvider):
     def name(self) -> str:
         return f"OpenAIProvider({self._model})"
 
-    def _build_messages(self, context: AgentContext) -> list[dict]:
+    def _build_messages(self, context: AgentContext) -> list[dict[str, Any]]:
         return [
             {k: v for k, v in m.model_dump().items() if v is not None}
             for m in context.messages
         ]
 
-    def _build_tools(self, context: AgentContext) -> list[dict] | None:
+    def _build_tools(self, context: AgentContext) -> list[dict[str, Any]] | None:
         """从 context.config 读取工具定义（OpenAI function calling 格式）。"""
         tools = context.config.get("tools")
         return tools if tools else None
 
     async def complete(self, context: AgentContext) -> LLMResponse:
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             model=self._model,
             messages=self._build_messages(context),
             temperature=self._temperature,
@@ -121,7 +122,7 @@ class OpenAIProvider(LLMProvider):
         )
 
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             model=self._model,
             messages=self._build_messages(context),
             temperature=self._temperature,

@@ -1,11 +1,13 @@
 """Onion Core providers package."""
 
+from typing import Any
+
 from ..provider import EchoProvider, LLMProvider
 
 __all__ = ["LLMProvider", "EchoProvider"]
 
 # 懒加载，避免在未安装 SDK 时报错
-def __getattr__(name: str):
+def __getattr__(name: str) -> type[Any]:
     if name == "OpenAIProvider":
         from .openai import OpenAIProvider
         return OpenAIProvider

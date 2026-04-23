@@ -36,7 +36,7 @@ logger = logging.getLogger("onion_core.tracing")
 @runtime_checkable
 class SpanLike(Protocol):
     def set_attribute(self, key: str, value: str | int) -> None: ...
-    def set_status(self, status: object) -> None: ...
+    def set_status(self, status: object, description: str = "") -> None: ...
     def record_exception(self, error: Exception) -> None: ...
     def end(self) -> None: ...
     def __enter__(self) -> SpanLike: ...
@@ -49,12 +49,12 @@ class TracerLike(Protocol):
 
 
 class _NoOpSpan:
-    def set_attribute(self, *a, **kw): pass
-    def set_status(self, *a, **kw): pass
-    def record_exception(self, *a, **kw): pass
-    def end(self): pass
-    def __enter__(self): return self
-    def __exit__(self, *a): pass
+    def set_attribute(self, key: str, value: str | int) -> None: pass
+    def set_status(self, status: object, description: str = "") -> None: pass
+    def record_exception(self, error: Exception) -> None: pass
+    def end(self) -> None: pass
+    def __enter__(self) -> _NoOpSpan: return self
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None: pass
 
 
 TracersType = TracerLike | None

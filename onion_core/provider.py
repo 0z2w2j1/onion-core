@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from .models import AgentContext, LLMResponse, StreamChunk
+from .models import AgentContext, FinishReason, LLMResponse, StreamChunk
 
 
 class LLMProvider(ABC):
@@ -21,7 +21,7 @@ class LLMProvider(ABC):
     @abstractmethod
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用，逐块产出 StreamChunk。"""
-        ...
+        yield StreamChunk()  # pragma: no cover
 
     @property
     def name(self) -> str:
@@ -41,7 +41,7 @@ class EchoProvider(LLMProvider):
         reply = self._reply if self._reply is not None else f"Echo: {last_user}"
         return LLMResponse(
             content=reply,
-            finish_reason="stop",
+            finish_reason=FinishReason.STOP,
             model="echo-1.0",
         )
 
@@ -51,6 +51,6 @@ class EchoProvider(LLMProvider):
         for i, char in enumerate(text):
             yield StreamChunk(
                 delta=char,
-                finish_reason="stop" if i == len(text) - 1 else None,
+                finish_reason=FinishReason.STOP if i == len(text) - 1 else None,
                 index=i,
             )

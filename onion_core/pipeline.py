@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import types
 from collections.abc import AsyncIterator, Awaitable
 from typing import TypeVar, overload
 
@@ -204,7 +205,12 @@ class Pipeline:
         await self.startup()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         await self.shutdown()
 
     # ------------------------------------------------------------------
@@ -222,7 +228,7 @@ class Pipeline:
         context = await self._run_request(context)
         buf_key = f"_safety_buf_{context.request_id}"
         try:
-            async def _provider_gen():
+            async def _provider_gen() -> AsyncIterator[StreamChunk]:
                 async for chunk in self._provider.stream(context):
                     yield chunk
 
@@ -238,7 +244,7 @@ class Pipeline:
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
             else:
-                async for raw_chunk in _provider_gen():
+                async for raw_chunk in self._provider.stream(context):
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
         except Exception:

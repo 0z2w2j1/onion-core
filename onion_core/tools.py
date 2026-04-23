@@ -49,9 +49,16 @@ class JsonSchema(TypedDict):
 
 
 class OpenAIToolFunction(TypedDict):
+    """OpenAI function schema inside tool definition."""
     name: str
     description: str
     parameters: JsonSchema
+
+
+class OpenAIToolDefinition(TypedDict):
+    """OpenAI tool definition with type and function wrapper."""
+    type: str
+    function: OpenAIToolFunction
 
 
 class AnthropicToolInput(TypedDict):
@@ -63,7 +70,7 @@ class AnthropicToolInput(TypedDict):
 class ToolDefinition:
     """单个工具的元数据和执行函数。"""
 
-    def __init__(self, func: Callable, name: str | None = None, description: str | None = None) -> None:
+    def __init__(self, func: Callable[..., Any], name: str | None = None, description: str | None = None) -> None:
         self.func = func
         self.name = name or func.__name__
         self.description = description or (inspect.getdoc(func) or "").strip()
@@ -121,7 +128,7 @@ class ToolDefinition:
             "required": required,
         }
 
-    def to_openai_format(self) -> OpenAIToolFunction:
+    def to_openai_format(self) -> OpenAIToolDefinition:
         return {
             "type": "function",
             "function": {
@@ -159,13 +166,13 @@ class ToolRegistry:
 
     def register(
         self,
-        func: Callable | None = None,
+        func: Callable[..., Any] | None = None,
         *,
         name: str | None = None,
         description: str | None = None,
-    ) -> Callable:
+    ) -> Callable[..., Any]:
         """装饰器：注册工具函数。支持 @registry.register 和 @registry.register(name="x")。"""
-        def decorator(f: Callable) -> Callable:
+        def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
             tool_def = ToolDefinition(f, name=name, description=description)
             self._tools[tool_def.name] = tool_def
             logger.info("Tool registered: %s", tool_def.name)
@@ -177,7 +184,7 @@ class ToolRegistry:
 
     def register_func(
         self,
-        func: Callable,
+        func: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
     ) -> ToolRegistry:
@@ -194,7 +201,7 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return list(self._tools.keys())
 
-    def to_openai_tools(self) -> list[OpenAIToolFunction]:
+    def to_openai_tools(self) -> list[OpenAIToolDefinition]:
         """生成 OpenAI function calling 格式的工具列表。"""
         return [t.to_openai_format() for t in self._tools.values()]
 

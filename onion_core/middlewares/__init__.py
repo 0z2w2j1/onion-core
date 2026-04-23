@@ -1,9 +1,10 @@
 """Onion Core middlewares package."""
 
+from ..models import RateLimitExceeded, SecurityException
 from .context import ContextWindowMiddleware
 from .observability import ObservabilityMiddleware
-from .ratelimit import RateLimitExceeded, RateLimitMiddleware
-from .safety import BUILTIN_PII_RULES, PiiRule, SafetyGuardrailMiddleware, SecurityException
+from .ratelimit import RateLimitMiddleware
+from .safety import BUILTIN_PII_RULES, PiiRule, SafetyGuardrailMiddleware
 
 __all__ = [
     "ObservabilityMiddleware",

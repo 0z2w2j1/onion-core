@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
@@ -61,18 +62,21 @@ class AnthropicProvider(LLMProvider):
     def name(self) -> str:
         return f"AnthropicProvider({self._model})"
 
-    def _split_messages(self, context: AgentContext) -> tuple[str, list[dict]]:
+    def _split_messages(self, context: AgentContext) -> tuple[str, list[dict[str, Any]]]:
         """
         Anthropic API 要求：
         - system 消息单独传
         - tool 结果消息需要包含 tool_use_id，格式为 content block list
         返回 (system_text, messages_list)。
         """
-        system_parts = []
-        messages = []
+        system_parts: list[str] = []
+        messages: list[dict[str, Any]] = []
         for msg in context.messages:
             if msg.role == "system":
-                system_parts.append(msg.text_content if hasattr(msg, "text_content") else msg.content)
+                # 确保只添加字符串类型的 system 内容
+                text = msg.text_content if hasattr(msg, "text_content") else msg.content
+                if isinstance(text, str):
+                    system_parts.append(text)
             elif msg.role == "tool":
                 # Anthropic tool_result 格式：必须包含 tool_use_id
                 tool_use_id = msg.name or "unknown"
@@ -94,13 +98,13 @@ class AnthropicProvider(LLMProvider):
                 messages.append({"role": role, "content": content})
         return "\n\n".join(system_parts), messages
 
-    def _build_tools(self, context: AgentContext) -> list[dict] | None:
+    def _build_tools(self, context: AgentContext) -> list[dict[str, Any]] | None:
         """从 context.config 读取工具定义（Anthropic tool_use 格式）。"""
         return context.config.get("tools")
 
     async def complete(self, context: AgentContext) -> LLMResponse:
         system, messages = self._split_messages(context)
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             model=self._model,
             max_tokens=self._max_tokens,
             messages=messages,
@@ -147,7 +151,7 @@ class AnthropicProvider(LLMProvider):
 
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         system, messages = self._split_messages(context)
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             model=self._model,
             max_tokens=self._max_tokens,
             messages=messages,
