@@ -11,7 +11,7 @@ license = { text = "MIT" }
 requires-python = ">=3.11"
 keywords = ["llm", "agent", "middleware", "pipeline", "ai", "onion"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
