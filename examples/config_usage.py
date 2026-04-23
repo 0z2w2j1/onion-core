@@ -23,10 +23,10 @@ from onion_core import (
     EchoProvider,
     Message,
     ObservabilityConfig,
+    OnionConfig,
     Pipeline,
     PipelineConfig,
     SafetyConfig,
-    OnionConfig,
 )
 from onion_core.observability.logging import configure_logging
 

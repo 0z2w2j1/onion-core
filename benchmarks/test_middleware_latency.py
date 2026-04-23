@@ -11,7 +11,6 @@ from onion_core.middlewares import (
     RateLimitMiddleware,
     SafetyGuardrailMiddleware,
 )
-from onion_core.observability.tracing import TracingMiddleware
 
 
 @pytest.fixture

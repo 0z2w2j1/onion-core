@@ -4,7 +4,6 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict, deque
-from typing import Deque, Dict, Optional
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
@@ -31,7 +30,7 @@ class RateLimitMiddleware(BaseMiddleware):
         self._max_requests = max_requests
         self._window = window_seconds
         self._max_sessions = max_sessions
-        self._windows: OrderedDict[str, Deque[float]] = OrderedDict()
+        self._windows: OrderedDict[str, deque[float]] = OrderedDict()
         self._lock = asyncio.Lock()  # 保护 _windows 的并发访问
 
     async def startup(self) -> None:
@@ -43,7 +42,7 @@ class RateLimitMiddleware(BaseMiddleware):
             self._windows.clear()
         logger.info("RateLimitMiddleware stopped.")
 
-    def _get_window(self, sid: str) -> Deque[float]:
+    def _get_window(self, sid: str) -> deque[float]:
         """获取 session 的时间窗口，LRU 更新访问顺序。调用方必须持有 self._lock。"""
         if sid in self._windows:
             self._windows.move_to_end(sid)

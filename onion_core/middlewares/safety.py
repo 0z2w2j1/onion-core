@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Pattern
+from re import Pattern
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, SecurityException, StreamChunk, ToolCall, ToolResult
@@ -22,7 +22,7 @@ class PiiRule:
     description: str = ""
 
 
-BUILTIN_PII_RULES: List[PiiRule] = [
+BUILTIN_PII_RULES: list[PiiRule] = [
     PiiRule("email", re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"), "[email]", "电子邮件"),
     PiiRule("phone_cn", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "***", "中国大陆手机号"),
     PiiRule("phone_intl", re.compile(r"\+\d{1,3}(?:[-.\s]\d{2,4}){2,4}"), "***", "国际电话（带+区号）"),
@@ -30,7 +30,7 @@ BUILTIN_PII_RULES: List[PiiRule] = [
     PiiRule("credit_card", re.compile(r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12})\b"), "[CARD]", "信用卡号"),
 ]
 
-DEFAULT_BLOCKED_KEYWORDS: List[str] = [
+DEFAULT_BLOCKED_KEYWORDS: list[str] = [
     "ignore instructions",
     "ignore previous instructions",
     "system prompt",
@@ -53,14 +53,14 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
 
     def __init__(
         self,
-        blocked_keywords: Optional[List[str]] = None,
-        blocked_tools: Optional[List[str]] = None,
-        pii_rules: Optional[List[PiiRule]] = None,
+        blocked_keywords: list[str] | None = None,
+        blocked_tools: list[str] | None = None,
+        pii_rules: list[PiiRule] | None = None,
         enable_builtin_pii: bool = True,
     ) -> None:
         self._blocked_keywords = [kw.lower() for kw in (blocked_keywords or DEFAULT_BLOCKED_KEYWORDS)]
         self._blocked_tools: set[str] = set(blocked_tools or [])
-        self._pii_rules: List[PiiRule] = []
+        self._pii_rules: list[PiiRule] = []
         if enable_builtin_pii:
             self._pii_rules.extend(BUILTIN_PII_RULES)
         if pii_rules:
@@ -75,15 +75,15 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
     async def shutdown(self) -> None:
         logger.info("SafetyGuardrailMiddleware stopped.")
 
-    def add_pii_rule(self, rule: PiiRule) -> "SafetyGuardrailMiddleware":
+    def add_pii_rule(self, rule: PiiRule) -> SafetyGuardrailMiddleware:
         self._pii_rules.append(rule)
         return self
 
-    def add_blocked_keyword(self, keyword: str) -> "SafetyGuardrailMiddleware":
+    def add_blocked_keyword(self, keyword: str) -> SafetyGuardrailMiddleware:
         self._blocked_keywords.append(keyword.lower())
         return self
 
-    def add_blocked_tool(self, tool_name: str) -> "SafetyGuardrailMiddleware":
+    def add_blocked_tool(self, tool_name: str) -> SafetyGuardrailMiddleware:
         self._blocked_tools.add(tool_name)
         return self
 
@@ -159,7 +159,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         logger.error("[%s] Safety middleware error: %s", context.request_id, error)
 
     @staticmethod
-    def _get_last_user_message(context: AgentContext) -> Optional[str]:
+    def _get_last_user_message(context: AgentContext) -> str | None:
         for msg in reversed(context.messages):
             if msg.role == "user":
                 return msg.text_content  # 支持多模态 content

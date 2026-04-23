@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 国内 AI Provider 适配器 (DeepSeek, ZhipuAI, DashScope, Moonshot)
 
@@ -10,7 +9,6 @@ Onion Core - 国内 AI Provider 适配器 (DeepSeek, ZhipuAI, DashScope, Moonsho
 
 from __future__ import annotations
 
-from typing import Optional
 from .openai import OpenAIProvider
 
 
@@ -23,7 +21,7 @@ class DeepSeekProvider(OpenAIProvider):
         self,
         api_key: str,
         model: str = "deepseek-chat",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(
@@ -44,7 +42,7 @@ class ZhipuAIProvider(OpenAIProvider):
         self,
         api_key: str,
         model: str = "glm-4",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(
@@ -65,7 +63,7 @@ class MoonshotProvider(OpenAIProvider):
         self,
         api_key: str,
         model: str = "moonshot-v1-8k",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(
@@ -86,7 +84,7 @@ class DashScopeProvider(OpenAIProvider):
         self,
         api_key: str,
         model: str = "qwen-turbo",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(

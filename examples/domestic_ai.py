@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 国内 AI 模型使用示例 (DeepSeek, 智谱, Kimi, 通义)
 
@@ -10,13 +9,15 @@ Onion Core - 国内 AI 模型使用示例 (DeepSeek, 智谱, Kimi, 通义)
 
 import asyncio
 import os
-from onion_core import Pipeline, AgentContext, Message
-from onion_core.providers.domestic import DeepSeekProvider, ZhipuAIProvider
+
+from onion_core import AgentContext, Message, Pipeline
 from onion_core.middlewares import (
-    SafetyGuardrailMiddleware,
     ContextWindowMiddleware,
-    ObservabilityMiddleware
+    ObservabilityMiddleware,
+    SafetyGuardrailMiddleware,
 )
+from onion_core.providers.domestic import DeepSeekProvider
+
 
 async def main():
     # 1. 初始化国内 Provider

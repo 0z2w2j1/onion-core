@@ -1,4 +1,5 @@
-import ast, os, sys
+import ast
+import os
 
 root = r"C:\Users\ZWJ\Desktop\a\Onion Core"
 results = []

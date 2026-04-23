@@ -14,16 +14,14 @@ from onion_core import (
     EchoProvider,
     LLMResponse,
     Message,
-    ObservabilityConfig,
+    OnionConfig,
     Pipeline,
     PipelineConfig,
     SafetyConfig,
-    OnionConfig,
 )
 from onion_core.middlewares.safety import SecurityException
 
 from .conftest import make_context
-
 
 # ── OnionConfig 基础 ───────────────────────────────────────────────────────
 

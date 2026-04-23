@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 import tiktoken
 
@@ -46,7 +45,7 @@ class ContextWindowMiddleware(BaseMiddleware):
         # 默认 encoding（启动时加载）
         self._default_encoding = tiktoken.get_encoding(encoding_name)
         # encoding 缓存，避免重复加载
-        self._encoding_cache: Dict[str, tiktoken.Encoding] = {
+        self._encoding_cache: dict[str, tiktoken.Encoding] = {
             encoding_name: self._default_encoding
         }
 
@@ -73,7 +72,7 @@ class ContextWindowMiddleware(BaseMiddleware):
     async def shutdown(self) -> None:
         logger.info("ContextWindowMiddleware stopped.")
 
-    def count_tokens(self, messages: List[Message], encoding: Optional[tiktoken.Encoding] = None) -> int:
+    def count_tokens(self, messages: list[Message], encoding: tiktoken.Encoding | None = None) -> int:
         enc = encoding or self._default_encoding
         total = sum(
             4 + len(enc.encode(m.role)) + len(enc.encode(m.text_content))
@@ -82,7 +81,7 @@ class ContextWindowMiddleware(BaseMiddleware):
         ) + 2
         return total
 
-    def _truncate_messages(self, messages: List[Message], keep_rounds: int) -> List[Message]:
+    def _truncate_messages(self, messages: list[Message], keep_rounds: int) -> list[Message]:
         system_msgs = [m for m in messages if m.role == "system"]
         conv_msgs = [m for m in messages if m.role != "system"]
         keep_count = keep_rounds * 2

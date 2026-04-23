@@ -9,41 +9,47 @@ Onion Core — Agent 中间件框架
     from onion_core.middlewares import ObservabilityMiddleware, SafetyGuardrailMiddleware, ContextWindowMiddleware
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
+from .agent import AgentLoop, AgentLoopError
+from .base import BaseMiddleware
+from .config import (
+    ContextWindowConfig,
+    ObservabilityConfig,
+    OnionConfig,
+    PipelineConfig,
+    SafetyConfig,
+)
+from .error_codes import (
+    ERROR_MESSAGES,
+    ERROR_RETRY_POLICY,
+    ErrorCode,
+    OnionErrorWithCode,
+    fallback_error,
+    provider_error,
+    security_error,
+)
 from .models import (
     AgentContext,
+    FinishReason,
+    LLMResponse,
     Message,
     MessageRole,
-    LLMResponse,
+    MiddlewareEvent,
+    # 异常基类与 RetryPolicy
+    OnionError,
+    ProviderError,
+    RateLimitExceeded,
+    RetryOutcome,
+    RetryPolicy,
+    SecurityException,
     StreamChunk,
     ToolCall,
     ToolResult,
     UsageStats,
-    MiddlewareEvent,
-    FinishReason,
-    # 异常基类与 RetryPolicy
-    OnionError,
-    SecurityException,
-    RateLimitExceeded,
-    ProviderError,
-    RetryPolicy,
-    RetryOutcome,
 )
-from .error_codes import (
-    ErrorCode,
-    OnionErrorWithCode,
-    ERROR_MESSAGES,
-    ERROR_RETRY_POLICY,
-    security_error,
-    provider_error,
-    fallback_error,
-)
-from .base import BaseMiddleware
-from .provider import LLMProvider, EchoProvider
-from .pipeline import Pipeline, MiddlewareManager
-from .config import OnionConfig, PipelineConfig, SafetyConfig, ContextWindowConfig, ObservabilityConfig
-from .agent import AgentLoop, AgentLoopError
-
-from importlib.metadata import version, PackageNotFoundError
+from .pipeline import MiddlewareManager, Pipeline
+from .provider import EchoProvider, LLMProvider
 
 try:
     __version__ = version("onion-core")

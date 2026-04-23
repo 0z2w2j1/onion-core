@@ -5,7 +5,6 @@ Onion Core - 中间件抽象基类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from .models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult
 
@@ -31,7 +30,7 @@ class BaseMiddleware(ABC):
     """
 
     priority: int = 500
-    timeout: Optional[float] = None  # 中间件级别超时，覆盖 Pipeline 全局配置
+    timeout: float | None = None  # 中间件级别超时，覆盖 Pipeline 全局配置
     is_mandatory: bool = False       # 是否为核心中间件。True 时若执行失败（含超时）将直接中断链路并抛出异常。
 
     @property

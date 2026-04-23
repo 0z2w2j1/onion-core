@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Onion Core - 本地/自建 AI Provider 适配器 (Ollama, vLLM, LocalAI)
 
@@ -9,7 +8,6 @@ Onion Core - 本地/自建 AI Provider 适配器 (Ollama, vLLM, LocalAI)
 
 from __future__ import annotations
 
-from typing import Optional
 from .openai import OpenAIProvider
 
 
@@ -24,7 +22,7 @@ class LocalProvider(OpenAIProvider):
         base_url: str,
         api_key: str = "not-needed",
         model: str = "default",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(
@@ -47,7 +45,7 @@ class LMStudioProvider(OpenAIProvider):
         model: str = "default",
         base_url: str = "http://localhost:1234/v1",
         api_key: str = "lm-studio",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(
@@ -70,7 +68,7 @@ class OllamaProvider(OpenAIProvider):
         model: str,
         base_url: str = "http://localhost:11434/v1",
         api_key: str = "ollama",
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         temperature: float = 1.0,
     ) -> None:
         super().__init__(

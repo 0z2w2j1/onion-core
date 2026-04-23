@@ -29,7 +29,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional, TypedDict, Union
+from collections.abc import Callable
+from typing import Any, TypedDict, Union
 
 from .models import AgentContext, ToolCall, ToolResult
 
@@ -43,8 +44,8 @@ class JsonSchemaProperty(TypedDict, total=False):
 
 class JsonSchema(TypedDict):
     type: str
-    properties: Dict[str, JsonSchemaProperty]
-    required: List[str]
+    properties: dict[str, JsonSchemaProperty]
+    required: list[str]
 
 
 class OpenAIToolFunction(TypedDict):
@@ -62,7 +63,7 @@ class AnthropicToolInput(TypedDict):
 class ToolDefinition:
     """单个工具的元数据和执行函数。"""
 
-    def __init__(self, func: Callable, name: Optional[str] = None, description: Optional[str] = None) -> None:
+    def __init__(self, func: Callable, name: str | None = None, description: str | None = None) -> None:
         self.func = func
         self.name = name or func.__name__
         self.description = description or (inspect.getdoc(func) or "").strip()
@@ -70,14 +71,13 @@ class ToolDefinition:
 
     def _build_schema(self) -> JsonSchema:
         """从函数签名自动生成 JSON Schema，支持基础类型、Optional、List。"""
-        import typing
         sig = inspect.signature(self.func)
-        properties: Dict[str, JsonSchemaProperty] = {}
-        required: List[str] = []
+        properties: dict[str, JsonSchemaProperty] = {}
+        required: list[str] = []
 
         def _ann_to_json_type(ann: Any) -> JsonSchemaProperty:
             """将 Python 类型注解转换为 JSON Schema 类型描述。"""
-            _primitive: Dict[type, JsonSchemaProperty] = {
+            _primitive: dict[type, JsonSchemaProperty] = {
                 str: {"type": "string"},
                 int: {"type": "integer"},
                 float: {"type": "number"},
@@ -155,14 +155,14 @@ class ToolRegistry:
     """
 
     def __init__(self) -> None:
-        self._tools: Dict[str, ToolDefinition] = {}
+        self._tools: dict[str, ToolDefinition] = {}
 
     def register(
         self,
-        func: Optional[Callable] = None,
+        func: Callable | None = None,
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
+        name: str | None = None,
+        description: str | None = None,
     ) -> Callable:
         """装饰器：注册工具函数。支持 @registry.register 和 @registry.register(name="x")。"""
         def decorator(f: Callable) -> Callable:
@@ -178,34 +178,34 @@ class ToolRegistry:
     def register_func(
         self,
         func: Callable,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> "ToolRegistry":
+        name: str | None = None,
+        description: str | None = None,
+    ) -> ToolRegistry:
         """手动注册工具函数，支持链式调用。"""
         tool_def = ToolDefinition(func, name=name, description=description)
         self._tools[tool_def.name] = tool_def
         logger.info("Tool registered: %s", tool_def.name)
         return self
 
-    def get(self, name: str) -> Optional[ToolDefinition]:
+    def get(self, name: str) -> ToolDefinition | None:
         return self._tools.get(name)
 
     @property
-    def tool_names(self) -> List[str]:
+    def tool_names(self) -> list[str]:
         return list(self._tools.keys())
 
-    def to_openai_tools(self) -> List[OpenAIToolFunction]:
+    def to_openai_tools(self) -> list[OpenAIToolFunction]:
         """生成 OpenAI function calling 格式的工具列表。"""
         return [t.to_openai_format() for t in self._tools.values()]
 
-    def to_anthropic_tools(self) -> List[AnthropicToolInput]:
+    def to_anthropic_tools(self) -> list[AnthropicToolInput]:
         """生成 Anthropic tool_use 格式的工具列表。"""
         return [t.to_anthropic_format() for t in self._tools.values()]
 
     async def execute(
         self,
         tool_call: ToolCall,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
     ) -> ToolResult:
         """
         执行工具调用，返回 ToolResult。

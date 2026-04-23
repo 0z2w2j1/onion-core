@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from onion_core import AgentContext, EchoProvider, Message, Pipeline
-from onion_core.base import BaseMiddleware
 from onion_core.middlewares import ObservabilityMiddleware
 from onion_core.provider import LLMProvider
 

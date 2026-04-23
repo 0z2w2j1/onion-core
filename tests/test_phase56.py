@@ -8,14 +8,21 @@ import logging
 
 import pytest
 
-from onion_core import AgentContext, EchoProvider, LLMResponse, Message, Pipeline, ToolCall, ToolResult
+from onion_core import (
+    AgentContext,
+    EchoProvider,
+    LLMResponse,
+    Message,
+    Pipeline,
+    ToolCall,
+    ToolResult,
+)
 from onion_core.middlewares import RateLimitMiddleware
 from onion_core.middlewares.ratelimit import RateLimitExceeded
 from onion_core.observability.logging import JsonFormatter, configure_logging
 from onion_core.tools import ToolRegistry
 
 from .conftest import make_context
-
 
 # ── JsonFormatter ─────────────────────────────────────────────────────────────
 

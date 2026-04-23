@@ -2,7 +2,6 @@
 LM Studio 连接诊断脚本
 """
 import asyncio
-import sys
 
 
 async def check_lmstudio():
@@ -25,9 +24,9 @@ async def check_lmstudio():
             print(f"✓ 状态码: {r.status_code}")
             print(f"  响应: {r.text[:200]}")
         except requests.exceptions.ConnectionError:
-            print(f"✗ 无法连接 - 服务未启动")
+            print("✗ 无法连接 - 服务未启动")
         except requests.exceptions.Timeout:
-            print(f"✗ 连接超时")
+            print("✗ 连接超时")
         except Exception as e:
             print(f"✗ 错误: {type(e).__name__}: {e}")
     

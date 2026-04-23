@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from onion_core import AgentContext, Message
-from onion_core.models import LLMResponse, StreamChunk, ToolCall, ToolResult, FinishReason
+from onion_core.models import FinishReason, LLMResponse, StreamChunk, ToolCall, ToolResult
 from onion_core.observability.tracing import TracingMiddleware
 
 

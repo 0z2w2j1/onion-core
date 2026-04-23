@@ -17,7 +17,6 @@ from onion_core.middlewares import (
     SafetyGuardrailMiddleware,
 )
 
-
 # ── 基础 fixtures ────────────────────────────────────────────────────────────
 
 @pytest.fixture

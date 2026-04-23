@@ -8,16 +8,13 @@ from onion_core import (
     AgentContext,
     EchoProvider,
     LLMResponse,
-    Message,
     Pipeline,
     ToolCall,
-    ToolResult,
 )
 from onion_core.agent import AgentLoop, AgentLoopError
 from onion_core.tools import ToolRegistry
 
 from .conftest import make_context
-
 
 # ── 辅助 Provider ─────────────────────────────────────────────────────────────
 

@@ -4,14 +4,15 @@ Onion Core - LM Studio 集成测试
 运行: python test_integration.py
 """
 import asyncio
-from onion_core import Pipeline, AgentContext, Message
+
+from onion_core import AgentContext, Message, Pipeline
+from onion_core.middlewares import SafetyGuardrailMiddleware
 from onion_core.providers.local import LMStudioProvider
-from onion_core.middlewares import SafetyGuardrailMiddleware, ContextWindowMiddleware
 
 MODEL = "google/gemma-4-e4b"  # 替换为你的模型名
 
 async def test_chat():
-    print(f"\n[测试1] 基础对话...")
+    print("\n[测试1] 基础对话...")
     provider = LMStudioProvider(model=MODEL)
     
     async with Pipeline(provider=provider) as p:
@@ -23,7 +24,7 @@ async def test_chat():
         print(f"Model: {response.model}")
 
 async def test_safety():
-    print(f"\n[测试2] PII脱敏...")
+    print("\n[测试2] PII脱敏...")
     provider = LMStudioProvider(model=MODEL)
     
     async with Pipeline(provider=provider) as p:
@@ -42,7 +43,7 @@ async def test_safety():
             print("OK: PII已脱敏")
 
 async def test_stream():
-    print(f"\n[测试3] 流式输出...")
+    print("\n[测试3] 流式输出...")
     provider = LMStudioProvider(model=MODEL)
     
     async with Pipeline(provider=provider) as p:
@@ -56,7 +57,7 @@ async def test_stream():
         print("\n流式完成")
 
 async def test_keyword_block():
-    print(f"\n[测试4] 关键词拦截...")
+    print("\n[测试4] 关键词拦截...")
     provider = LMStudioProvider(model=MODEL)
     
     async with Pipeline(provider=provider) as p:
@@ -76,7 +77,7 @@ async def main():
     print("Onion Core - LM Studio 集成测试")
     print("=" * 50)
     print(f"模型: {MODEL}")
-    print(f"API: http://localhost:1234/v1")
+    print("API: http://localhost:1234/v1")
     
     # 测试1: 基础对话
     await test_chat()

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from onion_core import AgentContext, EchoProvider, LLMResponse, Message, Pipeline, ToolCall, ToolResult
+from onion_core import (
+    AgentContext,
+    EchoProvider,
+    LLMResponse,
+    Message,
+    Pipeline,
+    ToolCall,
+)
 from onion_core.middlewares import (
     ContextWindowMiddleware,
     ObservabilityMiddleware,
@@ -13,7 +20,6 @@ from onion_core.middlewares import (
 from onion_core.middlewares.safety import SecurityException
 
 from .conftest import make_context, make_long_context
-
 
 # ── SafetyGuardrailMiddleware ─────────────────────────────────────────────────
 

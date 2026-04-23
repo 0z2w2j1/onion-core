@@ -15,7 +15,6 @@ Onion Core - AgentLoop
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from .models import AgentContext, LLMResponse, Message
 from .pipeline import Pipeline
@@ -46,7 +45,7 @@ class AgentLoop:
     def __init__(
         self,
         pipeline: Pipeline,
-        registry: Optional[ToolRegistry] = None,
+        registry: ToolRegistry | None = None,
         max_turns: int = 10,
         raise_on_max_turns: bool = False,
     ) -> None:
@@ -62,7 +61,7 @@ class AgentLoop:
         Returns:
             最终的 LLMResponse（finish_reason="stop"）
         """
-        last_response: Optional[LLMResponse] = None
+        last_response: LLMResponse | None = None
 
         for turn in range(self._max_turns):
             response = await self._pipeline.run(context)
