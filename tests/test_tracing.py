@@ -113,7 +113,7 @@ class TestTracingMiddlewareWithMetadata:
         """Test that process_request stores span in metadata."""
         mw = TracingMiddleware(service_name="test", pipeline_name="test-pipeline")
         await mw.startup()
-        result = await mw.process_request(context)
+        await mw.process_request(context)
         # Span may be stored (if OTel available) or not (if not available)
         # Just verify the method completes without error
         await mw.shutdown()
