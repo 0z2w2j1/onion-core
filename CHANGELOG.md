@@ -4,6 +4,25 @@
 
 ### Added
 
+- **Comprehensive monitoring and alerting infrastructure**
+  - New `docs/monitoring.md` with complete SLO/SLI definitions
+  - Pre-defined Alertmanager rules (`monitoring/alertmanager_rules.yml`)
+    - High error rate detection (>5%)
+    - P95/P99 latency alerts (>10s)
+    - Circuit breaker activation monitoring
+    - Token budget exceeded warnings (>1M tokens/hour)
+    - Tool call failure rate alerts (>10%)
+    - Service outage detection (no active requests)
+  - Production-ready Grafana dashboard (`monitoring/grafana_dashboard.json`)
+    - Request rate & error rate graphs
+    - P95/P99 latency visualization
+    - Token usage tracking (hourly)
+    - Active requests gauge
+    - Error budget remaining indicator
+    - Tool call success rate
+    - Finish reason distribution pie chart
+  - Error budget policy with burn rate thresholds (1x, 2x, 5x, 10x, 14x)
+  - Troubleshooting runbooks for common alert scenarios
 - **Synchronous API wrapper** for non-async environments (Flask/Django/scripts)
   - New `Pipeline.run_sync()` method for synchronous calls
   - New `Pipeline.stream_sync()` method for synchronous streaming
@@ -75,6 +94,25 @@
 
 ### 新增
 
+- **完整的监控与告警基础设施**
+  - 新增 `docs/monitoring.md` 包含完整的 SLO/SLI 定义
+  - 预定义 Alertmanager 规则（`monitoring/alertmanager_rules.yml`）
+    - 高错误率检测 (>5%)
+    - P95/P99 延迟告警 (>10秒)
+    - 熔断器激活监控
+    - Token 预算超额警告 (>100万 tokens/小时)
+    - 工具调用失败率告警 (>10%)
+    - 服务中断检测（无活跃请求）
+  - 生产就绪的 Grafana 仪表板（`monitoring/grafana_dashboard.json`）
+    - 请求速率和错误率图表
+    - P95/P99 延迟可视化
+    - Token 使用量跟踪（每小时）
+    - 活跃请求数指示器
+    - 错误预算剩余量显示
+    - 工具调用成功率
+    - 结束原因分布饼图
+  - 带燃烧率阈值的错误预算策略（1x, 2x, 5x, 10x, 14x）
+  - 常见告警场景的故障排除手册
 - **同步 API 封装**，适用于非异步环境（Flask/Django/脚本）
   - 新增 `Pipeline.run_sync()` 方法用于同步调用
   - 新增 `Pipeline.stream_sync()` 方法用于同步流式调用

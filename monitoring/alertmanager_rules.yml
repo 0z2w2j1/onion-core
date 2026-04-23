@@ -1,0 +1,107 @@
+# Onion Core - Alertmanager Rules
+# Version: v0.6.0
+# 
+# Usage: Include this file in your Prometheus Alertmanager configuration
+# 
+# Example prometheus.yml:
+#   rule_files:
+#     - "alertmanager_rules.yml"
+
+groups:
+  - name: onion_core_alerts
+    rules:
+      # ── High Error Rate ────────────────────────────────────────────────
+      - alert: OnionCoreHighErrorRate
+        expr: |
+          sum(rate(onion_requests_total{status="error"}[5m])) 
+          / 
+          sum(rate(onion_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "High error rate in Onion Core (>5%)"
+          description: |
+            Error rate is {{ $value | humanizePercentage }} over the last 5 minutes.
+            Pipeline: {{ $labels.pipeline_name }}
+          runbook_url: "https://wiki.internal/runbooks/onion-core-high-error-rate"
+
+      # ── High Latency (P95) ─────────────────────────────────────────────
+      - alert: OnionCoreHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(onion_request_duration_seconds_bucket[5m])) 
+            by (le, pipeline_name, model)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "High P95 latency in Onion Core (>10s)"
+          description: |
+            P95 latency is {{ $value | humanizeDuration }} for pipeline {{ $labels.pipeline_name }}, model {{ $labels.model }}.
+          runbook_url: "https://wiki.internal/runbooks/onion-core-high-latency"
+
+      # ── Circuit Breaker Open ───────────────────────────────────────────
+      - alert: OnionCoreCircuitBreakerOpen
+        expr: |
+          # Note: This requires custom metric export from CircuitBreaker
+          # For now, monitor via logs or add custom metric
+          absent(onion_requests_total) == 0
+        for: 1m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Potential circuit breaker activation"
+          description: |
+            No requests observed in the last minute. Check if circuit breaker is open.
+            Investigate provider health and fallback chains.
+
+      # ── Token Budget Exceeded ──────────────────────────────────────────
+      - alert: OnionCoreTokenBudgetExceeded
+        expr: |
+          sum(increase(onion_tokens_total{type="completion"}[1h])) > 1000000
+        for: 0m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Hourly token budget exceeded (>1M tokens)"
+          description: |
+            Consumed {{ $value | humanize }} completion tokens in the last hour.
+            Review usage patterns and consider rate limiting.
+
+      # ── Tool Call Failure Rate ─────────────────────────────────────────
+      - alert: OnionCoreToolCallFailureRate
+        expr: |
+          sum(rate(onion_tool_calls_total{status="error"}[5m])) 
+          / 
+          sum(rate(onion_tool_calls_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "High tool call failure rate (>10%)"
+          description: |
+            Tool call error rate is {{ $value | humanizePercentage }}.
+            Check tool implementations and external dependencies.
+
+      # ── No Active Requests (Potential Outage) ──────────────────────────
+      - alert: OnionCoreNoActiveRequests
+        expr: |
+          sum(onion_active_requests) == 0
+          and
+          sum(increase(onion_requests_total[15m])) > 100
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "No active requests despite recent traffic"
+          description: |
+            System received {{ $value }} requests in the last 15 minutes but has 0 active requests.
+            Possible service outage or deployment issue.

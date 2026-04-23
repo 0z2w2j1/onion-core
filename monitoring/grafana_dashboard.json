@@ -1,0 +1,195 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "onion-core-prod",
+    "title": "Onion Core - Production Monitoring",
+    "tags": ["onion-core", "llm", "agent", "production"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "pipeline_name",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(onion_requests_total, pipeline_name)",
+          "refresh": 2,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate & Error Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(onion_requests_total{pipeline_name=~\"$pipeline_name\"}[5m])) by (pipeline_name)",
+            "legendFormat": "{{pipeline_name}} - Total",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(onion_requests_total{pipeline_name=~\"$pipeline_name\",status=\"error\"}[5m])) by (pipeline_name)",
+            "legendFormat": "{{pipeline_name}} - Errors",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "req/s", "format": "short"},
+          {"label": "", "format": "short"}
+        ],
+        "lines": true,
+        "linewidth": 2,
+        "fill": 1,
+        "stack": false
+      },
+      {
+        "id": 2,
+        "title": "P95/P99 Latency",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(onion_request_duration_seconds_bucket{pipeline_name=~\"$pipeline_name\"}[5m])) by (le, pipeline_name))",
+            "legendFormat": "{{pipeline_name}} - P95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(onion_request_duration_seconds_bucket{pipeline_name=~\"$pipeline_name\"}[5m])) by (le, pipeline_name))",
+            "legendFormat": "{{pipeline_name}} - P99",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "seconds", "format": "s"},
+          {"label": "", "format": "short"}
+        ],
+        "lines": true,
+        "linewidth": 2
+      },
+      {
+        "id": 3,
+        "title": "Token Usage (Hourly)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "sum(increase(onion_tokens_total{pipeline_name=~\"$pipeline_name\",type=\"prompt\"}[1h])) by (model)",
+            "legendFormat": "{{model}} - Prompt Tokens",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(increase(onion_tokens_total{pipeline_name=~\"$pipeline_name\",type=\"completion\"}[1h])) by (model)",
+            "legendFormat": "{{model}} - Completion Tokens",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "tokens/hour", "format": "short"},
+          {"label": "", "format": "short"}
+        ],
+        "lines": true,
+        "stack": true
+      },
+      {
+        "id": 4,
+        "title": "Active Requests",
+        "type": "singlestat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "sum(onion_active_requests{pipeline_name=~\"$pipeline_name\"})",
+            "legendFormat": "Active",
+            "refId": "A"
+          }
+        ],
+        "thresholds": "50,100",
+        "colorValue": true,
+        "colors": ["#299c46", "rgba(237, 129, 40, 0.89)", "#d44a3a"],
+        "valueName": "current",
+        "format": "none"
+      },
+      {
+        "id": 5,
+        "title": "Error Budget Remaining (30d)",
+        "type": "singlestat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+        "targets": [
+          {
+            "expr": "(1 - (sum(increase(onion_requests_total{status=\"error\"}[30d])) / sum(increase(onion_requests_total[30d])))) * 100",
+            "legendFormat": "Budget %",
+            "refId": "A"
+          }
+        ],
+        "thresholds": "99.9,99.95",
+        "colorValue": true,
+        "colors": ["#d44a3a", "rgba(237, 129, 40, 0.89)", "#299c46"],
+        "valueName": "current",
+        "format": "percent",
+        "decimals": 2
+      },
+      {
+        "id": 6,
+        "title": "Tool Call Success Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "sum(rate(onion_tool_calls_total{pipeline_name=~\"$pipeline_name\",status=\"ok\"}[5m])) / sum(rate(onion_tool_calls_total{pipeline_name=~\"$pipeline_name\"}[5m]))",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"label": "rate", "format": "percentunit", "min": 0, "max": 1},
+          {"label": "", "format": "short"}
+        ],
+        "lines": true,
+        "linewidth": 2
+      },
+      {
+        "id": 7,
+        "title": "Requests by Finish Reason",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "sum(increase(onion_requests_total{pipeline_name=~\"$pipeline_name\"}[1h])) by (finish_reason)",
+            "legendFormat": "{{finish_reason}}",
+            "refId": "A"
+          }
+        ],
+        "pieType": "pie",
+        "legend": {"show": true, "values": true}
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "editable": true,
+    "gnetId": null,
+    "graphTooltip": 0,
+    "links": [],
+    "style": "dark"
+  },
+  "overwrite": true
+}

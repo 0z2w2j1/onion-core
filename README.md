@@ -238,6 +238,7 @@ Or from file (`onion.json` / `onion.yaml`):
 | [Architecture Design](docs/architecture.md) | System design, data flow, extensibility guide |
 | [Error Code Usage](docs/error_code_usage.md) | How to use `ErrorCode` and `OnionErrorWithCode` |
 | [Degradation Strategy](docs/degradation_strategy.md) | Retry, circuit breaker, fallback provider chain |
+| [Monitoring & Alerting](docs/monitoring.md) | Prometheus metrics, Alertmanager rules, Grafana dashboards, SLO/SLI definitions |
 | [Examples](examples/) | Usage examples for OpenAI, Anthropic, LM Studio, Ollama, etc. |
 
 ---
@@ -515,6 +516,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | [架构设计文档](docs/architecture.md) | 系统设计、数据流、扩展指南 |
 | [错误码使用指南](docs/error_code_usage.md) | 如何使用 `ErrorCode` 和 `OnionErrorWithCode` |
 | [降级策略文档](docs/degradation_strategy.md) | 重试、熔断、Fallback Provider 链路 |
+| [监控与告警指南](docs/monitoring.md) | Prometheus 指标、Alertmanager 规则、Grafana 仪表板、SLO/SLI 定义 |
 | [示例代码](examples/) | OpenAI、Anthropic、LM Studio、Ollama 等使用示例 |
 
 ---

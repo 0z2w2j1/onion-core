@@ -144,7 +144,7 @@ Feel free to open a GitHub Issue for any questions about contributing.
 ### 报告问题
 
 - 使用 [GitHub Issues](https://github.com/anomalyco/opencode/issues) 报告bugs或请求新功能
-- 包含：预期行为、实际行为、重现步骤、环���信息
+- 包含：预期行为、实际行为、重现步骤、 环境信息
 
 ### Pull Request 工作流程
 
