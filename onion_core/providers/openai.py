@@ -44,7 +44,7 @@ class OpenAIProvider(LLMProvider):
     ) -> None:
         try:
             from openai import AsyncOpenAI
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "openai package is required: pip install openai>=1.0"
             ) from err

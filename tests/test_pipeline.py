@@ -148,9 +148,11 @@ async def test_priority_ordering():
             @property
             def name(self): return label
             async def process_request(self, ctx):
-                req_order.append(label); return ctx
+                req_order.append(label)
+                return ctx
             async def process_response(self, ctx, r):
-                resp_order.append(label); return r
+                resp_order.append(label)
+                return r
             async def process_stream_chunk(self, ctx, c): return c
             async def on_tool_call(self, ctx, tc): return tc
             async def on_tool_result(self, ctx, r): return r

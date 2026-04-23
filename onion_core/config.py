@@ -86,7 +86,7 @@ class OnionConfig(BaseSettings):
             try:
                 import yaml  # type: ignore
                 data = yaml.safe_load(p.read_text(encoding="utf-8"))
-            except ImportError:
+            except ImportError as err:
                 raise ImportError("pip install pyyaml to use YAML config files") from err
         else:
             raise ValueError(f"Unsupported config format: {suffix}")

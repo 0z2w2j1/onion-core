@@ -57,7 +57,7 @@ class _NoOpSpan:
     def __exit__(self, *a): pass
 
 
-TracersType = Optional[TracerLike]
+TracersType = TracerLike | None
 
 
 class TracingMiddleware(BaseMiddleware):

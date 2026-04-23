@@ -44,7 +44,7 @@ class AnthropicProvider(LLMProvider):
     ) -> None:
         try:
             import anthropic as _anthropic
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "anthropic package is required: pip install anthropic>=0.20"
             ) from err

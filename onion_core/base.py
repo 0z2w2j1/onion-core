@@ -4,9 +4,12 @@ Onion Core - 中间件抽象基类
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 
 from .models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class BaseMiddleware(ABC):
@@ -41,9 +44,11 @@ class BaseMiddleware(ABC):
 
     async def startup(self) -> None:
         """Pipeline 启动时调用，默认空操作。"""
+        logger.debug("Middleware %s started.", self.name)
 
     async def shutdown(self) -> None:
         """Pipeline 关闭时调用，默认空操作。"""
+        logger.debug("Middleware %s shutdown.", self.name)
 
     # ── 必须实现 ─────────────────────────────────────────────────────────────
 
@@ -81,3 +86,4 @@ class BaseMiddleware(ABC):
 
     async def on_error(self, context: AgentContext, error: Exception) -> None:
         """错误广播（正序），默认空操作。"""
+        logger.debug("Middleware %s received error: %s", self.name, error)
