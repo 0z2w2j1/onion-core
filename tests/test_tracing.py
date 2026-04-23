@@ -29,7 +29,7 @@ class TestTracingMiddlewareNoOp:
     async def test_startup_without_otel(self, context):
         mw = TracingMiddleware(service_name="test")
         await mw.startup()
-        assert mw._otel_available == False
+        assert not mw._otel_available
         await mw.shutdown()
 
     @pytest.mark.asyncio
