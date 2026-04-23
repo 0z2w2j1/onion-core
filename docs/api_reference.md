@@ -365,12 +365,65 @@ class Pipeline:
     def from_config(
         cls, provider: LLMProvider, config: OnionConfig, name: str = "default"
     ) -> "Pipeline": ...
+
+    # Health check
+    def health_check(self) -> Dict[str, Any]:
+        """Returns pipeline health status.
+        
+        Returns:
+            {
+                "status": "healthy" | "not_started" | "degraded",
+                "name": str,
+                "started": bool,
+                "middlewares_count": int,
+                "provider": str,
+                "fallback_providers": List[str],
+                "circuit_breakers": Dict[str, str],
+            }
+        """
+        ...
+
+    def health_check_sync(self) -> Dict[str, Any]:
+        """Synchronous version of health_check()."""
+        ...
+
+    # 健康检查
+    def health_check(self) -> Dict[str, Any]:
+        """返回 Pipeline 的健康状态。
+        
+        返回值：
+            {
+                "status": "healthy"（健康）| "not_started"（未启动）| "degraded"（降级）,
+                "name": str,                    # Pipeline 名称
+                "started": bool,                # 是否已启动
+                "middlewares_count": int,       # 中间件数量
+                "provider": str,                # 主 Provider 类型
+                "fallback_providers": List[str],# Fallback Provider 列表
+                "circuit_breakers": Dict[str, str],  # 每个 Provider 的熔断器状态
+            }
+        
+        用法：
+            health = pipeline.health_check()
+            if health["status"] != "healthy":
+                logger.warning("Pipeline 降级: %s", health)
+        """
+        ...
+
+    def health_check_sync(self) -> Dict[str, Any]:
+        """health_check() 的同步版本。"""
+        ...
 ```
 
 **Execution Order Diagram:**
 ```
 Request:  middleware.priority ASC (low → high)
 Response: middleware.priority DESC (high → low)
+```
+
+**执行顺序图：**
+```
+请求阶段：中间件按优先级升序执行（低 → 高）
+响应阶段：中间件按优先级降序执行（高 → 低）
 ```
 
 ---

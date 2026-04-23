@@ -18,7 +18,7 @@ import logging
 import random
 import types
 from collections.abc import AsyncIterator, Awaitable, Iterator
-from typing import TypeVar, overload
+from typing import Any, TypeVar, overload
 
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
@@ -266,11 +266,12 @@ class Pipeline:
         主 provider 全部重试失败后，依次尝试 fallback_providers。
         """
         all_providers = [self._provider] + self._fallback_providers
-        last_exc: Exception | None = None
+        exceptions: list[tuple[str, Exception]] = []
 
         for provider_idx, provider in enumerate(all_providers):
             is_fallback = provider_idx > 0
             cb = self._circuit_breakers.get(id(provider))
+            provider_name = f"{type(provider).__name__}#{provider_idx}"
 
             if is_fallback:
                 logger.warning(
@@ -285,7 +286,7 @@ class Pipeline:
                 except CircuitBreakerError as cb_exc:
                     logger.warning("[%s][pipeline=%s] Provider #%d is circuit-broken, skipping", 
                                    context.request_id, self.name, provider_idx)
-                    last_exc = cb_exc
+                    exceptions.append((provider_name, cb_exc))
                     continue  # 尝试下一个 fallback
 
             for attempt in range(self._max_retries + 1):
@@ -304,7 +305,6 @@ class Pipeline:
                     return resp
 
                 except Exception as exc:
-                    last_exc = exc
                     outcome = self._retry_policy.classify(exc)
 
                     # 记录熔断器失败（仅对非 FATAL 异常记录，因为 FATAL 通常是业务/参数错误，不是 Provider 故障）
@@ -321,6 +321,7 @@ class Pipeline:
                             "[%s][pipeline=%s] Provider[%d] non-retryable (%s), trying fallback",
                             context.request_id, self.name, provider_idx, type(exc).__name__,
                         )
+                        exceptions.append((provider_name, exc))
                         break  # 跳出 attempt 循环，进入下一个 provider
 
                     # RETRY
@@ -337,7 +338,21 @@ class Pipeline:
                             "[%s][pipeline=%s] Provider[%d] failed after %d attempts: %s",
                             context.request_id, self.name, provider_idx, self._max_retries + 1, exc,
                         )
-        raise last_exc  # type: ignore[misc]
+                        exceptions.append((provider_name, exc))
+
+        # 所有 provider 都失败，聚合异常信息
+        if exceptions:
+            error_summary = "; ".join(f"{name}: {type(exc).__name__}({exc})" for name, exc in exceptions)
+            logger.error(
+                "[%s][pipeline=%s] All providers failed: %s",
+                context.request_id, self.name, error_summary,
+            )
+            # 使用最后一个异常作为主异常，但保留完整上下文
+            last_exc = exceptions[-1][1]
+            last_exc.__cause__ = None  # 清除 cause 链避免混淆
+            raise last_exc
+        
+        raise RuntimeError("Unexpected state: no providers were attempted")  # pragma: no cover
 
     # ------------------------------------------------------------------
     # 内部调度
@@ -595,6 +610,80 @@ class Pipeline:
     ) -> None:
         """同步上下文管理器退出。"""
         self.shutdown_sync()
+
+    # ------------------------------------------------------------------
+    # 健康检查
+    # ------------------------------------------------------------------
+
+    def health_check(self) -> dict[str, Any]:
+        """
+        返回 Pipeline 的健康状态信息。
+
+        Returns:
+            包含健康状态的字典，结构如下：
+            {
+                "status": "healthy" | "not_started" | "degraded",
+                "name": str,
+                "started": bool,
+                "middlewares_count": int,
+                "provider": str,
+                "fallback_providers": list[str],
+                "circuit_breakers": dict[str, str],
+            }
+
+        用法：
+            health = pipeline.health_check()
+            if health["status"] != "healthy":
+                logger.warning("Pipeline degraded: %s", health)
+        """
+        from .models import CircuitState
+
+        cb_states = {}
+        degraded = False
+
+        for idx, (provider_id, cb) in enumerate(self._circuit_breakers.items()):
+            # 找到对应的 provider 名称，添加索引以区分同名 provider
+            provider_name = "unknown"
+            all_providers = [self._provider] + self._fallback_providers
+            for p in all_providers:
+                if id(p) == provider_id:
+                    base_name = type(p).__name__
+                    # 如果有多个同名 provider，添加索引
+                    if sum(1 for pid in self._circuit_breakers if any(
+                        type(pp).__name__ == base_name and id(pp) == pid
+                        for pp in all_providers
+                    )) > 1:
+                        provider_name = f"{base_name}#{idx}"
+                    else:
+                        provider_name = base_name
+                    break
+
+            state = cb.state
+            cb_states[provider_name] = state.value
+
+            # 如果有熔断器处于 OPEN 状态，标记为降级
+            if state == CircuitState.OPEN:
+                degraded = True
+
+        status = "healthy"
+        if not self._started:
+            status = "not_started"
+        elif degraded:
+            status = "degraded"
+
+        return {
+            "status": status,
+            "name": self.name,
+            "started": self._started,
+            "middlewares_count": len(self._middlewares),
+            "provider": type(self._provider).__name__,
+            "fallback_providers": [type(p).__name__ for p in self._fallback_providers],
+            "circuit_breakers": cb_states,
+        }
+
+    def health_check_sync(self) -> dict[str, Any]:
+        """同步版本的健康检查方法。"""
+        return self.health_check()
 
 
 MiddlewareManager = Pipeline  # 向后兼容别名

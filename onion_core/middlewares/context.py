@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 
 import tiktoken
 
@@ -14,6 +15,8 @@ logger = logging.getLogger("onion_core.context")
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_KEEP_ROUNDS = 2
 DEFAULT_MODEL_ENCODING = "cl100k_base"
+# LRU 缓存最大容量，避免内存泄漏
+ENCODING_CACHE_MAX_SIZE = 10
 
 
 class ContextWindowMiddleware(BaseMiddleware):
@@ -44,18 +47,24 @@ class ContextWindowMiddleware(BaseMiddleware):
         self._default_encoding_name = encoding_name
         # 默认 encoding（启动时加载）
         self._default_encoding = tiktoken.get_encoding(encoding_name)
-        # encoding 缓存，避免重复加载
-        self._encoding_cache: dict[str, tiktoken.Encoding] = {
-            encoding_name: self._default_encoding
-        }
+        # LRU encoding 缓存，避免重复加载（最大容量 ENCODING_CACHE_MAX_SIZE）
+        self._encoding_cache: OrderedDict[str, tiktoken.Encoding] = OrderedDict(
+            [(encoding_name, self._default_encoding)]
+        )
 
     def _get_encoding(self, name: str) -> tiktoken.Encoding:
-        """按名称获取 encoding，带缓存。未知名称回退到默认 encoding 并记录警告。"""
+        """按名称获取 encoding，带 LRU 缓存。未知名称回退到默认 encoding 并记录警告。"""
         if name in self._encoding_cache:
+            # LRU：移动到末尾（最近使用）
+            self._encoding_cache.move_to_end(name)
             return self._encoding_cache[name]
         try:
             enc = tiktoken.get_encoding(name)
+            # LRU：添加到缓存，如果超出容量则删除最旧的
             self._encoding_cache[name] = enc
+            self._encoding_cache.move_to_end(name)
+            if len(self._encoding_cache) > ENCODING_CACHE_MAX_SIZE:
+                self._encoding_cache.popitem(last=False)  # 删除最旧的
             logger.debug("Loaded encoding: %s", name)
             return enc
         except Exception as exc:

@@ -348,6 +348,77 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
+## 10. Performance Optimizations (v0.6.0+)
+
+### 10.1 LRU Cache for Token Encoding
+
+`ContextWindowMiddleware` uses an LRU cache (`OrderedDict`) to store tiktoken encoding objects:
+- **Cache size**: 10 encodings maximum
+- **Eviction policy**: Least Recently Used (LRU)
+- **Benefit**: Avoids repeated `tiktoken.get_encoding()` calls, which are expensive (~50-100ms)
+- **Memory safety**: Prevents unbounded memory growth
+
+```python
+# Internal implementation
+self._encoding_cache: OrderedDict[str, tiktoken.Encoding] = OrderedDict()
+# On cache hit: move to end (most recently used)
+self._encoding_cache.move_to_end(name)
+# On cache miss: add new, evict oldest if full
+if len(self._encoding_cache) > ENCODING_CACHE_MAX_SIZE:
+    self._encoding_cache.popitem(last=False)
+```
+
+### 10.2 Pre-compiled PII Regex Patterns
+
+`SafetyGuardrailMiddleware` pre-compiles all PII detection regex patterns at module load time:
+- **Patterns compiled once**: Email, phone (CN/intl), ID card, credit card
+- **No runtime compilation overhead**: `re.compile()` called during import
+- **Thread-safe**: Compiled patterns are immutable and shared
+
+```python
+# Module-level pre-compilation (safety.py line 25-31)
+BUILTIN_PII_RULES: list[PiiRule] = [
+    PiiRule("email", re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"), ...),
+    PiiRule("phone_cn", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), ...),
+    # ... more patterns
+]
+```
+
+### 10.3 Exception Aggregation
+
+When all providers (primary + fallbacks) fail, the pipeline now:
+- **Collects all exceptions**: Stores `(provider_name, exception)` tuples
+- **Logs comprehensive error summary**: Shows all failures in one log entry
+- **Raises last exception**: Maintains backward compatibility while preserving context
+
+This improves debugging by showing the complete failure chain instead of just the last error.
+
+### 10.4 Health Check Endpoint
+
+New `Pipeline.health_check()` method provides observability into pipeline state:
+- **Status codes**: `healthy`, `not_started`, `degraded`
+- **Circuit breaker monitoring**: Reports state of each provider's breaker
+- **Degradation detection**: Automatically marks as "degraded" if any breaker is OPEN
+- **Use case**: Kubernetes liveness/readiness probes, monitoring dashboards
+
+```python
+health = pipeline.health_check()
+# {
+#     "status": "degraded",
+#     "name": "my-pipeline",
+#     "started": True,
+#     "middlewares_count": 3,
+#     "provider": "OpenAIProvider",
+#     "fallback_providers": ["DeepSeekProvider"],
+#     "circuit_breakers": {
+#         "OpenAIProvider": "open",  # Tripped!
+#         "DeepSeekProvider": "closed"
+#     }
+# }
+```
+
+---
+
 # Onion Core - 架构设计文档
 
 > 版本：0.6.0 | 日期：2026-04-24
@@ -695,3 +766,74 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 | **版本** | 0.6.0（Beta）— API 可能随时变更 |
 | **文档** | 主要中文 README；本版本添加英文文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试和代码检查 |
+
+---
+
+## 10. 性能优化 (v0.6.0+)
+
+### 10.1 Token Encoding 的 LRU 缓存
+
+`ContextWindowMiddleware` 使用 LRU 缓存（`OrderedDict`）存储 tiktoken encoding 对象：
+- **缓存容量**：最多 10 个 encodings
+- **淘汰策略**：最近最少使用（LRU）
+- **性能收益**：避免重复调用 `tiktoken.get_encoding()`，每次调用约需 50-100ms
+- **内存安全**：防止无限制的内存增长
+
+```python
+# 内部实现
+self._encoding_cache: OrderedDict[str, tiktoken.Encoding] = OrderedDict()
+# 缓存命中：移动到末尾（最近使用）
+self._encoding_cache.move_to_end(name)
+# 缓存未命中：添加新项，如果满了则删除最旧的
+if len(self._encoding_cache) > ENCODING_CACHE_MAX_SIZE:
+    self._encoding_cache.popitem(last=False)
+```
+
+### 10.2 PII 正则表达式预编译
+
+`SafetyGuardrailMiddleware` 在模块加载时预编译所有 PII 检测正则表达式：
+- **一次性编译**：邮箱、手机号（国内/国际）、身份证、信用卡
+- **无运行时开销**：`re.compile()` 在导入时调用
+- **线程安全**：编译后的模式是不可变的且可共享
+
+```python
+# 模块级预编译（safety.py 第 25-31 行）
+BUILTIN_PII_RULES: list[PiiRule] = [
+    PiiRule("email", re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"), ...),
+    PiiRule("phone_cn", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), ...),
+    # ... 更多模式
+]
+```
+
+### 10.3 异常聚合
+
+当所有 Provider（主 Provider + Fallback）都失败时，Pipeline 现在会：
+- **收集所有异常**：存储 `(provider_name, exception)` 元组
+- **记录完整错误摘要**：在一个日志条目中显示所有失败
+- **抛出最后一个异常**：保持向后兼容性同时保留上下文
+
+这通过显示完整的失败链而不仅仅是最后一个错误来改善调试体验。
+
+### 10.4 健康检查端点
+
+新增 `Pipeline.health_check()` 方法提供 Pipeline 状态的可观测性：
+- **状态码**：`healthy`（健康）、`not_started`（未启动）、`degraded`（降级）
+- **熔断器监控**：报告每个 Provider 的熔断器状态
+- **降级检测**：如果任何熔断器处于 OPEN 状态则自动标记为“降级”
+- **使用场景**：Kubernetes liveness/readiness probes、监控仪表板
+
+```python
+health = pipeline.health_check()
+# {
+#     "status": "degraded",
+#     "name": "my-pipeline",
+#     "started": True,
+#     "middlewares_count": 3,
+#     "provider": "OpenAIProvider",
+#     "fallback_providers": ["DeepSeekProvider"],
+#     "circuit_breakers": {
+#         "OpenAIProvider": "open",  # 熔断了！
+#         "DeepSeekProvider": "closed"
+#     }
+# }
+```
