@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)]()
+[![Coverage](https://codecov.io/gh/0z2w2j1/onion-core/branch/main/graph/badge.svg)](https://codecov.io/gh/0z2w2j1/onion-core)
 [![mypy](https://img.shields.io/badge/mypy-strict-blue.svg)]()
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)]()
 

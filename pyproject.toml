@@ -51,11 +51,11 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/onion-core"
-Repository = "https://github.com/your-org/onion-core"
-Issues = "https://github.com/your-org/onion-core/issues"
-Documentation = "https://github.com/your-org/onion-core/blob/main/docs/api_reference.md"
-Changelog = "https://github.com/your-org/onion-core/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/0z2w2j1/onion-core"
+Repository = "https://github.com/0z2w2j1/onion-core"
+Issues = "https://github.com/0z2w2j1/onion-core/issues"
+Documentation = "https://github.com/0z2w2j1/onion-core/blob/main/docs/api_reference.md"
+Changelog = "https://github.com/0z2w2j1/onion-core/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
