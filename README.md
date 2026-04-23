@@ -26,8 +26,8 @@
              │
              ▼
     ┌─────────────────────────┐
-    │ [1] Tracing    (50)    │◄── Outer
-    │ [2] Metrics    (90)    │
+    │ [1] Tracing    (50)     │◄── Outer
+    │ [2] Metrics    (90)     │
     │ [3] Observability(100)  │
     │ [4] Rate Limit (150)    │
     │ [5] Safety     (200)    │
