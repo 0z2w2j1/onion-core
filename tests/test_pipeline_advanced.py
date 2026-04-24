@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -163,10 +164,8 @@ class TestCircuitBreaker:
         async with pipeline:
             # 触发3次失败，熔断器应打开
             for _ in range(3):
-                try:
+                with contextlib.suppress(ProviderError):
                     await pipeline.run(make_context())
-                except ProviderError:
-                    pass
 
             # 第4次调用应被熔断器拦截
             with pytest.raises(CircuitBreakerError):
@@ -278,10 +277,8 @@ class TestFallbackProviders:
         async with pipeline:
             # 触发熔断
             for _ in range(2):
-                try:
+                with contextlib.suppress(ProviderError):
                     await pipeline.run(make_context())
-                except ProviderError:
-                    pass
 
             # 再次调用，两个 Provider 都应被熔断
             with pytest.raises(CircuitBreakerError):
@@ -479,10 +476,8 @@ class TestHealthCheck:
         async with pipeline:
             # 触发熔断
             for _ in range(2):
-                try:
+                with contextlib.suppress(ProviderError):
                     await pipeline.run(make_context())
-                except ProviderError:
-                    pass
 
             health = pipeline.health_check()
             assert health["status"] == "degraded"
