@@ -21,6 +21,9 @@ class RateLimitMiddleware(BaseMiddleware):
 
     priority: int = 150
     is_mandatory: bool = True
+    
+    # 单个 session 最多保留的时间戳数量，防止内存泄漏
+    _MAX_TIMESTAMPS_PER_SESSION = 1000
 
     def __init__(
         self,
@@ -63,6 +66,12 @@ class RateLimitMiddleware(BaseMiddleware):
             cutoff = now - self._window
             while window and window[0] < cutoff:
                 window.popleft()
+
+            # 防止单个 session 积累过多时间戳导致内存泄漏
+            if len(window) >= self._MAX_TIMESTAMPS_PER_SESSION:
+                excess = len(window) - self._MAX_TIMESTAMPS_PER_SESSION + 1
+                for _ in range(excess):
+                    window.popleft()
 
             if len(window) >= self._max_requests:
                 retry_after = self._window - (now - window[0])

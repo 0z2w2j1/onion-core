@@ -28,6 +28,7 @@ Onion Core - Distributed Response Cache Middleware (Redis Backend)
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -96,9 +97,10 @@ class DistributedCacheMiddleware(BaseMiddleware):
         self._key_prefix = key_prefix
         self._cache_key_strategy = cache_key_strategy
         
-        # 统计信息
+        # 统计信息（使用锁保护并发访问）
         self._hits = 0
         self._misses = 0
+        self._stats_lock = asyncio.Lock()
         
         # Redis 连接
         self._redis_pool = redis.ConnectionPool.from_url(
@@ -210,7 +212,8 @@ class DistributedCacheMiddleware(BaseMiddleware):
             
             if cached_data:
                 # 缓存命中
-                self._hits += 1
+                async with self._stats_lock:
+                    self._hits += 1
                 
                 # 反序列化缓存数据
                 cached_response = self._deserialize_response(cached_data)
@@ -227,12 +230,14 @@ class DistributedCacheMiddleware(BaseMiddleware):
                 )
             else:
                 # 缓存未命中
-                self._misses += 1
+                async with self._stats_lock:
+                    self._misses += 1
                 logger.debug("[%s] Cache MISS (key=%s)", context.request_id, cache_key[:16])
 
         except Exception as exc:
             logger.error("[%s] Redis cache error: %s", context.request_id, exc)
-            self._misses += 1
+            async with self._stats_lock:
+                self._misses += 1
 
         return context
 

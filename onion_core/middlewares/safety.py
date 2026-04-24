@@ -61,6 +61,15 @@ DEFAULT_BLOCKED_KEYWORDS: list[str] = [
     "BYPASS SECURITY",
 ]
 
+# 预编译的注入检测正则模式（增强检测能力）
+INJECTION_PATTERNS: list[Pattern[str]] = [
+    re.compile(r"ign\s*ore\s+instr.*ctions", re.IGNORECASE),
+    re.compile(r"byp\s*ass\s+sec.*rity", re.IGNORECASE),
+    re.compile(r"sys\s*tem\s+prom.*pt", re.IGNORECASE),
+    re.compile(r"disregard\s+above", re.IGNORECASE),
+    re.compile(r"overrid[e]\s+safet[y]", re.IGNORECASE),
+]
+
 
 class SafetyGuardrailMiddleware(BaseMiddleware):
     """
@@ -88,6 +97,8 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
             self._pii_rules.extend(BUILTIN_PII_RULES)
         if pii_rules:
             self._pii_rules.extend(pii_rules)
+        # 预编译的注入检测正则模式
+        self._injection_patterns = INJECTION_PATTERNS
 
     async def startup(self) -> None:
         logger.info(
@@ -114,11 +125,26 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         last_user_msg = self._get_last_user_message(context)
         if last_user_msg is None:
             return context
+        
         text_lower = last_user_msg.lower()
+        
+        # 1. 关键词检测（现有逻辑）
         for keyword in self._blocked_keywords:
             if keyword in text_lower:
                 logger.warning("[%s] BLOCKED — keyword: '%s'", context.request_id, keyword)
                 raise SecurityException(f"Request blocked: detected prohibited keyword '{keyword}'")
+        
+        # 2. 正则模式检测（增强检测能力）
+        for pattern in self._injection_patterns:
+            if pattern.search(last_user_msg):
+                logger.warning("[%s] BLOCKED — injection pattern detected", context.request_id)
+                raise SecurityException("Potential prompt injection detected")
+        
+        # 3. Unicode 混淆检测
+        if self._detect_unicode_confusion(last_user_msg):
+            logger.warning("[%s] BLOCKED — unicode confusion detected", context.request_id)
+            raise SecurityException("Suspicious character encoding detected")
+        
         logger.debug("[%s] Safety check passed.", context.request_id)
         return context
 
@@ -192,3 +218,15 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         for rule in self._pii_rules:
             text = rule.pattern.sub(rule.replacement, text)
         return text
+    
+    @staticmethod
+    def _detect_unicode_confusion(text: str) -> bool:
+        """
+        检测是否存在 Unicode 混淆攻击。
+        
+        检查非 ASCII 字母的比例，如果超过 30% 则认为是可疑的。
+        """
+        non_ascii_alpha = sum(1 for c in text if not c.isascii() and c.isalpha())
+        total_alpha = sum(1 for c in text if c.isalpha())
+        
+        return total_alpha > 0 and non_ascii_alpha / total_alpha > 0.3

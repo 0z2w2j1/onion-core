@@ -44,12 +44,9 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """获取当前熔断器状态（含自动重置检查）。"""
+        """获取当前熔断器状态（只读，不修改内部状态）。"""
         if self._state == CircuitState.OPEN and self._last_failure_time and time.time() - self._last_failure_time >= self.recovery_timeout:
-            # 实际更新内部状态，否则 record_success/record_failure 永远看不到 HALF_OPEN
-            self._state = CircuitState.HALF_OPEN
-            self._success_count = 0
-            logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
+            return CircuitState.HALF_OPEN
         return self._state
 
     async def check_call(self) -> None:
@@ -63,7 +60,12 @@ class CircuitBreaker:
         """记录一次成功调用。"""
         async with self._lock:
             # 先触发可能的 OPEN→HALF_OPEN 转换
-            _ = self.state
+            if self._state == CircuitState.OPEN and self._last_failure_time and \
+               time.time() - self._last_failure_time >= self.recovery_timeout:
+                self._state = CircuitState.HALF_OPEN
+                self._success_count = 0
+                logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
+            
             if self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
                 if self._success_count >= self.success_threshold:
@@ -77,7 +79,12 @@ class CircuitBreaker:
         async with self._lock:
             self._last_failure_time = time.time()
             # 先触发可能的 OPEN→HALF_OPEN 转换，再判断当前状态
-            _ = self.state
+            if self._state == CircuitState.OPEN and self._last_failure_time and \
+               time.time() - self._last_failure_time >= self.recovery_timeout:
+                self._state = CircuitState.HALF_OPEN
+                self._success_count = 0
+                logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
+            
             if self._state == CircuitState.CLOSED:
                 self._failure_count += 1
                 if self._failure_count >= self.failure_threshold:

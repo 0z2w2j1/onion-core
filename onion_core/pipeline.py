@@ -240,11 +240,22 @@ class Pipeline:
                     yield chunk
 
             if self._provider_timeout is not None:
+                # 计算绝对截止时间，确保总超时而非每 chunk 超时
+                loop = asyncio.get_event_loop()
+                deadline = loop.time() + self._provider_timeout
+                
                 gen = _provider_gen()
                 while True:
                     try:
+                        # 计算剩余时间
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            raise TimeoutError(
+                                f"Stream timeout exceeded ({self._provider_timeout}s)"
+                            )
+                        
                         raw_chunk = await asyncio.wait_for(
-                            gen.__anext__(), timeout=self._provider_timeout
+                            gen.__anext__(), timeout=remaining
                         )
                     except StopAsyncIteration:
                         break

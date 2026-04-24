@@ -14,6 +14,7 @@ Onion Core - AgentLoop
 
 from __future__ import annotations
 
+import json
 import logging
 
 from .models import AgentContext, LLMResponse, Message
@@ -62,6 +63,7 @@ class AgentLoop:
             最终的 LLMResponse（finish_reason="stop"）
         """
         last_response: LLMResponse | None = None
+        seen_tool_calls: set[str] = set()  # 记录已执行的工具调用签名
 
         for turn in range(self._max_turns):
             response = await self._pipeline.run(context)
@@ -75,6 +77,17 @@ class AgentLoop:
 
             # 执行所有工具调用
             for tool_call in response.tool_calls:
+                # 检测重复调用
+                call_signature = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
+                if call_signature in seen_tool_calls:
+                    logger.warning(
+                        "[%s] Duplicate tool call detected: %s",
+                        context.request_id, call_signature
+                    )
+                    continue  # 跳过重复调用
+                
+                seen_tool_calls.add(call_signature)
+                
                 # 通过 pipeline 拦截（安全检查、审计）
                 intercepted = await self._pipeline.execute_tool_call(context, tool_call)
 

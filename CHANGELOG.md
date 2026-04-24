@@ -5,20 +5,15 @@
 ### Fixed
 
 - **P0 Critical Issues Resolution**
-  - Fixed hardcoded string comparison in `cache.py`: Changed `finish_reason == "stop"` to `finish_reason == FinishReason.STOP`
-  - Improved Redis async compatibility in distributed middleware:
-    - Added proper runtime type detection for `redis.asyncio` version differences
-    - Fixed `ping()` and `script_load()` await handling for redis-py 4.5+ compatibility
-    - Added type ignore comments where Redis library types are inconsistent
-  - Optimized logging levels to reduce production log noise:
-    - Changed routine safety checks from `logger.info` to `logger.debug`
-    - PII masking events now logged at debug level instead of info
-    - Tool call success messages moved to debug level
-    - Warning/error levels preserved for actual issues
-  - Extracted magic numbers to named constants in `pipeline.py`:
-    - `_MAX_MESSAGES = 1000` (prevents DoS via excessive message count)
-    - `_MAX_CONTENT_LENGTH = 1_000_000` (1MB limit per message)
-    - Added clear documentation for each constant's purpose
+  - Fixed stream timeout control: Now uses absolute deadline instead of per-chunk timeout to prevent request hanging
+  - Fixed RateLimitMiddleware memory leak: Added `_MAX_TIMESTAMPS_PER_SESSION` limit (1000) to prevent unbounded deque growth
+  - Fixed distributed cache race condition: Added `asyncio.Lock` for thread-safe statistics counting (`_hits`, `_misses`)
+  - Enhanced prompt injection detection: Added regex pattern matching and Unicode confusion detection to bypass simple keyword checks
+  - Fixed CircuitBreaker state transition: Moved OPEN→HALF_OPEN logic inside lock to ensure atomic state changes
+  - Added AgentLoop duplicate tool call protection: Prevents infinite loops from repeated identical tool calls
+  - Added missing `asyncio` import in `distributed_cache.py`
+  - Replaced `asyncio.TimeoutError` with builtin `TimeoutError` (UP041)
+  - Simplified boolean return in `_detect_unicode_confusion()` (SIM103)
 
 ### Code Quality
 
