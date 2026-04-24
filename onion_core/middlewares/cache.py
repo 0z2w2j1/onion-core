@@ -17,10 +17,9 @@ import json
 import logging
 import time
 from collections import OrderedDict
-from typing import cast
 
 from ..base import BaseMiddleware
-from ..models import AgentContext, FinishReason, LLMResponse, StreamChunk
+from ..models import AgentContext, CacheHitException, FinishReason, LLMResponse, StreamChunk
 
 logger = logging.getLogger("onion_core.middleware.cache")
 
@@ -99,9 +98,8 @@ class ResponseCacheMiddleware(BaseMiddleware):
         """
         在请求阶段检查缓存。
         
-        如果缓存命中，直接返回缓存的响应（通过抛出特殊异常或设置标志）。
-        由于中间件链的设计，我们需要在 response 阶段处理缓存返回。
-        这里我们标记上下文，让后续流程知道这是缓存命中。
+        如果缓存命中，抛出 CacheHitException 中断 Provider 调用，
+        Pipeline 捕获后直接返回缓存的响应。
         """
         cache_key = self._generate_cache_key(context)
         
@@ -109,22 +107,22 @@ class ResponseCacheMiddleware(BaseMiddleware):
         if cache_key in self._cache:
             timestamp, cached_response = self._cache[cache_key]
             if time.time() - timestamp < self._ttl_seconds:
-                # 缓存命中
+                # 缓存命中 - 抛出异常中断后续流程
                 self._hits += 1
                 
                 # 移动到末尾（LRU）
                 self._cache.move_to_end(cache_key)
                 
-                # 在上下文中存储缓存的响应
-                context.metadata["_cached_response"] = cached_response
-                context.metadata["_cache_hit"] = True
-                
-                logger.debug(
-                    "[%s] Cache HIT (key=%s, ttl=%.1fs remaining)",
+                logger.info(
+                    "[%s] Cache HIT (key=%s, ttl=%.1fs remaining, hit_rate=%.1f%%)",
                     context.request_id,
                     cache_key[:16],
                     self._ttl_seconds - (time.time() - timestamp),
+                    self.hit_rate * 100,
                 )
+                
+                # 抛出异常，让 Pipeline 短路返回
+                raise CacheHitException(cached_response)
             else:
                 # 缓存过期，删除
                 del self._cache[cache_key]
@@ -140,25 +138,10 @@ class ResponseCacheMiddleware(BaseMiddleware):
         self, context: AgentContext, response: LLMResponse
     ) -> LLMResponse:
         """
-        在响应阶段处理缓存。
+        在响应阶段缓存新响应。
         
-        如果是缓存命中，直接返回缓存的响应。
-        否则，将新响应存入缓存。
+        仅当 finish_reason 为 stop 时才缓存。
         """
-        # 检查是否是缓存命中
-        if context.metadata.get("_cache_hit"):
-            cached_response = context.metadata.pop("_cached_response", None)
-            context.metadata.pop("_cache_hit", None)
-            
-            if cached_response is not None:
-                logger.info(
-                    "[%s] Returning cached response (hit_rate=%.1f%%)",
-                    context.request_id,
-                    self.hit_rate * 100,
-                )
-                # Cast to LLMResponse since we stored it as such
-                return cast(LLMResponse, cached_response)
-        
         # 缓存新响应（仅当 finish_reason 为 stop 时）
         if response.finish_reason == FinishReason.STOP:
             cache_key = self._generate_cache_key(context)

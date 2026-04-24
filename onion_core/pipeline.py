@@ -25,6 +25,7 @@ from .circuit_breaker import CircuitBreaker
 from .config import OnionConfig
 from .models import (
     AgentContext,
+    CacheHitException,
     CircuitBreakerError,
     LLMResponse,
     RetryOutcome,
@@ -75,6 +76,7 @@ class Pipeline:
         enable_circuit_breaker: bool = True,
         circuit_failure_threshold: int = 5,
         circuit_recovery_timeout: float = 30.0,
+        max_stream_chunks: int = 10000,
     ) -> None:
         """
         Args:
@@ -89,6 +91,7 @@ class Pipeline:
             enable_circuit_breaker: 是否启用熔断机制
             circuit_failure_threshold: 熔断触发阈值（连续失败次数）
             circuit_recovery_timeout: 熔断恢复超时（秒）
+            max_stream_chunks: 流式响应最大 chunk 数，防止 DoS 攻击（默认 10000）
         """
         self.name = name
         self._provider = provider
@@ -98,6 +101,7 @@ class Pipeline:
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
         self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
+        self._max_stream_chunks = max_stream_chunks
 
         # 熔断器配置
         self._enable_circuit_breaker = enable_circuit_breaker
@@ -225,15 +229,34 @@ class Pipeline:
     async def run(self, context: AgentContext) -> LLMResponse:
         """非流式完整调用：request → provider.complete → response。"""
         self._validate_context(context)
-        context = await self._run_request(context)
+        try:
+            context = await self._run_request(context)
+        except CacheHitException as exc:
+            # 缓存命中，直接返回缓存的响应
+            logger.info(
+                "[%s] Returning cached response, skipping provider call",
+                context.request_id,
+            )
+            return await self._run_response(context, exc.cached_response)
+        
         raw_response = await self._call_provider_with_retry(context)
         return await self._run_response(context, raw_response)
 
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用：request → provider.stream → 逐 chunk 过中间件。"""
         self._validate_context(context)
-        context = await self._run_request(context)
+        try:
+            context = await self._run_request(context)
+        except CacheHitException:
+            # 缓存命中 - 流式不支持缓存，记录警告
+            logger.warning(
+                "[%s] Cache hit in stream mode (not supported), falling back to provider",
+                context.request_id,
+            )
+            # 继续执行 provider 调用
+        
         buf_key = f"_safety_buf_{context.request_id}"
+        chunk_count = 0
         try:
             async def _provider_gen() -> AsyncIterator[StreamChunk]:
                 async for chunk in self._provider.stream(context):
@@ -259,10 +282,25 @@ class Pipeline:
                         )
                     except StopAsyncIteration:
                         break
+                    
+                    # 检查 chunk 数量防止 DoS
+                    chunk_count += 1
+                    if chunk_count > self._max_stream_chunks:
+                        raise ValidationError(
+                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                        )
+                    
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
             else:
                 async for raw_chunk in self._provider.stream(context):
+                    # 检查 chunk 数量防止 DoS
+                    chunk_count += 1
+                    if chunk_count > self._max_stream_chunks:
+                        raise ValidationError(
+                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                        )
+                    
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
         except Exception:
@@ -581,6 +619,7 @@ class Pipeline:
             enable_circuit_breaker=config.pipeline.enable_circuit_breaker,
             circuit_failure_threshold=config.pipeline.circuit_failure_threshold,
             circuit_recovery_timeout=config.pipeline.circuit_recovery_timeout,
+            max_stream_chunks=config.pipeline.max_stream_chunks,
         )
 
         p.add_middleware(ObservabilityMiddleware())
@@ -649,6 +688,7 @@ class Pipeline:
         """
         同步版本的 stream() 方法，将异步生成器包装为同步生成器。
 
+        使用线程池桥接模式，避免收集所有 chunks 到内存导致 OOM。
         自动检测是否已有运行中的事件循环，避免 RuntimeError。
 
         用法：
@@ -656,14 +696,32 @@ class Pipeline:
                 for chunk in p.stream_sync(context):
                     print(chunk.delta, end="", flush=True)
         """
-        async def _collect_chunks() -> list[StreamChunk]:
-            chunks = []
+        import concurrent.futures
+        
+        # 创建新的事件循环用于流式传输
+        loop = asyncio.new_event_loop()
+        
+        async def _stream_gen() -> AsyncIterator[StreamChunk]:
             async for chunk in self.stream(context):
-                chunks.append(chunk)
-            return chunks
-
-        chunks = self._run_async_in_sync(_collect_chunks())
-        yield from chunks
+                yield chunk
+        
+        gen = _stream_gen()
+        
+        try:
+            while True:
+                # 在线程池中执行异步 next()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future: concurrent.futures.Future[StreamChunk] = executor.submit(
+                        lambda: loop.run_until_complete(gen.__anext__())
+                    )
+                    try:
+                        chunk = future.result()
+                        yield chunk
+                    except StopAsyncIteration:
+                        break
+        finally:
+            # 清理资源
+            loop.close()
 
     def execute_tool_call_sync(
         self, context: AgentContext, tool_call: ToolCall

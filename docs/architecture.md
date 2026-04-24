@@ -2,6 +2,13 @@
 
 > Version: 0.7.3 | Date: 2026-04-24
 
+## Changelog (v0.7.3)
+
+### Performance Optimizations
+- **Cache Short-Circuit**: `ResponseCacheMiddleware` now throws `CacheHitException` on cache hit, allowing Pipeline to skip provider call entirely. This eliminates wasted LLM API calls when cache hits occur.
+- **Stream Sync Memory Fix**: `stream_sync()` now uses generator bridge pattern with thread pool instead of collecting all chunks into memory. Prevents OOM on large streaming responses.
+- **DoS Protection**: Added `max_stream_chunks` configuration (default: 10000) to limit maximum chunks in streaming responses, preventing memory exhaustion attacks.
+
 ## 1. Overview
 
 Onion Core is an **onion-model middleware framework** for building reliable, secure, and observable AI Agent applications. It wraps LLM calls with layered protective middleware, following the principle of **defense in depth**.

@@ -31,6 +31,7 @@ from .error_codes import (
 )
 from .models import (
     AgentContext,
+    CacheHitException,
     FinishReason,
     LLMResponse,
     Message,
@@ -82,6 +83,7 @@ __all__ = [
     "RateLimitExceeded",
     "ProviderError",
     "ValidationError",
+    "CacheHitException",
     "RetryPolicy",
     "RetryOutcome",
     # 错误码（新增）

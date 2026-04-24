@@ -275,6 +275,9 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Fixed exception chain preservation issue (v0.7.1)
 - [x] Enhanced prompt injection detection with multilingual keywords (v0.7.2)
 - [x] Fixed Python version classifier inconsistency (v0.7.2)
+- [x] Cache short-circuit optimization - skip provider call on cache hit (v0.7.3)
+- [x] Fixed stream_sync memory leak - generator bridge pattern (v0.7.3)
+- [x] Added max_stream_chunks config for DoS protection (v0.7.3)
 
 ### 📋 Roadmap
 
@@ -566,6 +569,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 修复异常链丢失问题（v0.7.1）
 - [x] 增强提示词注入检测，支持多语言关键词（v0.7.2）
 - [x] 修复 Python 版本分类器不一致问题（v0.7.2）
+- [x] 缓存短路优化 - 命中时跳过 Provider 调用（v0.7.3）
+- [x] 修复 stream_sync 内存泄漏 - 生成器桥接模式（v0.7.3）
+- [x] 添加 max_stream_chunks 配置防止 DoS 攻击（v0.7.3）
 
 ### 📋 路线图
 

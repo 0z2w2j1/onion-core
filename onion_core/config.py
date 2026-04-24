@@ -48,6 +48,7 @@ class PipelineConfig(BaseModel):
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
+    max_stream_chunks: int = 10000  # 防止 DoS：流式响应最大 chunk 数
 
 
 class OnionConfig(BaseSettings):

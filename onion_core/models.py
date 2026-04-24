@@ -44,6 +44,18 @@ class ValidationError(OnionError):
     is_fatal: bool = True
 
 
+class CacheHitException(OnionError):
+    """
+    缓存命中异常：用于在 request 阶段中断 Provider 调用。
+    
+    当 ResponseCacheMiddleware 检测到缓存命中时抛出此异常，
+    Pipeline 捕获后直接返回缓存的响应，避免无效的 LLM 调用。
+    """
+    def __init__(self, cached_response: LLMResponse) -> None:
+        self.cached_response = cached_response
+        super().__init__("Cache hit - returning cached response")
+
+
 # ── 带错误码的异常（向后兼容扩展）────────────────────────────────────────────
 #  原有 OnionError 子类保持不变，新增 OnionErrorWithCode 供新代码使用。
 #  Pipeline 中通过 RetryPolicy.classify() 统一判断重试策略。
