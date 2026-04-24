@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Code Quality & Type Safety Improvements**
+  - Fixed Ruff B007: Renamed unused loop variable `i` to `_` in examples
+  - Fixed mypy type errors in distributed middleware (Redis async/await compatibility)
+  - Added proper type casting with `typing.cast()` for Redis method return types
+  - Removed unused imports in test files (`asyncio`, `MagicMock`)
+  - Eliminated unused variable assignments in tests
+  - All static checks now pass: Ruff ✓, MyPy strict mode ✓
+
+### Changed
+
+- Improved Redis async method handling with runtime type detection
+- Enhanced type safety for distributed rate limiter and cache middleware
+- Cleaner test code with removed unused imports and variables
+
+---
+
 ### Added
 
 - **Input Validation & DoS Protection**
@@ -185,6 +203,24 @@
 # 变更日志
 
 ## [未发布]
+
+### 修复
+
+- **代码质量与类型安全改进**
+  - 修复 Ruff B007：将示例中未使用的循环变量 `i` 重命名为 `_`
+  - 修复分布式中间件中的 mypy 类型错误（Redis 异步/等待兼容性）
+  - 为 Redis 方法返回类型添加正确的 `typing.cast()` 类型断言
+  - 移除测试文件中的未使用导入（`asyncio`、`MagicMock`）
+  - 消除测试中的未使用变量赋值
+  - 所有静态检查现在通过：Ruff ✓，MyPy 严格模式 ✓
+
+### 更改
+
+- 改进了 Redis 异步方法的运行时类型检测处理
+- 增强了分布式限流器和缓存中间件的类型安全性
+- 清理测试代码，移除未使用的导入和变量
+
+---
 
 ### 新增
 

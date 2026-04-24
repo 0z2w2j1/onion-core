@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -228,7 +227,7 @@ class TestDistributedCacheMiddleware:
         ctx2 = AgentContext(
             messages=[Message(role="user", content="Hello")],
         )
-        result = await cache_middleware.process_request(ctx2)
+        await cache_middleware.process_request(ctx2)
         
         assert ctx2.metadata.get("_cache_hit") is True
         assert "_cached_response" in ctx2.metadata

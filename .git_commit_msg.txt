@@ -1,0 +1,14 @@
+fix: resolve code quality issues and mypy type errors
+
+- Fix Ruff B007: rename unused loop variable in distributed middleware example
+- Fix mypy type errors in distributed rate limiter and cache middleware
+  - Add runtime await detection for Redis async methods
+  - Use typing.cast() for proper type assertions on Redis return values
+- Clean up test file: remove unused imports (asyncio, MagicMock)
+- Remove unused variable assignment in test_distributed_middleware.py
+- Update CHANGELOG.md with fix details (bilingual)
+
+All static checks now pass:
+- Ruff linting
+- MyPy strict mode (28 source files)
+- All 353 tests passing (89% coverage)

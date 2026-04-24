@@ -143,7 +143,7 @@ async def example_combined():
 
         # 模拟并发请求
         tasks = []
-        for i in range(5):
+        for _ in range(5):
             ctx = AgentContext(
                 session_id="user-456",
                 messages=[Message(role="user", content="Test")],

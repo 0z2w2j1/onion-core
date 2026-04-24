@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
@@ -146,10 +146,16 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         
         try:
             # 测试连接
-            await self._redis.ping()
+            ping_result = self._redis.ping()
+            if hasattr(ping_result, '__await__'):
+                await ping_result
             
             # 注册 Lua 脚本
-            self._lua_script_sha = await self._redis.script_load(LUA_SLIDING_WINDOW)
+            script_load_result = self._redis.script_load(LUA_SLIDING_WINDOW)
+            if hasattr(script_load_result, '__await__'):
+                self._lua_script_sha = cast(str, await script_load_result)
+            else:
+                self._lua_script_sha = cast(str, script_load_result)
             
             logger.info(
                 "DistributedRateLimitMiddleware started | redis=%s | max=%d req / %.0fs | fallback=%s",
@@ -178,7 +184,7 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 raise RuntimeError("Redis not initialized")
 
             # 执行 Lua 脚本
-            result = await self._redis.evalsha(
+            evalsha_result = self._redis.evalsha(
                 self._lua_script_sha,
                 1,  # number of keys
                 key,
@@ -186,6 +192,10 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 str(self._window),
                 str(self._max_requests),
             )
+            if hasattr(evalsha_result, '__await__'):
+                result = await evalsha_result
+            else:
+                result = evalsha_result
 
             remaining = int(result[0])
             retry_after = float(result[1])

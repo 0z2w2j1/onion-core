@@ -133,7 +133,9 @@ class DistributedCacheMiddleware(BaseMiddleware):
         self._redis = redis.Redis(connection_pool=self._redis_pool)
         
         try:
-            await self._redis.ping()
+            ping_result = self._redis.ping()
+            if hasattr(ping_result, '__await__'):
+                await ping_result
             logger.info(
                 "DistributedCacheMiddleware started | redis=%s | ttl=%.0fs | strategy=%s",
                 self._redis_url, self._ttl_seconds, self._cache_key_strategy
