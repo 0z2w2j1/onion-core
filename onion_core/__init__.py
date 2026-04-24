@@ -29,6 +29,7 @@ from .error_codes import (
     provider_error,
     security_error,
 )
+from .health_server import HealthServer, start_health_server
 from .models import (
     AgentContext,
     CacheHitException,
@@ -102,6 +103,9 @@ __all__ = [
     "ObservabilityConfig",
     "AgentLoop",
     "AgentLoopError",
+    # 健康检查服务器
+    "HealthServer",
+    "start_health_server",
     # 版本
     "__version__",
 ]

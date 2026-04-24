@@ -17,6 +17,7 @@ import asyncio
 import logging
 import random
 import types
+import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Iterator
 from typing import Any, TypeVar, overload
 
@@ -42,10 +43,39 @@ logger = logging.getLogger("onion_core.pipeline")
 # 输入验证常量（防止 DoS）
 _MAX_MESSAGES = 1000  # 最多 1000 条消息，防止内存溢出
 _MAX_CONTENT_LENGTH = 1_000_000  # 单条消息最大 1MB，防止超大 payload
+_MAX_TOOL_CALL_DEPTH = 10  # 工具调用最大嵌套深度
+_MAX_NESTING_LEVEL = 5  # 消息内容最大嵌套层级
+_UNICODE_COMBINING_THRESHOLD = 0.3  # Unicode 组合字符阈值（30%）
 
 _DEFAULT_RETRY_POLICY = RetryPolicy()
 
 _T = TypeVar("_T")
+
+
+def _detect_unicode_bomb(text: str) -> bool:
+    """
+    检测 Unicode 炸弹（Zalgo 文本等）。
+    
+    检查组合字符（combining characters）比例是否超过阈值。
+    Zalgo 文本通过大量组合字符实现“溢出”效果，可能导致渲染引擎崩溃。
+    
+    Args:
+        text: 待检测的文本
+        
+    Returns:
+        True 如果检测到 Unicode 炸弹
+    """
+    if not text:
+        return False
+    
+    combining_count = sum(1 for c in text if unicodedata.combining(c))
+    total_chars = len(text)
+    
+    if total_chars == 0:
+        return False
+    
+    ratio = combining_count / total_chars
+    return ratio > _UNICODE_COMBINING_THRESHOLD
 
 
 class Pipeline:
@@ -417,7 +447,7 @@ class Pipeline:
         """
         验证 AgentContext 的合法性。
         
-        防止恶意用户构造超大 payload 导致 DoS。
+        防止恶意用户构造超大 payload、Unicode 炸弹等导致 DoS。
         
         Raises:
             ValidationError: 当验证失败时抛出
@@ -428,14 +458,22 @@ class Pipeline:
                 f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})"
             )
         
-        # 验证每条消息的内容长度
+        # 验证每条消息的内容
         for i, msg in enumerate(context.messages):
             if isinstance(msg.content, str):
+                # 检查内容长度
                 if len(msg.content) > _MAX_CONTENT_LENGTH:
                     raise ValidationError(
                         f"Message {i} content too long: {len(msg.content)} chars "
                         f"(max: {_MAX_CONTENT_LENGTH})"
                     )
+                
+                # 检查 Unicode 炸弹
+                if _detect_unicode_bomb(msg.content):
+                    raise ValidationError(
+                        f"Message {i} contains suspicious Unicode characters (possible Zalgo text)"
+                    )
+                    
             elif isinstance(msg.content, list):
                 # 多模态内容
                 total_length = sum(
@@ -448,6 +486,27 @@ class Pipeline:
                         f"Message {i} multimodal content too long: {total_length} chars "
                         f"(max: {_MAX_CONTENT_LENGTH})"
                     )
+                
+                # 检查嵌套深度
+                if len(msg.content) > _MAX_NESTING_LEVEL:
+                    raise ValidationError(
+                        f"Message {i} content blocks too nested: {len(msg.content)} levels "
+                        f"(max: {_MAX_NESTING_LEVEL})"
+                    )
+                
+                # 检查每个文本块的 Unicode 炸弹
+                for block_idx, block in enumerate(msg.content):
+                    if block.type == "text" and block.text and _detect_unicode_bomb(block.text):
+                        raise ValidationError(
+                            f"Message {i} block {block_idx} contains suspicious Unicode characters"
+                        )
+        
+        # 验证工具调用的嵌套深度
+        if context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
+            raise ValidationError(
+                f"Tool call nesting depth exceeded: {context.metadata['tool_calls_depth']} "
+                f"(max: {_MAX_TOOL_CALL_DEPTH})"
+            )
 
     @overload
     async def _call_middleware(

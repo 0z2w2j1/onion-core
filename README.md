@@ -239,7 +239,7 @@ Or from file (`onion.json` / `onion.yaml`):
 | [Architecture Design](docs/architecture.md) | System design, data flow, extensibility guide |
 | [Error Code Usage](docs/error_code_usage.md) | How to use `ErrorCode` and `OnionErrorWithCode` |
 | [Degradation Strategy](docs/degradation_strategy.md) | Retry, circuit breaker, fallback provider chain |
-| [Monitoring & Alerting](docs/monitoring.md) | Prometheus metrics, Alertmanager rules, Grafana dashboards, SLO/SLI definitions |
+| [Monitoring & Alerting](docs/monitoring_guide.md) | **NEW**: Prometheus metrics, Grafana dashboard setup, Alertmanager rules, SLO/SLI definitions, health check endpoints |
 | [Examples](examples/) | Usage examples for OpenAI, Anthropic, LM Studio, Ollama, etc. |
 
 ---
@@ -278,6 +278,9 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Cache short-circuit optimization - skip provider call on cache hit (v0.7.3)
 - [x] Fixed stream_sync memory leak - generator bridge pattern (v0.7.3)
 - [x] Added max_stream_chunks config for DoS protection (v0.7.3)
+- [x] Enhanced input validation - Unicode bomb detection & nesting depth (v0.7.4)
+- [x] Health check HTTP server for Kubernetes probes (v0.7.4)
+- [x] Comprehensive monitoring guide with Grafana dashboard JSON (v0.7.4)
 
 ### 📋 Roadmap
 
@@ -533,7 +536,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | [架构设计文档](docs/architecture.md) | 系统设计、数据流、扩展指南 |
 | [错误码使用指南](docs/error_code_usage.md) | 如何使用 `ErrorCode` 和 `OnionErrorWithCode` |
 | [降级策略文档](docs/degradation_strategy.md) | 重试、熔断、Fallback Provider 链路 |
-| [监控与告警指南](docs/monitoring.md) | Prometheus 指标、Alertmanager 规则、Grafana 仪表板、SLO/SLI 定义 |
+| [监控与告警指南](docs/monitoring_guide.md) | **新增**: Prometheus 指标、Grafana 仪表板配置、Alertmanager 规则、SLO/SLI 定义、健康检查端点 |
 | [示例代码](examples/) | OpenAI、Anthropic、LM Studio、Ollama 等使用示例 |
 
 ---
@@ -572,6 +575,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 缓存短路优化 - 命中时跳过 Provider 调用（v0.7.3）
 - [x] 修复 stream_sync 内存泄漏 - 生成器桥接模式（v0.7.3）
 - [x] 添加 max_stream_chunks 配置防止 DoS 攻击（v0.7.3）
+- [x] 增强输入验证 - Unicode 炸弹检测和嵌套深度（v0.7.4）
+- [x] Kubernetes 探针健康检查 HTTP 服务器（v0.7.4）
+- [x] 包含 Grafana Dashboard JSON 的完整监控指南（v0.7.4）
 
 ### 📋 路线图
 
