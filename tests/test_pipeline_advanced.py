@@ -551,3 +551,86 @@ class TestConcurrentSafety:
 
             assert len(responses) == 10
             assert all(r.content for r in responses)
+
+
+class TestStreamTimeout:
+    """测试流式超时机制。"""
+
+    @pytest.mark.asyncio
+    async def test_stream_provider_timeout(self):
+        """Test stream respects provider_timeout setting."""
+        class SlowStreamProvider(EchoProvider):
+            async def stream(self, context):
+                await asyncio.sleep(10)
+                async for chunk in super().stream(context):
+                    yield chunk
+
+        p = Pipeline(
+            provider=SlowStreamProvider(),
+            provider_timeout=0.05,
+        )
+        
+        ctx = make_context()
+        
+        with pytest.raises(asyncio.TimeoutError):
+            async for _ in p.stream(ctx):
+                pass
+
+
+class TestFallbackProviderChain:
+    """测试 Fallback Provider 链。"""
+
+    @pytest.mark.asyncio
+    async def test_fallback_provider_switching(self):
+        """Test fallback provider chain when primary fails."""
+        call_order = []
+        
+        class FailingProvider(EchoProvider):
+            async def complete(self, context):
+                call_order.append("primary")
+                raise ProviderError("Primary failed")
+        
+        class BackupProvider(EchoProvider):
+            async def complete(self, context):
+                call_order.append("backup")
+                return await super().complete(context)
+        
+        p = Pipeline(
+            provider=FailingProvider(),
+            fallback_providers=[BackupProvider()],
+            max_retries=0,
+        )
+        
+        ctx = make_context()
+        response = await p.run(ctx)
+        
+        assert call_order == ["primary", "backup"]
+        assert response.content is not None
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail_raises_last_exception(self):
+        """Test that when all providers fail, the last exception is raised."""
+        class AlwaysFailProvider(EchoProvider):
+            def __init__(self, name: str):
+                self._name = name
+                super().__init__()
+            
+            async def complete(self, context):
+                raise ProviderError(f"{self._name} failed")
+        
+        p = Pipeline(
+            provider=AlwaysFailProvider("primary"),
+            fallback_providers=[
+                AlwaysFailProvider("fallback1"),
+                AlwaysFailProvider("fallback2"),
+            ],
+            max_retries=0,
+        )
+        
+        ctx = make_context()
+        
+        with pytest.raises(ProviderError) as exc_info:
+            await p.run(ctx)
+        
+        # Should raise the last provider's error
+        assert "fallback2 failed" in str(exc_info.value)

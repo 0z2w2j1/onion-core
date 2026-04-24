@@ -149,6 +149,126 @@ class TestDistributedRateLimitMiddleware:
             
             await limiter.shutdown()
 
+    async def test_reset_all_clears_all_keys(self, rate_limiter, mock_redis):
+        """Test reset_all clears all rate limit keys."""
+        mock_redis.scan = AsyncMock(side_effect=[
+            (0, ["onion:ratelimit:user1", "onion:ratelimit:user2"]),
+        ])
+        mock_redis.delete = AsyncMock()
+        
+        await rate_limiter.reset_all()
+        
+        mock_redis.delete.assert_called_once_with(
+            "onion:ratelimit:user1", "onion:ratelimit:user2"
+        )
+
+    async def test_get_usage_without_redis_raises_error(self):
+        """Test get_usage raises RuntimeError when Redis not initialized."""
+        limiter = DistributedRateLimitMiddleware.__new__(DistributedRateLimitMiddleware)
+        limiter._redis = None
+        
+        with pytest.raises(RuntimeError, match="Redis not initialized"):
+            await limiter.get_usage("test-user")
+
+    async def test_reset_session_without_redis_raises_error(self):
+        """Test reset_session raises RuntimeError when Redis not initialized."""
+        limiter = DistributedRateLimitMiddleware.__new__(DistributedRateLimitMiddleware)
+        limiter._redis = None
+        
+        with pytest.raises(RuntimeError, match="Redis not initialized"):
+            await limiter.reset_session("test-user")
+
+    async def test_reset_all_without_redis_raises_error(self):
+        """Test reset_all raises RuntimeError when Redis not initialized."""
+        limiter = DistributedRateLimitMiddleware.__new__(DistributedRateLimitMiddleware)
+        limiter._redis = None
+        
+        with pytest.raises(RuntimeError, match="Redis not initialized"):
+            await limiter.reset_all()
+
+    async def test_process_stream_chunk_passthrough(self, rate_limiter):
+        """Test process_stream_chunk passes through unchanged."""
+        from onion_core.models import StreamChunk
+        
+        ctx = AgentContext(messages=[Message(role="user", content="Hi")])
+        chunk = StreamChunk(delta="test", index=0)
+        
+        result = await rate_limiter.process_stream_chunk(ctx, chunk)
+        assert result is chunk
+
+    async def test_on_tool_call_passthrough(self, rate_limiter):
+        """Test on_tool_call passes through unchanged."""
+        from onion_core.models import ToolCall
+        
+        ctx = AgentContext(messages=[Message(role="user", content="Hi")])
+        tool_call = ToolCall(id="call_1", name="test_tool", arguments={})
+        
+        result = await rate_limiter.on_tool_call(ctx, tool_call)
+        assert result is tool_call
+
+    async def test_on_tool_result_passthrough(self, rate_limiter):
+        """Test on_tool_result passes through unchanged."""
+        from onion_core.models import ToolResult
+        
+        ctx = AgentContext(messages=[Message(role="user", content="Hi")])
+        tool_result = ToolResult(tool_call_id="call_1", name="test_tool", result="ok")
+        
+        result = await rate_limiter.on_tool_result(ctx, tool_result)
+        assert result is tool_result
+
+    async def test_on_error_logs_error(self, rate_limiter, caplog):
+        """Test on_error logs the error."""
+        import logging
+        caplog.set_level(logging.ERROR)
+        
+        ctx = AgentContext(messages=[Message(role="user", content="Hi")])
+        error = ValueError("Test error")
+        
+        await rate_limiter.on_error(ctx, error)
+        
+        assert "DistributedRateLimitMiddleware error" in caplog.text
+
+    async def test_get_usage_handles_redis_error(self, rate_limiter, mock_redis):
+        """Test get_usage returns error dict when Redis fails."""
+        mock_redis.zremrangebyscore = AsyncMock(side_effect=ConnectionError("Fail"))
+        
+        usage = await rate_limiter.get_usage("test-user")
+        
+        assert "error" in usage
+        assert usage["distributed"] is True
+        assert "Fail" in usage["error"]
+
+    async def test_fallback_deny_on_redis_error_during_request(self):
+        """Test that fallback_allow=False rejects requests when Redis fails."""
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(return_value=True)
+        mock_redis.script_load = AsyncMock(return_value="mock_sha")
+        mock_redis.evalsha = AsyncMock(side_effect=ConnectionError("Redis down"))
+        
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+            
+            limiter = DistributedRateLimitMiddleware(
+                redis_url="redis://localhost:6379",
+                max_requests=10,
+                fallback_allow=False,  # Deny on failure
+            )
+            limiter._redis = mock_redis
+            limiter._lua_script_sha = "mock_sha"
+            await limiter.startup()
+            
+            ctx = AgentContext(
+                session_id="test-user",
+                messages=[Message(role="user", content="Hello")],
+            )
+            
+            from onion_core.models import RateLimitExceeded
+            
+            with pytest.raises(RateLimitExceeded, match="Rate limiter unavailable"):
+                await limiter.process_request(ctx)
+            
+            await limiter.shutdown()
+
 
 class TestDistributedCacheMiddleware:
     """Test distributed caching with mocked Redis."""

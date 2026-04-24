@@ -4,7 +4,19 @@ from typing import Any
 
 from ..provider import EchoProvider, LLMProvider
 
-__all__ = ["LLMProvider", "EchoProvider"]
+__all__ = [
+    "LLMProvider",
+    "EchoProvider",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "DeepSeekProvider",
+    "ZhipuAIProvider",
+    "MoonshotProvider",
+    "DashScopeProvider",
+    "LocalProvider",
+    "OllamaProvider",
+    "LMStudioProvider",
+]
 
 # 懒加载，避免在未安装 SDK 时报错
 def __getattr__(name: str) -> type[Any]:
