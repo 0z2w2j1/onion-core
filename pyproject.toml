@@ -38,6 +38,7 @@ otel = [
     "opentelemetry-sdk>=1.20",
 ]
 prometheus = ["prometheus-client>=0.17"]
+redis = ["redis>=5.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -47,7 +48,7 @@ dev = [
     "mypy>=1.8",
 ]
 all = [
-    "onion-core[yaml,openai,anthropic,domestic,otel,prometheus,dev]",
+    "onion-core[yaml,openai,anthropic,domestic,otel,prometheus,redis,dev]",
 ]
 
 [project.urls]
