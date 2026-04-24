@@ -554,6 +554,9 @@ class Pipeline:
                 if result is None:
                     raise RuntimeError(f"Middleware '{mw.name}' aborted the request chain")
                 context = result
+            except CacheHitException:
+                # 缓存命中是正常流程，不是错误，直接向上抛出
+                raise
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.process_request raised %s: %s",
