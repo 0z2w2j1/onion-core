@@ -31,11 +31,34 @@ BUILTIN_PII_RULES: list[PiiRule] = [
 ]
 
 DEFAULT_BLOCKED_KEYWORDS: list[str] = [
+    # English keywords
     "ignore instructions",
     "ignore previous instructions",
     "system prompt",
     "disregard above",
     "override safety",
+    "disregard",
+    "bypass",
+    "circumvent",
+    "ignore",
+    "prompt injection",
+    "jailbreak",
+    "escape prompt",
+    "never mind",
+    "unfollow",
+    "instruction injection",
+    # Chinese keywords
+    "忽略指令",
+    "忽略以上",
+    "系统提示",
+    "绕过安全",
+    "越狱",
+    "逃逸",
+    # Case variations (lowercase)
+    "igNoRe InStRu CtIoNs",
+    "IGNORE INSTRUCTIONS",
+    "bypass security",
+    "BYPASS SECURITY",
 ]
 
 

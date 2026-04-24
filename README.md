@@ -186,8 +186,9 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM, etc.
 - Auto-truncation: preserves system prompt + latest N rounds
 
 #### ⚡ Rate Limiting & Circuit Breaker
-- Per-session sliding window rate limiting
+- Per-session sliding window rate limiting (in-memory, single-process)
 - Circuit breaker: stops hitting a failing provider (CLOSED → OPEN → HALF_OPEN → CLOSED)
+- **Note**: Distributed backends (Redis/Etcd) are planned for v1.0
 
 #### 📊 Production Observability
 - Structured JSON logging with `request_id`
@@ -247,13 +248,14 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.7.1 (Beta) |
+| Version | 0.7.2 (Beta) |
 | Python Support | 3.11, 3.12 |
 | Test Coverage | 372+ tests, **92%** coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | License | MIT |
+| Architecture | Single-process only (distributed support planned for v1.0) |
 
 ### 🚧 Development Progress (Phase 1: Foundation)
 
@@ -271,6 +273,8 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Input validation & DoS protection (v0.7.1)
 - [x] Refactored sync API to eliminate code duplication (v0.7.1)
 - [x] Fixed exception chain preservation issue (v0.7.1)
+- [x] Enhanced prompt injection detection with multilingual keywords (v0.7.2)
+- [x] Fixed Python version classifier inconsistency (v0.7.2)
 
 ### 📋 Roadmap
 
@@ -281,7 +285,9 @@ Or from file (`onion.json` / `onion.yaml`):
 | Phase 3 | Advanced Features | 🔄 Planned |
 | v1.0 | Production Ready | 🔄 Planned |
 
-> ⚠️ **Note:** This is an alpha release. APIs may change without notice until v1.0.
+> ⚠️ **Note:** This is a Beta release. APIs may change without notice until v1.0.
+> 
+> ⚠️ **Architecture Limitation:** Current version supports **single-process deployment only**. Circuit breaker and rate limiter states are stored in-memory and cannot be shared across multiple instances. Distributed backends (Redis/Etcd) are planned for v1.0.
 
 ---
 
@@ -471,8 +477,9 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM 等
 - 智能裁剪：自动保留系统提示词 + 最新 N 轮对话
 
 #### ⚡ 限流与熔断
-- 按用户（Session ID）滑动窗口限流
+- 按用户（Session ID）滑动窗口限流（内存态，单进程）
 - 熔断器：持续故障时自动切断（CLOSED → OPEN → HALF_OPEN → CLOSED）
+- **注意**：分布式后端（Redis/Etcd）计划在 v1.0 中实现
 
 #### 📊 生产级可观测
 - 带 `request_id` 的结构化 JSON 日志
@@ -532,13 +539,14 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.7.1（Beta） |
+| 版本 | 0.7.2（Beta） |
 | Python 支持 | 3.11、3.12 |
 | 测试覆盖 | 372+ 个测试，**92%** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
+| 架构限制 | 仅支持单进程部署（分布式支持计划于 v1.0） |
 
 ### 🚧 开发进度（第一阶段：基础与标准化）
 
@@ -556,6 +564,8 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 输入验证与 DoS 防护（v0.7.1）
 - [x] 重构同步 API，消除代码重复（v0.7.1）
 - [x] 修复异常链丢失问题（v0.7.1）
+- [x] 增强提示词注入检测，支持多语言关键词（v0.7.2）
+- [x] 修复 Python 版本分类器不一致问题（v0.7.2）
 
 ### 📋 路线图
 
@@ -566,7 +576,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | 第三阶段 | 高级功能 | 🔄 计划中 |
 | v1.0 | 生产就绪 | 🔄 计划中 |
 
-> ⚠️ **注意：** 当前为 Alpha 版本，API 可能在 v1.0 之前发生变化。
+> ⚠️ **注意：** 当前为 Beta 版本，API 可能在 v1.0 之前发生变化。
+>
+> ⚠️ **架构限制：** 当前版本**仅支持单进程部署**。熔断器和限流器状态存储在内存中，无法在多个实例间共享。分布式后端（Redis/Etcd）计划在 v1.0 中实现。
 
 ---
 
