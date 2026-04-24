@@ -552,50 +552,188 @@ class Pipeline:
         同步版本的 run() 方法，适用于非异步环境（如 Flask/Django）。
 
         内部使用 asyncio.run() 执行异步调用，线程安全。
+        自动检测是否已有运行中的事件循环，避免 RuntimeError。
 
         用法：
             with Pipeline(provider=MyProvider()) as p:
                 response = p.run_sync(context)
         """
-        return asyncio.run(self.run(context))
+        try:
+            # 尝试获取当前事件循环
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # 没有运行中的事件循环，使用 asyncio.run()
+            return asyncio.run(self.run(context))
+        
+        # 已有运行中的事件循环，创建新任务并等待
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            # 在主线程中，可以使用 nest_asyncio 或手动处理
+            # 这里使用 run_until_complete 如果可能
+            try:
+                return loop.run_until_complete(self.run(context))
+            except RuntimeError:
+                # Loop is already running, use thread pool
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.run(context))
+                    return future.result()
+        else:
+            # 在子线程中，可以直接使用 asyncio.run()
+            return asyncio.run(self.run(context))
 
     def stream_sync(self, context: AgentContext) -> Iterator[StreamChunk]:
         """
         同步版本的 stream() 方法，将异步生成器包装为同步生成器。
+
+        自动检测是否已有运行中的事件循环，避免 RuntimeError。
 
         用法：
             with Pipeline(provider=MyProvider()) as p:
                 for chunk in p.stream_sync(context):
                     print(chunk.delta, end="", flush=True)
         """
-        async def _collect_chunks() -> list[StreamChunk]:
-            chunks = []
-            async for chunk in self.stream(context):
-                chunks.append(chunk)
-            return chunks
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # 没有运行中的事件循环
+            async def _collect_chunks() -> list[StreamChunk]:
+                chunks = []
+                async for chunk in self.stream(context):
+                    chunks.append(chunk)
+                return chunks
 
-        chunks = asyncio.run(_collect_chunks())
-        yield from chunks
+            chunks = asyncio.run(_collect_chunks())
+            yield from chunks
+            return
+        
+        # 已有运行中的事件循环
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            try:
+                async def _collect_chunks() -> list[StreamChunk]:
+                    chunks = []
+                    async for chunk in self.stream(context):
+                        chunks.append(chunk)
+                    return chunks
+                
+                chunks = loop.run_until_complete(_collect_chunks())
+                yield from chunks
+            except RuntimeError:
+                # Loop is already running, use thread pool
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    async def _collect_chunks_inner() -> list[StreamChunk]:
+                        chunks = []
+                        async for chunk in self.stream(context):
+                            chunks.append(chunk)
+                        return chunks
+                    
+                    future = executor.submit(asyncio.run, _collect_chunks_inner())
+                    chunks = future.result()
+                    yield from chunks
+        else:
+            # 在子线程中
+            async def _collect_chunks() -> list[StreamChunk]:
+                chunks = []
+                async for chunk in self.stream(context):
+                    chunks.append(chunk)
+                return chunks
+
+            chunks = asyncio.run(_collect_chunks())
+            yield from chunks
 
     def execute_tool_call_sync(
         self, context: AgentContext, tool_call: ToolCall
     ) -> ToolCall:
         """同步版本的 execute_tool_call()。"""
-        return asyncio.run(self.execute_tool_call(context, tool_call))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.execute_tool_call(context, tool_call))
+        
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            try:
+                return loop.run_until_complete(self.execute_tool_call(context, tool_call))
+            except RuntimeError:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, self.execute_tool_call(context, tool_call)
+                    )
+                    return future.result()
+        else:
+            return asyncio.run(self.execute_tool_call(context, tool_call))
 
     def execute_tool_result_sync(
         self, context: AgentContext, result: ToolResult
     ) -> ToolResult:
         """同步版本的 execute_tool_result()。"""
-        return asyncio.run(self.execute_tool_result(context, result))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.execute_tool_result(context, result))
+        
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            try:
+                return loop.run_until_complete(self.execute_tool_result(context, result))
+            except RuntimeError:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, self.execute_tool_result(context, result)
+                    )
+                    return future.result()
+        else:
+            return asyncio.run(self.execute_tool_result(context, result))
 
     def startup_sync(self) -> None:
         """同步版本的 startup()。"""
-        asyncio.run(self.startup())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self.startup())
+            return
+        
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            try:
+                loop.run_until_complete(self.startup())
+            except RuntimeError:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.startup())
+                    future.result()
+        else:
+            asyncio.run(self.startup())
 
     def shutdown_sync(self) -> None:
         """同步版本的 shutdown()。"""
-        asyncio.run(self.shutdown())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self.shutdown())
+            return
+        
+        import concurrent.futures
+        import threading
+        
+        if threading.current_thread() is threading.main_thread():
+            try:
+                loop.run_until_complete(self.shutdown())
+            except RuntimeError:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.shutdown())
+                    future.result()
+        else:
+            asyncio.run(self.shutdown())
 
     def __enter__(self) -> Pipeline:
         """支持同步上下文管理器协议。"""

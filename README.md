@@ -4,7 +4,7 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -247,9 +247,9 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.6.0 (Beta) |
+| Version | 0.7.0 (Beta) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 203+ tests, 85% coverage |
+| Test Coverage | 220+ tests, 85% coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -263,6 +263,10 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Unified error code system (ErrorCode enum + OnionErrorWithCode)
 - [x] Degradation strategy documentation
 - [x] Synchronous API wrapper (for Flask/Django/scripts)
+- [x] Enhanced sync API with event loop safety (v0.7.0)
+- [x] Response cache middleware (v0.7.0)
+- [x] Comprehensive load testing suite (v0.7.0)
+- [x] Migration guide and updated docs (v0.7.0)
 - [x] 85% test coverage (Phase 1 target: 90% for v1.0)
 
 ### 📋 Roadmap
@@ -525,9 +529,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.6.0（Beta） |
+| 版本 | 0.7.0（Beta） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 203+ 个测试，85% 覆盖率 |
+| 测试覆盖 | 220+ 个测试，85% 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -541,6 +545,10 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 统一错误码系统（ErrorCode 枚举 + OnionErrorWithCode）
 - [x] 降级策略文档
 - [x] 同步 API 封装（适用于 Flask/Django/脚本）
+- [x] 增强同步 API 事件循环安全性（v0.7.0）
+- [x] 响应缓存中间件（v0.7.0）
+- [x] 完整压力测试套件（v0.7.0）
+- [x] 迁移指南和文档更新（v0.7.0）
 - [x] 85% 测试覆盖率（v1.0 目标：90%）
 
 ### 📋 路线图

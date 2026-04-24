@@ -1,6 +1,6 @@
 # Onion Core - API Reference
 
-> Version: 0.6.0 | Generated: 2026-04-24
+> Version: 0.7.0 | Generated: 2026-04-24
 
 This document describes every public class, function, and configuration option in the `onion_core` package.
 
@@ -34,6 +34,10 @@ from onion_core import (
     __version__,
 )
 ```
+
+**New in v0.7.0:**
+- Enhanced sync API methods with automatic event loop detection
+- Response caching support via `ResponseCacheMiddleware`
 
 ---
 
@@ -634,6 +638,54 @@ class TracingMiddleware(BaseMiddleware):
         service_name: str = "onion-core",
         pipeline_name: str = "default",
     ) -> None: ...
+```
+
+### `ResponseCacheMiddleware` (priority=75) **[NEW in v0.7.0]**
+```python
+class ResponseCacheMiddleware(BaseMiddleware):
+    """Response caching middleware with TTL and LRU eviction."""
+    priority = 75
+
+    def __init__(
+        self,
+        ttl_seconds: float = 300.0,      # Cache lifetime in seconds
+        max_size: int = 1000,             # Maximum cache entries
+        cache_key_strategy: str = "full", # "full" | "user_only" | "custom"
+    ) -> None: ...
+
+    @property
+    def hits(self) -> int:
+        """Number of cache hits."""
+
+    @property
+    def misses(self) -> int:
+        """Number of cache misses."""
+
+    @property
+    def hit_rate(self) -> float:
+        """Cache hit rate (0.0 - 1.0)."""
+
+    def clear_cache(self) -> None:
+        """Clear all cached entries."""
+
+    def get_cache_size(self) -> int:
+        """Get current number of cached entries."""
+```
+
+**Usage Example:**
+```python
+from onion_core.middlewares import ResponseCacheMiddleware
+
+# Basic usage
+cache = ResponseCacheMiddleware(ttl_seconds=600, max_size=500)
+pipeline.add_middleware(cache)
+
+# Monitor performance
+print(f"Hit rate: {cache.hit_rate:.1%}")
+print(f"Cache size: {cache.get_cache_size()}")
+
+# Clear cache if needed
+cache.clear_cache()
 ```
 
 ---

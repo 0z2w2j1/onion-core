@@ -84,9 +84,7 @@ class TracingMiddleware(BaseMiddleware):
             from opentelemetry import trace as otel_trace
             from opentelemetry.trace import StatusCode
             tracer = otel_trace.get_tracer(self._service_name)
-            # Note: type ignore required in CI where opentelemetry is installed.
-            # OpenTelemetry's Tracer type is compatible with our TracerLike protocol at runtime.
-            self._tracer = tracer  # type: ignore[assignment]
+            self._tracer = tracer
             self._otel_status_code = StatusCode
             self._otel_available = True
             logger.info("TracingMiddleware started (OpenTelemetry available) | pipeline=%s.",
