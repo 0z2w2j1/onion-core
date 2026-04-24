@@ -133,8 +133,11 @@ class DistributedCacheMiddleware(BaseMiddleware):
         self._redis = redis.Redis(connection_pool=self._redis_pool)
         
         try:
+            # redis.asyncio 4.5+ 的 ping() 直接返回 bool，早期版本返回 Awaitable
             ping_result = self._redis.ping()
-            if hasattr(ping_result, '__await__'):
+            if isinstance(ping_result, bool):
+                pass  # Already completed
+            else:
                 await ping_result
             logger.info(
                 "DistributedCacheMiddleware started | redis=%s | ttl=%.0fs | strategy=%s",

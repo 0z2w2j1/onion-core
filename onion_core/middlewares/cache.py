@@ -20,7 +20,7 @@ from collections import OrderedDict
 from typing import cast
 
 from ..base import BaseMiddleware
-from ..models import AgentContext, LLMResponse, StreamChunk
+from ..models import AgentContext, FinishReason, LLMResponse, StreamChunk
 
 logger = logging.getLogger("onion_core.middleware.cache")
 
@@ -160,7 +160,7 @@ class ResponseCacheMiddleware(BaseMiddleware):
                 return cast(LLMResponse, cached_response)
         
         # 缓存新响应（仅当 finish_reason 为 stop 时）
-        if response.finish_reason == "stop":
+        if response.finish_reason == FinishReason.STOP:
             cache_key = self._generate_cache_key(context)
             self._store_in_cache(cache_key, response)
             logger.debug("[%s] Response cached (key=%s)", context.request_id, cache_key[:16])

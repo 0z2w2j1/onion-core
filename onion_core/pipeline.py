@@ -38,6 +38,10 @@ from .provider import LLMProvider
 
 logger = logging.getLogger("onion_core.pipeline")
 
+# 输入验证常量（防止 DoS）
+_MAX_MESSAGES = 1000  # 最多 1000 条消息，防止内存溢出
+_MAX_CONTENT_LENGTH = 1_000_000  # 单条消息最大 1MB，防止超大 payload
+
 _DEFAULT_RETRY_POLICY = RetryPolicy()
 
 _T = TypeVar("_T")
@@ -370,20 +374,18 @@ class Pipeline:
             ValidationError: 当验证失败时抛出
         """
         # 验证消息数量
-        max_messages = 1000  # 最多 1000 条消息
-        if len(context.messages) > max_messages:
+        if len(context.messages) > _MAX_MESSAGES:
             raise ValidationError(
-                f"Too many messages: {len(context.messages)} (max: {max_messages})"
+                f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})"
             )
         
         # 验证每条消息的内容长度
-        max_content_length = 1_000_000  # 1MB
         for i, msg in enumerate(context.messages):
             if isinstance(msg.content, str):
-                if len(msg.content) > max_content_length:
+                if len(msg.content) > _MAX_CONTENT_LENGTH:
                     raise ValidationError(
                         f"Message {i} content too long: {len(msg.content)} chars "
-                        f"(max: {max_content_length})"
+                        f"(max: {_MAX_CONTENT_LENGTH})"
                     )
             elif isinstance(msg.content, list):
                 # 多模态内容
@@ -392,10 +394,10 @@ class Pipeline:
                     for block in msg.content
                     if block.type == "text"
                 )
-                if total_length > max_content_length:
+                if total_length > _MAX_CONTENT_LENGTH:
                     raise ValidationError(
                         f"Message {i} multimodal content too long: {total_length} chars "
-                        f"(max: {max_content_length})"
+                        f"(max: {_MAX_CONTENT_LENGTH})"
                     )
 
     @overload

@@ -119,14 +119,14 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
             if keyword in text_lower:
                 logger.warning("[%s] BLOCKED — keyword: '%s'", context.request_id, keyword)
                 raise SecurityException(f"Request blocked: detected prohibited keyword '{keyword}'")
-        logger.info("[%s] Safety check passed.", context.request_id)
+        logger.debug("[%s] Safety check passed.", context.request_id)
         return context
 
     async def process_response(self, context: AgentContext, response: LLMResponse) -> LLMResponse:
         if response.content:
             masked = self._mask_pii(response.content)
             if masked != response.content:
-                logger.info("[%s] PII masked in response.", context.request_id)
+                logger.debug("[%s] PII masked in response.", context.request_id)
                 response = response.model_copy(update={"content": masked})
         return response
 
@@ -167,14 +167,14 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         if tool_call.name in self._blocked_tools:
             logger.warning("[%s] Tool '%s' blocked.", context.request_id, tool_call.name)
             raise SecurityException(f"Tool '{tool_call.name}' is not permitted")
-        logger.info("[%s] Tool call '%s' passed.", context.request_id, tool_call.name)
+        logger.debug("[%s] Tool call '%s' passed.", context.request_id, tool_call.name)
         return tool_call
 
     async def on_tool_result(self, context: AgentContext, result: ToolResult) -> ToolResult:
         if isinstance(result.result, str):
             masked = self._mask_pii(result.result)
             if masked != result.result:
-                logger.info("[%s] PII masked in tool result '%s'.", context.request_id, result.name)
+                logger.debug("[%s] PII masked in tool result '%s'.", context.request_id, result.name)
                 result = result.model_copy(update={"result": masked})
         return result
 

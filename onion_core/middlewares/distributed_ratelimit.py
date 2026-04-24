@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, cast
+from typing import Any
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
@@ -147,15 +147,15 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         try:
             # 测试连接
             ping_result = self._redis.ping()
-            if hasattr(ping_result, '__await__'):
+            if not isinstance(ping_result, bool):
                 await ping_result
             
             # 注册 Lua 脚本
-            script_load_result = self._redis.script_load(LUA_SLIDING_WINDOW)
-            if hasattr(script_load_result, '__await__'):
-                self._lua_script_sha = cast(str, await script_load_result)
+            script_result = self._redis.script_load(LUA_SLIDING_WINDOW)
+            if isinstance(script_result, str):
+                self._lua_script_sha = script_result
             else:
-                self._lua_script_sha = cast(str, script_load_result)
+                self._lua_script_sha = await script_result
             
             logger.info(
                 "DistributedRateLimitMiddleware started | redis=%s | max=%d req / %.0fs | fallback=%s",
@@ -192,10 +192,11 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 str(self._window),
                 str(self._max_requests),
             )
-            if hasattr(evalsha_result, '__await__'):
-                result = await evalsha_result
-            else:
+            # redis.asyncio 版本兼容性：某些版本返回 Awaitable，某些直接返回值
+            if isinstance(evalsha_result, (list, tuple)):
                 result = evalsha_result
+            else:
+                result = await evalsha_result  # type: ignore[misc]
 
             remaining = int(result[0])
             retry_after = float(result[1])
