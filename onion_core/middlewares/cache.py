@@ -17,7 +17,7 @@ import json
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, cast
+from typing import cast
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, StreamChunk
