@@ -1,6 +1,6 @@
 # Onion Core - Error Code Usage Guide
 
-> Version: v0.6.0 | Updated: 2026-04-24
+> Version: v0.7.0 | Updated: 2026-04-24
 
 ## 1. Quick Start
 
@@ -250,7 +250,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 # Onion Core - 错误码使用指南
 
-> 版本：v0.6.0 | 更新日期：2026-04-24
+> 版本：v0.7.0 | 更新日期：2026-04-24
 
 ## 1. 快速开始
 

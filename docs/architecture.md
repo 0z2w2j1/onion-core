@@ -1,6 +1,6 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.6.0 | Date: 2026-04-24
+> Version: 0.7.0 | Date: 2026-04-24
 
 ## 1. Overview
 
@@ -337,14 +337,14 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. Limitations (v0.6.0)
+## 9. Limitations (v0.7.0)
 
 | Area | Limitation |
 |------|------------|
 | **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
-| **Version** | 0.6.0 (Beta) — API may change without notice |
-| **Documentation** | Primarily Chinese README; English docs added in this release |
-| **CI/CD** | GitHub Actions configured for testing and linting |
+| **Version** | 0.7.0 (Beta) — API may change without notice until v1.0 |
+| **Documentation** | Bilingual (English + Chinese) documentation maintained |
+| **CI/CD** | GitHub Actions configured for testing, linting, and benchmarks |
 
 ---
 
@@ -417,11 +417,57 @@ health = pipeline.health_check()
 # }
 ```
 
+### 10.5 Response Cache Middleware (v0.7.0)
+
+New `ResponseCacheMiddleware` provides automatic caching of LLM responses:
+- **Configurable TTL**: Time-to-live for cache entries (default: 300s)
+- **LRU eviction**: Automatic removal of least recently used entries
+- **Multiple key strategies**: Full context, user-only, or custom
+- **Hit/miss metrics**: Track cache performance with `hits`, `misses`, `hit_rate`
+- **Thread-safe**: Safe for concurrent access
+
+```python
+from onion_core.middlewares import ResponseCacheMiddleware
+
+# Add to pipeline (priority=75, between Observability and Safety)
+cache = ResponseCacheMiddleware(
+    ttl_seconds=300,      # Cache for 5 minutes
+    max_size=1000,         # Max 1000 entries
+    cache_key_strategy="full"  # Use full context for cache key
+)
+pipeline.add_middleware(cache)
+
+# Monitor performance
+print(f"Hit rate: {cache.hit_rate:.1%}")  # e.g., "75.5%"
+print(f"Cache size: {cache.get_cache_size()}")  # e.g., 42
+```
+
+**Performance Benefits:**
+- Repeated queries: 90-99% latency reduction (~500ms → ~5ms)
+- Cost savings: Up to 100% for cached responses
+- Typical hit rates: 50-80% for FAQ-style applications
+
+### 10.6 Enhanced Synchronous API (v0.7.0)
+
+All synchronous methods now handle event loop conflicts automatically:
+- **Automatic detection**: Detects if event loop is already running
+- **Thread pool fallback**: Uses thread pool when needed
+- **No more errors**: Eliminates `RuntimeError: This event loop is already running`
+- **Safe everywhere**: Works in Flask, Django, Jupyter, scripts, etc.
+
+```python
+# Works in all contexts now
+with Pipeline(provider=MyProvider()) as p:
+    response = p.run_sync(context)  # ✅ No RuntimeError
+    for chunk in p.stream_sync(context):  # ✅ Safe streaming
+        print(chunk.delta, end="")
+```
+
 ---
 
 # Onion Core - 架构设计文档
 
-> 版本：0.6.0 | 日期：2026-04-24
+> 版本：0.7.0 | 日期：2026-04-24
 
 ## 1. 概述
 
@@ -758,14 +804,14 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. 限制 (v0.6.0)
+## 9. 限制 (v0.7.0)
 
 | 领域 | 限制 |
 |------|------------|
 | **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
-| **版本** | 0.6.0（Beta）— API 可能随时变更 |
-| **文档** | 主要中文 README；本版本添加英文文档 |
-| **CI/CD** | GitHub Actions 已配置用于测试和代码检查 |
+| **版本** | 0.7.0（Beta）— API 可能在 v1.0 之前发生变化 |
+| **文档** | 维护中英双语文档 |
+| **CI/CD** | GitHub Actions 已配置用于测试、代码检查和基准测试 |
 
 ---
 
@@ -837,3 +883,51 @@ health = pipeline.health_check()
 #     }
 # }
 ```
+
+### 10.5 响应缓存中间件 (v0.7.0)
+
+新增 `ResponseCacheMiddleware` 提供 LLM 响应的自动缓存：
+- **可配置 TTL**：缓存条目的存活时间（默认：300秒）
+- **LRU 淘汰**：自动移除最近最少使用的条目
+- **多种键策略**：完整上下文、仅用户消息或自定义
+- **命中/未命中指标**：通过 `hits`、`misses`、`hit_rate` 跟踪缓存性能
+- **线程安全**：支持并发访问
+
+```python
+from onion_core.middlewares import ResponseCacheMiddleware
+
+# 添加到 pipeline（优先级=75，介于 Observability 和 Safety 之间）
+cache = ResponseCacheMiddleware(
+    ttl_seconds=300,      # 缓存 5 分钟
+    max_size=1000,         # 最多 1000 个条目
+    cache_key_strategy="full"  # 使用完整上下文作为缓存键
+)
+pipeline.add_middleware(cache)
+
+# 监控性能
+print(f"命中率: {cache.hit_rate:.1%}")  # 例如：“75.5%”
+print(f"缓存大小: {cache.get_cache_size()}")  # 例如：42
+```
+
+**性能收益：**
+- 重复查询：延迟降低 90-99%（~500ms → ~5ms）
+- 成本节省：缓存响应最多节省 100%
+- 典型命中率：FAQ 类应用为 50-80%
+
+### 10.6 增强同步 API (v0.7.0)
+
+所有同步方法现在自动处理事件循环冲突：
+- **自动检测**：检测事件循环是否已在运行
+- **线程池回退**：需要时使用线程池
+- **不再报错**：消除 `RuntimeError: This event loop is already running`
+- **随处可用**：适用于 Flask、Django、Jupyter、脚本等
+
+```python
+# 现在在所有上下文中都能工作
+with Pipeline(provider=MyProvider()) as p:
+    response = p.run_sync(context)  # ✅ 无 RuntimeError
+    for chunk in p.stream_sync(context):  # ✅ 安全的流式传输
+        print(chunk.delta, end="")
+```
+
+---

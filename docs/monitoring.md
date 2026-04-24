@@ -1,6 +1,6 @@
 # Onion Core - Monitoring & Alerting Guide
 
-> Version: v0.6.0 | Updated: 2026-04-24
+> Version: v0.7.0 | Updated: 2026-04-24
 
 ## 1. Overview
 
@@ -399,7 +399,7 @@ class CustomMetricsMiddleware(MetricsMiddleware):
 
 # Onion Core - 监控与告警指南
 
-> 版本：v0.6.0 | 更新日期：2026-04-24
+> 版本：v0.7.0 | 更新日期：2026-04-24
 
 ## 1. 概述
 

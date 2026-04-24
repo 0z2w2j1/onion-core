@@ -834,7 +834,7 @@ ERROR_RETRY_POLICY() -> Dict[ErrorCode, RetryOutcome]  # Lazy-loaded retry polic
 
 # Onion Core - API 参考
 
-> 版本：0.6.0 | 生成日期：2026-04-24
+> 版本：0.7.0 | 生成日期：2026-04-24
 
 本文档描述 `onion_core` 包中的所有公共类、函数和配置选项。
 

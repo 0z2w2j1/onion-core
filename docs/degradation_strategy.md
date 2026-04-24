@@ -1,6 +1,6 @@
 # Onion Core - Degradation Strategy Document
 
-> Version: v0.6.0 | Updated: 2026-04-24
+> Version: v0.7.0 | Updated: 2026-04-24
 
 ## 1. Overview
 
@@ -307,13 +307,14 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 | Version | Date | Change Content |
 |------|------|----------|
+| v0.7.0 | 2026-04-24 | Added ResponseCacheMiddleware, enhanced sync API, load testing suite |
 | v0.6.0 | 2026-04-24 | Initial version, defined error codes and degradation strategy |
 
 ---
 
 # Onion Core - 降级策略文档
 
-> 版本：v0.6.0 | 更新日期：2026-04-24
+> 版本：v0.7.0 | 更新日期：2026-04-24
 
 ## 1. 概述
 
