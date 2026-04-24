@@ -4,7 +4,7 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-0.7.1-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -247,9 +247,9 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.7.0 (Beta) |
+| Version | 0.7.1 (Beta) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 220+ tests, 85% coverage |
+| Test Coverage | 334+ tests, 90% coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -267,7 +267,10 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Response cache middleware (v0.7.0)
 - [x] Comprehensive load testing suite (v0.7.0)
 - [x] Migration guide and updated docs (v0.7.0)
-- [x] 85% test coverage (Phase 1 target: 90% for v1.0)
+- [x] 90% test coverage (Phase 1 target: 95% for v1.0)
+- [x] Input validation & DoS protection (v0.7.1)
+- [x] Refactored sync API to eliminate code duplication (v0.7.1)
+- [x] Fixed exception chain preservation issue (v0.7.1)
 
 ### 📋 Roadmap
 
@@ -529,9 +532,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.7.0（Beta） |
+| 版本 | 0.7.1（Beta） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 220+ 个测试，85% 覆盖率 |
+| 测试覆盖 | 334+ 个测试，90% 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -549,7 +552,10 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 响应缓存中间件（v0.7.0）
 - [x] 完整压力测试套件（v0.7.0）
 - [x] 迁移指南和文档更新（v0.7.0）
-- [x] 85% 测试覆盖率（v1.0 目标：90%）
+- [x] 90% 测试覆盖率（v1.0 目标：95%）
+- [x] 输入验证与 DoS 防护（v0.7.1）
+- [x] 重构同步 API，消除代码重复（v0.7.1）
+- [x] 修复异常链丢失问题（v0.7.1）
 
 ### 📋 路线图
 

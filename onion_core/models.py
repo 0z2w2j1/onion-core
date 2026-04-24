@@ -39,6 +39,11 @@ class CircuitBreakerError(OnionError):
     is_fatal: bool = False
 
 
+class ValidationError(OnionError):
+    """输入验证失败异常（不可重试）。"""
+    is_fatal: bool = True
+
+
 # ── 带错误码的异常（向后兼容扩展）────────────────────────────────────────────
 #  原有 OnionError 子类保持不变，新增 OnionErrorWithCode 供新代码使用。
 #  Pipeline 中通过 RetryPolicy.classify() 统一判断重试策略。

@@ -47,6 +47,7 @@ from .models import (
     ToolCall,
     ToolResult,
     UsageStats,
+    ValidationError,
 )
 from .pipeline import MiddlewareManager, Pipeline
 from .provider import EchoProvider, LLMProvider
@@ -80,6 +81,7 @@ __all__ = [
     "SecurityException",
     "RateLimitExceeded",
     "ProviderError",
+    "ValidationError",
     "RetryPolicy",
     "RetryOutcome",
     # 错误码（新增）

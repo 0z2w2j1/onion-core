@@ -32,6 +32,7 @@ from .models import (
     StreamChunk,
     ToolCall,
     ToolResult,
+    ValidationError,
 )
 from .provider import LLMProvider
 
@@ -219,12 +220,14 @@ class Pipeline:
 
     async def run(self, context: AgentContext) -> LLMResponse:
         """非流式完整调用：request → provider.complete → response。"""
+        self._validate_context(context)
         context = await self._run_request(context)
         raw_response = await self._call_provider_with_retry(context)
         return await self._run_response(context, raw_response)
 
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用：request → provider.stream → 逐 chunk 过中间件。"""
+        self._validate_context(context)
         context = await self._run_request(context)
         buf_key = f"_safety_buf_{context.request_id}"
         try:
@@ -347,9 +350,8 @@ class Pipeline:
                 "[%s][pipeline=%s] All providers failed: %s",
                 context.request_id, self.name, error_summary,
             )
-            # 使用最后一个异常作为主异常，但保留完整上下文
+            # 使用最后一个异常作为主异常，保留完整上下文
             last_exc = exceptions[-1][1]
-            last_exc.__cause__ = None  # 清除 cause 链避免混淆
             raise last_exc
         
         raise RuntimeError("Unexpected state: no providers were attempted")  # pragma: no cover
@@ -357,6 +359,44 @@ class Pipeline:
     # ------------------------------------------------------------------
     # 内部调度
     # ------------------------------------------------------------------
+
+    def _validate_context(self, context: AgentContext) -> None:
+        """
+        验证 AgentContext 的合法性。
+        
+        防止恶意用户构造超大 payload 导致 DoS。
+        
+        Raises:
+            ValidationError: 当验证失败时抛出
+        """
+        # 验证消息数量
+        max_messages = 1000  # 最多 1000 条消息
+        if len(context.messages) > max_messages:
+            raise ValidationError(
+                f"Too many messages: {len(context.messages)} (max: {max_messages})"
+            )
+        
+        # 验证每条消息的内容长度
+        max_content_length = 1_000_000  # 1MB
+        for i, msg in enumerate(context.messages):
+            if isinstance(msg.content, str):
+                if len(msg.content) > max_content_length:
+                    raise ValidationError(
+                        f"Message {i} content too long: {len(msg.content)} chars "
+                        f"(max: {max_content_length})"
+                    )
+            elif isinstance(msg.content, list):
+                # 多模态内容
+                total_length = sum(
+                    len(block.text) if block.text else 0
+                    for block in msg.content
+                    if block.type == "text"
+                )
+                if total_length > max_content_length:
+                    raise ValidationError(
+                        f"Message {i} multimodal content too long: {total_length} chars "
+                        f"(max: {max_content_length})"
+                    )
 
     @overload
     async def _call_middleware(
@@ -547,41 +587,50 @@ class Pipeline:
     # 同步 API 封装
     # ------------------------------------------------------------------
 
-    def run_sync(self, context: AgentContext) -> LLMResponse:
+    def _run_async_in_sync(self, coro: Awaitable[_T]) -> _T:
         """
-        同步版本的 run() 方法，适用于非异步环境（如 Flask/Django）。
-
-        内部使用 asyncio.run() 执行异步调用，线程安全。
-        自动检测是否已有运行中的事件循环，避免 RuntimeError。
-
-        用法：
-            with Pipeline(provider=MyProvider()) as p:
-                response = p.run_sync(context)
+        在同步环境中安全运行异步协程。
+        
+        自动检测事件循环状态，避免 RuntimeError。
+        使用统一的事件循环管理策略，减少代码重复。
         """
         try:
             # 尝试获取当前事件循环
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # 没有运行中的事件循环，使用 asyncio.run()
-            return asyncio.run(self.run(context))
+            # 没有运行中的事件循环，直接使用 asyncio.run()
+            return asyncio.run(coro)  # type: ignore[arg-type]
         
-        # 已有运行中的事件循环，创建新任务并等待
+        # 已有运行中的事件循环
         import concurrent.futures
         import threading
         
         if threading.current_thread() is threading.main_thread():
-            # 在主线程中，可以使用 nest_asyncio 或手动处理
-            # 这里使用 run_until_complete 如果可能
+            # 在主线程中，尝试使用 run_until_complete
             try:
-                return loop.run_until_complete(self.run(context))
+                return loop.run_until_complete(coro)
             except RuntimeError:
                 # Loop is already running, use thread pool
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.run(context))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future: concurrent.futures.Future[_T] = executor.submit(
+                        asyncio.run, coro  # type: ignore[arg-type]
+                    )
                     return future.result()
         else:
             # 在子线程中，可以直接使用 asyncio.run()
-            return asyncio.run(self.run(context))
+            return asyncio.run(coro)  # type: ignore[arg-type]
+
+    def run_sync(self, context: AgentContext) -> LLMResponse:
+        """
+        同步版本的 run() 方法，适用于非异步环境（如 Flask/Django）。
+
+        内部使用统一的事件循环管理，线程安全。
+
+        用法：
+            with Pipeline(provider=MyProvider()) as p:
+                response = p.run_sync(context)
+        """
+        return self._run_async_in_sync(self.run(context))
 
     def stream_sync(self, context: AgentContext) -> Iterator[StreamChunk]:
         """
@@ -594,146 +643,34 @@ class Pipeline:
                 for chunk in p.stream_sync(context):
                     print(chunk.delta, end="", flush=True)
         """
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # 没有运行中的事件循环
-            async def _collect_chunks() -> list[StreamChunk]:
-                chunks = []
-                async for chunk in self.stream(context):
-                    chunks.append(chunk)
-                return chunks
+        async def _collect_chunks() -> list[StreamChunk]:
+            chunks = []
+            async for chunk in self.stream(context):
+                chunks.append(chunk)
+            return chunks
 
-            chunks = asyncio.run(_collect_chunks())
-            yield from chunks
-            return
-        
-        # 已有运行中的事件循环
-        import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            try:
-                async def _collect_chunks() -> list[StreamChunk]:
-                    chunks = []
-                    async for chunk in self.stream(context):
-                        chunks.append(chunk)
-                    return chunks
-                
-                chunks = loop.run_until_complete(_collect_chunks())
-                yield from chunks
-            except RuntimeError:
-                # Loop is already running, use thread pool
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    async def _collect_chunks_inner() -> list[StreamChunk]:
-                        chunks = []
-                        async for chunk in self.stream(context):
-                            chunks.append(chunk)
-                        return chunks
-                    
-                    future = executor.submit(asyncio.run, _collect_chunks_inner())
-                    chunks = future.result()
-                    yield from chunks
-        else:
-            # 在子线程中
-            async def _collect_chunks() -> list[StreamChunk]:
-                chunks = []
-                async for chunk in self.stream(context):
-                    chunks.append(chunk)
-                return chunks
-
-            chunks = asyncio.run(_collect_chunks())
-            yield from chunks
+        chunks = self._run_async_in_sync(_collect_chunks())
+        yield from chunks
 
     def execute_tool_call_sync(
         self, context: AgentContext, tool_call: ToolCall
     ) -> ToolCall:
         """同步版本的 execute_tool_call()。"""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.execute_tool_call(context, tool_call))
-        
-        import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            try:
-                return loop.run_until_complete(self.execute_tool_call(context, tool_call))
-            except RuntimeError:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run, self.execute_tool_call(context, tool_call)
-                    )
-                    return future.result()
-        else:
-            return asyncio.run(self.execute_tool_call(context, tool_call))
+        return self._run_async_in_sync(self.execute_tool_call(context, tool_call))
 
     def execute_tool_result_sync(
         self, context: AgentContext, result: ToolResult
     ) -> ToolResult:
         """同步版本的 execute_tool_result()。"""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.execute_tool_result(context, result))
-        
-        import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            try:
-                return loop.run_until_complete(self.execute_tool_result(context, result))
-            except RuntimeError:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run, self.execute_tool_result(context, result)
-                    )
-                    return future.result()
-        else:
-            return asyncio.run(self.execute_tool_result(context, result))
+        return self._run_async_in_sync(self.execute_tool_result(context, result))
 
     def startup_sync(self) -> None:
         """同步版本的 startup()。"""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(self.startup())
-            return
-        
-        import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            try:
-                loop.run_until_complete(self.startup())
-            except RuntimeError:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.startup())
-                    future.result()
-        else:
-            asyncio.run(self.startup())
+        self._run_async_in_sync(self.startup())
 
     def shutdown_sync(self) -> None:
         """同步版本的 shutdown()。"""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(self.shutdown())
-            return
-        
-        import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            try:
-                loop.run_until_complete(self.shutdown())
-            except RuntimeError:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.shutdown())
-                    future.result()
-        else:
-            asyncio.run(self.shutdown())
+        self._run_async_in_sync(self.shutdown())
 
     def __enter__(self) -> Pipeline:
         """支持同步上下文管理器协议。"""

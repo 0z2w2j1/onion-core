@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "onion-core"
-version = "0.7.0"
+version = "0.7.1"
 description = "Agent middleware framework — onion-model pipeline for LLM applications"
 readme = "README.md"
 license = { text = "MIT" }

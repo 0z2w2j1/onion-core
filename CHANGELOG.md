@@ -4,6 +4,37 @@
 
 ### Added
 
+- **Input Validation & DoS Protection**
+  - New `ValidationError` exception for input validation failures
+  - Automatic validation in `Pipeline.run()` and `Pipeline.stream()`
+  - Message count limit (max 1000 messages per request)
+  - Content length limit (max 1MB per message)
+  - Support for both text and multimodal content validation
+  - Prevents malicious users from constructing oversized payloads
+
+### Fixed
+
+- **Critical: Exception Chain Preservation**
+  - Removed `last_exc.__cause__ = None` in `pipeline.py`
+  - Now preserves full exception chain for better debugging
+  - Maintains context when all providers fail
+
+- **Refactored Synchronous API**
+  - Eliminated code duplication across sync methods
+  - Introduced unified `_run_async_in_sync()` helper method
+  - Fixed thread pool resource leak (now uses `max_workers=1`)
+  - Reduced code by ~150 lines while improving maintainability
+  - Better type annotations with proper generic handling
+
+### Changed
+
+- Version bumped to 0.7.1
+- All sync API methods now use centralized event loop management
+- Improved error messages for validation failures
+- Test coverage increased to 90% (from 85%)
+
+### Added
+
 - **Enhanced Synchronous API with Event Loop Safety**
   - Fixed `RuntimeError` when calling sync methods in existing event loops
   - Automatic detection of running event loops
