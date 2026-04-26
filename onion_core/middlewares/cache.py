@@ -54,8 +54,7 @@ class ResponseCacheMiddleware(BaseMiddleware):
                 - "custom": 需要子类重写 _generate_cache_key()
         """
         super().__init__()
-        # Override class-level attributes
-        type(self).priority = 75
+        self.priority = 75
         self._ttl_seconds = ttl_seconds
         self._max_size = max_size
         self._cache_key_strategy = cache_key_strategy

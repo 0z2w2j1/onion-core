@@ -144,8 +144,18 @@ class OpenAIProvider(LLMProvider):
                 if choice is None:
                     continue
                 delta = choice.delta
+                tool_call_delta = None
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        tool_call_delta = {
+                            "index": tc_delta.index,
+                            "id": tc_delta.id,
+                            "function_name": tc_delta.function.name if tc_delta.function else None,
+                            "arguments": tc_delta.function.arguments if tc_delta.function else "",
+                        }
                 yield StreamChunk(
                     delta=delta.content or "",
+                    tool_call_delta=tool_call_delta,
                     finish_reason=choice.finish_reason,
                     index=index,
                 )

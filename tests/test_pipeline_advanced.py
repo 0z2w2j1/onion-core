@@ -193,8 +193,9 @@ class TestCircuitBreaker:
         with pytest.raises(CircuitBreakerError):
             await cb.check_call()
 
-        # 等待恢复超时 → HALF_OPEN
+        # 等待恢复超时，下次 check_call 自动过渡到 HALF_OPEN
         await asyncio.sleep(0.15)
+        await cb.check_call()  # 触发 OPEN→HALF_OPEN
         assert cb.state.value == "half_open"
 
         # 记录1次成功 → CLOSED
@@ -218,6 +219,7 @@ class TestCircuitBreaker:
 
         # 进入半开状态
         await asyncio.sleep(0.15)
+        await cb.check_call()  # 触发 OPEN→HALF_OPEN
         assert cb.state.value == "half_open"
 
         # 半开状态下失败 → 重新打开

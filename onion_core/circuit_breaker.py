@@ -45,27 +45,23 @@ class CircuitBreaker:
     @property
     def state(self) -> CircuitState:
         """获取当前熔断器状态（只读，不修改内部状态）。"""
-        if self._state == CircuitState.OPEN and self._last_failure_time and time.time() - self._last_failure_time >= self.recovery_timeout:
-            return CircuitState.HALF_OPEN
         return self._state
 
     async def check_call(self) -> None:
-        """调用前检查状态。若处于 OPEN 状态则抛出异常。"""
+        """调用前检查状态。若处于 OPEN 状态且未到恢复时间则抛出异常。"""
         async with self._lock:
-            current_state = self.state  # 在锁内读取，确保状态转换原子性
-            if current_state == CircuitState.OPEN:
+            if self._state == CircuitState.OPEN:
+                if self._last_failure_time is not None and \
+                   time.time() - self._last_failure_time >= self.recovery_timeout:
+                    self._state = CircuitState.HALF_OPEN
+                    self._success_count = 0
+                    logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
+                    return
                 raise CircuitBreakerError(f"Circuit breaker '{self.name}' is OPEN.")
 
     async def record_success(self) -> None:
         """记录一次成功调用。"""
         async with self._lock:
-            # 先触发可能的 OPEN→HALF_OPEN 转换
-            if self._state == CircuitState.OPEN and self._last_failure_time and \
-               time.time() - self._last_failure_time >= self.recovery_timeout:
-                self._state = CircuitState.HALF_OPEN
-                self._success_count = 0
-                logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
-            
             if self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
                 if self._success_count >= self.success_threshold:
@@ -78,13 +74,6 @@ class CircuitBreaker:
         """记录一次失败调用。"""
         async with self._lock:
             self._last_failure_time = time.time()
-            # 先触发可能的 OPEN→HALF_OPEN 转换，再判断当前状态
-            if self._state == CircuitState.OPEN and self._last_failure_time and \
-               time.time() - self._last_failure_time >= self.recovery_timeout:
-                self._state = CircuitState.HALF_OPEN
-                self._success_count = 0
-                logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
-            
             if self._state == CircuitState.CLOSED:
                 self._failure_count += 1
                 if self._failure_count >= self.failure_threshold:

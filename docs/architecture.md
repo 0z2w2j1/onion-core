@@ -1,8 +1,8 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.7.3 | Date: 2026-04-24
+> Version: 0.7.4 | Date: 2026-04-26
 
-## Changelog (v0.7.3)
+## Changelog (v0.7.4)
 
 ### Performance Optimizations
 - **Cache Short-Circuit**: `ResponseCacheMiddleware` now throws `CacheHitException` on cache hit, allowing Pipeline to skip provider call entirely. This eliminates wasted LLM API calls when cache hits occur.
@@ -344,16 +344,16 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. Limitations (v0.7.3)
+## 9. Limitations (v0.7.4)
 
 | Area | Limitation |
 |------|------------|
 | **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
-| **Version** | 0.7.3 (Beta) — API may change without notice until v1.0 |
+| **Version** | 0.7.4 (Beta) — API may change without notice until v1.0 |
 | **Documentation** | Bilingual (English + Chinese) documentation maintained |
 | **CI/CD** | GitHub Actions configured for testing, linting, and benchmarks |
 
-### Recent Improvements (v0.7.3)
+### Recent Improvements (v0.7.4)
 
 - **Stream timeout control**: Fixed to use absolute deadline instead of per-chunk timeout
 - **Memory leak prevention**: RateLimitMiddleware now limits timestamps per session (max 1000)
@@ -483,7 +483,7 @@ with Pipeline(provider=MyProvider()) as p:
 
 # Onion Core - 架构设计文档
 
-> 版本：0.7.3 | 日期：2026-04-24
+> 版本：0.7.4 | 日期：2026-04-26
 
 ## 1. 概述
 
@@ -820,16 +820,16 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. 限制 (v0.7.3)
+## 9. 限制 (v0.7.4)
 
 | 领域 | 限制 |
 |------|------------|
 | **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
-| **版本** | 0.7.3（Beta）— API 可能在 v1.0 之前发生变化 |
+| **版本** | 0.7.4（Beta）— API 可能在 v1.0 之前发生变化 |
 | **文档** | 维护中英双语文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试、代码检查和基准测试 |
 
-### 近期改进 (v0.7.3)
+### 近期改进 (v0.7.4)
 
 - **流式超时控制**：修复为使用绝对截止时间，而非每 chunk 重新计时
 - **内存泄漏防护**：RateLimitMiddleware 现在限制每个 session 的时间戳数量（最多 1000 个）

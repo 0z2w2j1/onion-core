@@ -128,9 +128,9 @@ class RetryPolicy:
         return self.classify(exc) == RetryOutcome.FATAL
 
     def is_chain_breaking(self, exc: Exception) -> bool:
-        """链路中断：FATAL 或来自 OnionError（安全/限流拦截）。"""
+        """链路中断：FATAL 或 OnionError 子类标记为 fatal（安全/限流拦截）。"""
         if isinstance(exc, OnionError):
-            return True
+            return getattr(exc, "is_fatal", False)
         return self.classify(exc) == RetryOutcome.FATAL
 
 

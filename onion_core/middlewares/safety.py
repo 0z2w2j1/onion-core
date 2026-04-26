@@ -89,9 +89,11 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         blocked_tools: list[str] | None = None,
         pii_rules: list[PiiRule] | None = None,
         enable_builtin_pii: bool = True,
+        enable_input_pii_masking: bool = False,
     ) -> None:
         self._blocked_keywords = [kw.lower() for kw in (blocked_keywords or DEFAULT_BLOCKED_KEYWORDS)]
         self._blocked_tools: set[str] = set(blocked_tools or [])
+        self._enable_input_pii_masking = enable_input_pii_masking
         self._pii_rules: list[PiiRule] = []
         if enable_builtin_pii:
             self._pii_rules.extend(BUILTIN_PII_RULES)
@@ -144,6 +146,17 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         if self._detect_unicode_confusion(last_user_msg):
             logger.warning("[%s] BLOCKED — unicode confusion detected", context.request_id)
             raise SecurityException("Suspicious character encoding detected")
+        
+        # 4. 输入侧 PII 脱敏（默认关闭，由 enable_input_pii_masking 控制）
+        if self._enable_input_pii_masking:
+            masked = self._mask_pii(last_user_msg)
+            if masked != last_user_msg:
+                for msg in reversed(context.messages):
+                    if msg.role == "user" and msg.text_content == last_user_msg:
+                        if isinstance(msg.content, str):
+                            msg.content = masked
+                        break
+                logger.info("[%s] Input PII masked.", context.request_id)
         
         logger.debug("[%s] Safety check passed.", context.request_id)
         return context
