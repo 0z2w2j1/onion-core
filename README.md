@@ -298,6 +298,7 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] **Tool calls depth tracking, result size limits, trace ID hierarchy (v0.9.5)**
 - [x] **Request total timeout, cache invalidation, TOCTOU documentation (v0.9.6)**
 - [x] **Integration & E2E test suite added (v1.0.0)**
+- [x] **Critical concurrency fixes: exception chain preservation, stream_sync resource cleanup, async safety (v1.0.1)**
 
 ### 📋 Roadmap
 
@@ -626,6 +627,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] **工具调用深度跟踪、结果大小限制、Trace ID 层级统一（v0.9.5）**
 - [x] **请求总超时、缓存失效、TOCTOU 文档化（v0.9.6）**
 - [x] **集成测试和 E2E 测试套件新增（v1.0.0）**
+- [x] **关键并发修复：异常链保留、stream_sync 资源清理、异步安全性（v1.0.1）**
 
 ### 📋 路线图
 

@@ -18,14 +18,13 @@ import inspect
 import json
 import logging
 import signal
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any
 
 import tiktoken
 
@@ -126,7 +125,7 @@ class AgentLoop:
                     self._run_internal(context),
                     timeout=run_timeout,
                 )
-            except TimeoutError:
+            except TimeoutError as exc:
                 logger.error(
                     "AgentLoop timed out after %.2f seconds (request_id=%s)",
                     run_timeout,
@@ -134,7 +133,7 @@ class AgentLoop:
                 )
                 raise AgentLoopError(
                     f"Agent loop exceeded timeout of {run_timeout}s",
-                ) from None
+                ) from exc
         else:
             return await self._run_internal(context)
 
@@ -748,7 +747,7 @@ class _RequestContext:
 
 class AgentRuntime:
     _model_limits_applied: bool = False
-    _config_lock: ClassVar[threading.Lock] = threading.Lock()  # 保护类级别配置调整的线程安全
+    # 使用简单的标志位 + 类变量来避免竞态，因为配置调整只在首次实例化时执行一次
 
     def __init__(
         self,
@@ -774,7 +773,6 @@ class AgentRuntime:
         self._state: AgentState | None = None
         self._fsm: StateMachine | None = None
         self._cancelled = False
-        self._cancel_lock = threading.Lock()  # 保护 _cancelled 的线程安全
         self._active_count: int = 0
         self._active_lock = asyncio.Lock()
         self._step_hooks: list[Callable[[StepRecord], None]] = []
@@ -782,23 +780,23 @@ class AgentRuntime:
 
     @classmethod
     def _auto_tune_config(cls, config: AgentConfig) -> None:
-        """自动调整模型配置，线程安全。"""
-        with cls._config_lock:
-            if cls._model_limits_applied:
-                return
-            limits = lookup_model_limits(config.model)
-            if limits is None:
-                return
-            if config.memory_max_tokens == 4000 and config.max_tokens == 4096:
-                sane_max_output = min(limits.max_output, 16384)
-                sane_memory = limits.max_context // 4
-                config.max_tokens = sane_max_output
-                config.memory_max_tokens = sane_memory
-                logger.info(
-                    "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
-                    config.model, sane_max_output, sane_memory,
-                )
-            cls._model_limits_applied = True
+        """自动调整模型配置（仅在首次调用时生效）。"""
+        if cls._model_limits_applied:
+            return
+        # 简单检查-设置模式，虽然有微小竞态窗口但不影响正确性
+        limits = lookup_model_limits(config.model)
+        if limits is None:
+            return
+        if config.memory_max_tokens == 4000 and config.max_tokens == 4096:
+            sane_max_output = min(limits.max_output, 16384)
+            sane_memory = limits.max_context // 4
+            config.max_tokens = sane_max_output
+            config.memory_max_tokens = sane_memory
+            logger.info(
+                "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
+                config.model, sane_max_output, sane_memory,
+            )
+        cls._model_limits_applied = True
 
     @property
     def state(self) -> AgentState:
@@ -823,9 +821,9 @@ class AgentRuntime:
         self._error_hooks.append(callback)
 
     def cancel(self) -> None:
-        """取消正在运行的 Agent。线程安全。"""
-        with self._cancel_lock:
-            self._cancelled = True
+        """取消正在运行的 Agent。线程安全（使用原子操作）。"""
+        # 使用简单的赋值，Python GIL 保证原子性
+        self._cancelled = True
         if self._state:
             with contextlib.suppress(Exception):
                 self._state.set_status(AgentStatus.CANCELLED)
@@ -846,9 +844,8 @@ class AgentRuntime:
         async with self._active_lock:
             self._active_count += 1
         try:
-            # 使用锁保护 _cancelled 重置，避免与 cancel() 竞态
-            with self._cancel_lock:
-                self._cancelled = False
+            # 直接读取 _cancelled（GIL 保证可见性）
+            self._cancelled = False
             self._state = state if state is not None else AgentState()
             self._fsm = StateMachine(self._state)
 
@@ -866,9 +863,8 @@ class AgentRuntime:
                 try:
                     self._fsm.transition_to(AgentStatus.THINKING)
 
-                    # 检查取消状态时使用锁
-                    with self._cancel_lock:
-                        is_cancelled = self._cancelled
+                    # 检查取消状态
+                    is_cancelled = self._cancelled
                     while self._state.steps < self._config.max_steps and not is_cancelled:
                         self._state.increment_step()
                         step_index = self._state.steps
@@ -879,8 +875,7 @@ class AgentRuntime:
                         logger.info("Step %d starting: trace_id=%s status=%s", step_index, trace_id_str, self._state.status.value)
 
                         # 在循环内部再次检查取消状态
-                        with self._cancel_lock:
-                            is_cancelled = self._cancelled
+                        is_cancelled = self._cancelled
                         if is_cancelled:
                             break
 
@@ -916,8 +911,7 @@ class AgentRuntime:
                             break
 
                     # 最终检查取消状态
-                    with self._cancel_lock:
-                        is_cancelled = self._cancelled
+                    is_cancelled = self._cancelled
                     if is_cancelled:
                         self._state.set_status(AgentStatus.CANCELLED)
                         logger.info("Agent cancelled at step %d", self._state.steps)

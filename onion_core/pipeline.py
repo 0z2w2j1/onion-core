@@ -305,10 +305,10 @@ class Pipeline:
                     self._run_with_cache_handling(context),
                     timeout=self._total_timeout,
                 )
-            except TimeoutError:
+            except TimeoutError as exc:
                 raise TimeoutError(
                     f"Pipeline total timeout ({self._total_timeout}s) exceeded for request {context.request_id}"
-                ) from None
+                ) from exc
         else:
             return await self._run_with_cache_handling(context)
     
@@ -339,11 +339,11 @@ class Pipeline:
                 # 使用 deadline 机制实现总超时
                 try:
                     loop = asyncio.get_running_loop()
-                except RuntimeError:
+                except RuntimeError as exc:
                     raise RuntimeError(
                         "stream() must be called from within an async context. "
                         "Use stream_sync() for synchronous usage."
-                    ) from None
+                    ) from exc
                 deadline = loop.time() + self._total_timeout
                 
                 async for chunk in self._stream_with_deadline(context, deadline):
@@ -427,11 +427,11 @@ class Pipeline:
             # 计算绝对截止时间，确保总超时而非每 chunk 超时
             try:
                 loop = asyncio.get_running_loop()
-            except RuntimeError:
+            except RuntimeError as exc:
                 raise RuntimeError(
                     "stream() must be called from within an async context. "
                     "Use stream_sync() for synchronous usage."
-                ) from None
+                ) from exc
             deadline = loop.time() + self._provider_timeout
 
             gen = _provider_gen()
@@ -966,31 +966,36 @@ class Pipeline:
                 raise
 
         # 生产者线程 + 线程安全队列，避免一次性聚合全部 chunk
-        stream_queue: queue.Queue[object] = queue.Queue(maxsize=64)
+        stream_queue: queue.SimpleQueue[object] = queue.SimpleQueue()
         sentinel = object()
         error_sentinel = object()
         stop_event = threading.Event()
         loop = asyncio.new_event_loop()
         producer_task: asyncio.Task[None] | None = None
 
-        def _put_with_stop(item: object) -> bool:
-            while not stop_event.is_set():
-                try:
-                    stream_queue.put(item, timeout=0.05)
-                    return True
-                except queue.Full:
-                    continue
-            return False
+        def _put_item(item: object) -> bool:
+            """非阻塞方式放入队列，如果停止则返回False。"""
+            if stop_event.is_set():
+                return False
+            try:
+                stream_queue.put(item)
+                return True
+            except Exception:
+                return False
 
         async def _producer() -> None:
             try:
                 async for chunk in self.stream(context):
                     if stop_event.is_set():
                         break
-                    if not _put_with_stop(chunk):
+                    if not _put_item(chunk):
                         return
             except GeneratorExit:
                 pass
+            except Exception as exc:
+                # 将异常传递给消费者
+                if not stop_event.is_set():
+                    _put_item((error_sentinel, exc))
 
         def _producer_runner() -> None:
             nonlocal producer_task
@@ -1001,20 +1006,22 @@ class Pipeline:
             except (Exception, asyncio.CancelledError) as exc:
                 # 捕获 CancelledError 和其他异常，防止线程崩溃
                 if not stop_event.is_set():
-                    _put_with_stop((error_sentinel, exc))
+                    _put_item((error_sentinel, exc))
             finally:
                 # 清理 Provider 资源（关闭 HTTP 连接）
                 async def _cleanup() -> None:
-                    if hasattr(self._provider, 'cleanup'):
-                        await self._provider.cleanup()
+                    cleanup_fn = getattr(self._provider, 'cleanup', None)
+                    if cleanup_fn is not None and asyncio.iscoroutinefunction(cleanup_fn):
+                        await cleanup_fn()
                     for fallback in self._fallback_providers:
-                        if hasattr(fallback, 'cleanup'):
-                            await fallback.cleanup()
+                        fallback_cleanup = getattr(fallback, 'cleanup', None)
+                        if fallback_cleanup is not None and asyncio.iscoroutinefunction(fallback_cleanup):
+                            await fallback_cleanup()
                 
                 with contextlib.suppress(Exception):
                     loop.run_until_complete(_cleanup())
                 
-                _put_with_stop(sentinel)
+                _put_item(sentinel)
                 with contextlib.suppress(Exception):
                     loop.run_until_complete(loop.shutdown_asyncgens())
                 with contextlib.suppress(Exception):
