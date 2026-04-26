@@ -29,7 +29,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, TypedDict, Union
 
 from .models import _MAX_TOOL_CALL_DEPTH, AgentContext, ToolCall, ToolResult
@@ -146,6 +148,13 @@ class ToolDefinition:
         }
 
 
+@dataclass
+class IdempotencyCacheEntry:
+    """幂等性缓存条目，包含结果和元数据。"""
+    result: ToolResult
+    timestamp: float = field(default_factory=time.time)
+
+
 class ToolRegistry:
     """
     工具注册表。
@@ -165,9 +174,22 @@ class ToolRegistry:
         后续调用直接返回首次执行的结果。适用于网络重试导致工具被调用多次的场景。
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        max_cache_size: int = 1000,
+        cache_ttl: int = 3600,
+    ) -> None:
+        """
+        初始化工具注册表。
+
+        Args:
+            max_cache_size: 幂等性缓存最大条目数，默认 1000
+            cache_ttl: 缓存条目生存时间（秒），默认 3600（1小时）
+        """
         self._tools: dict[str, ToolDefinition] = {}
-        self._idempotency_cache: dict[str, ToolResult] = {}
+        self._idempotency_cache: dict[str, IdempotencyCacheEntry] = {}
+        self._max_cache_size = max_cache_size
+        self._cache_ttl = cache_ttl
 
     def register(
         self,
@@ -215,7 +237,30 @@ class ToolRegistry:
         return [t.to_anthropic_format() for t in self._tools.values()]
 
     def clear_idempotency_cache(self) -> None:
+        """清空幂等性缓存。"""
         self._idempotency_cache.clear()
+
+    def _cleanup_expired_cache_entries(self) -> None:
+        """清理过期的缓存条目并限制缓存大小。"""
+        now = time.time()
+        
+        # 1. 删除过期条目
+        expired_keys = [
+            key for key, entry in self._idempotency_cache.items()
+            if now - entry.timestamp > self._cache_ttl
+        ]
+        for key in expired_keys:
+            del self._idempotency_cache[key]
+        
+        # 2. 如果仍然超限，按时间排序删除最旧的条目
+        if len(self._idempotency_cache) > self._max_cache_size:
+            sorted_items = sorted(
+                self._idempotency_cache.items(),
+                key=lambda x: x[1].timestamp,
+            )
+            to_remove = len(self._idempotency_cache) - self._max_cache_size
+            for key, _ in sorted_items[:to_remove]:
+                del self._idempotency_cache[key]
 
     async def execute(
         self,
@@ -243,8 +288,16 @@ class ToolRegistry:
         if tool_call.idempotency_key is not None:
             cached = self._idempotency_cache.get(tool_call.idempotency_key)
             if cached is not None:
-                logger.info("Idempotency hit for key='%s', returning cached result", tool_call.idempotency_key)
-                return cached.model_copy(deep=True)
+                # 检查是否过期
+                if time.time() - cached.timestamp < self._cache_ttl:
+                    logger.info(
+                        "Idempotency hit for key='%s', returning cached result",
+                        tool_call.idempotency_key,
+                    )
+                    return cached.result.model_copy(deep=True)
+                else:
+                    # 过期则删除
+                    del self._idempotency_cache[tool_call.idempotency_key]
 
         if context and context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
             return ToolResult(
@@ -304,10 +357,13 @@ class ToolRegistry:
                 result=result,
             )
             if tool_call.idempotency_key is not None:
-                self._idempotency_cache[tool_call.idempotency_key] = tool_result
-                if len(self._idempotency_cache) > 10000:
-                    oldest = next(iter(self._idempotency_cache))
-                    del self._idempotency_cache[oldest]
+                self._idempotency_cache[tool_call.idempotency_key] = IdempotencyCacheEntry(
+                    result=tool_result,
+                    timestamp=time.time(),
+                )
+                # 定期清理缓存（每 100 次写入清理一次）
+                if len(self._idempotency_cache) % 100 == 0:
+                    self._cleanup_expired_cache_entries()
             return tool_result
         except Exception as exc:
             logger.error("Tool '%s' raised %s: %s", tool_call.name, type(exc).__name__, exc)

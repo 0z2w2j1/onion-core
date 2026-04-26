@@ -98,10 +98,50 @@ class AgentLoop:
         self._raise_on_max_turns = raise_on_max_turns
         self._memory = memory
 
-    async def run(self, context: AgentContext) -> LLMResponse:
+    async def run(
+        self,
+        context: AgentContext,
+        run_timeout: float | None = None,
+    ) -> LLMResponse:
         """
         执行 Agent 循环。
-        
+
+        Args:
+            context: Agent 上下文
+            run_timeout: 可选的总超时时间（秒）。None 表示不限制。
+
+        Returns:
+            LLM 响应
+
+        Raises:
+            AgentLoopError: 当超过 max_turns 或 run_timeout 时抛出
+
+        Note:
+            当使用 SlidingWindowMemory 时，每轮循环都会重新裁剪 messages，
+            因此需要确保在裁剪后继续追加新的消息到 context.messages。
+        """
+        if run_timeout is not None:
+            try:
+                return await asyncio.wait_for(
+                    self._run_internal(context),
+                    timeout=run_timeout,
+                )
+            except TimeoutError:
+                logger.error(
+                    "AgentLoop timed out after %.2f seconds (request_id=%s)",
+                    run_timeout,
+                    context.request_id,
+                )
+                raise AgentLoopError(
+                    f"Agent loop exceeded timeout of {run_timeout}s",
+                ) from None
+        else:
+            return await self._run_internal(context)
+
+    async def _run_internal(self, context: AgentContext) -> LLMResponse:
+        """
+        Agent 循环内部实现。
+
         注意：当使用 SlidingWindowMemory 时，每轮循环都会重新裁剪 messages，
         因此需要确保在裁剪后继续追加新的消息到 context.messages。
         """

@@ -493,8 +493,23 @@ class OpenAIProvider(LLMProvider):
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
     ) -> None: ...
+
+    # Resource management
+    async def cleanup(self) -> None: ...
+    async def __aenter__(self) -> "OpenAIProvider": ...  # NEW in v1.1.0
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # NEW in v1.1.0
+
 # Pass `client` to share an existing AsyncOpenAI instance (connection pool) across providers.
 # `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
+```
+
+**Async Context Manager Support (NEW in v1.1.0):**
+Providers now support async context managers for automatic resource cleanup:
+```python
+async with OpenAIProvider(api_key="sk-...") as provider:
+    pipeline = Pipeline(provider=provider)
+    response = await pipeline.run(context)
+# HTTP client automatically closed here
 ```
 
 ### `AnthropicProvider`
@@ -511,6 +526,12 @@ class AnthropicProvider(LLMProvider):
         max_connections: int = 100,
         max_keepalive_connections: int = 20,
     ) -> None: ...
+
+    # Resource management
+    async def cleanup(self) -> None: ...
+    async def __aenter__(self) -> "AnthropicProvider": ...  # NEW in v1.1.0
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # NEW in v1.1.0
+
 # Pass `client` to share an existing AsyncAnthropic instance across providers.
 # `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
 ```
@@ -735,7 +756,17 @@ cache.clear_cache()
 ### `ToolRegistry`
 ```python
 class ToolRegistry:
-    def __init__(self) -> None: ...
+    def __init__(
+        self,
+        max_cache_size: int = 1000,   # NEW in v1.1.0
+        cache_ttl: int = 3600,         # NEW in v1.1.0
+    ) -> None:
+        """
+        Args:
+            max_cache_size: Maximum idempotency cache entries (default: 1000)
+            cache_ttl: Cache entry TTL in seconds (default: 3600 = 1 hour)
+        """
+        ...
 
     # Registration
     def register(
@@ -764,12 +795,21 @@ class ToolRegistry:
     def to_anthropic_tools(self) -> List[Dict[str, Any]]: ...
 
     # Execution
-    def execute(
+    async def execute(
         self,
         tool_call: ToolCall,
         context: Optional[AgentContext] = None,
     ) -> ToolResult: ...
+
+    # Cache management
+    def clear_idempotency_cache(self) -> None: ...
 ```
+
+**Idempotency Cache Features (NEW in v1.1.0):**
+- **TTL-based expiration**: Cache entries automatically expire after `cache_ttl` seconds
+- **Size limit**: Maximum `max_cache_size` entries enforced with LRU eviction
+- **Periodic cleanup**: Expired entries cleaned up every 100 cache writes
+- **Memory protection**: Prevents unbounded memory growth from unique idempotency keys
 
 ---
 
@@ -787,11 +827,31 @@ class AgentLoop:
         memory: Optional[SlidingWindowMemory] = None,
     ) -> None: ...
 
-    async def run(self, context: AgentContext) -> LLMResponse: ...
+    async def run(
+        self,
+        context: AgentContext,
+        run_timeout: Optional[float] = None,  # NEW in v1.1.0
+    ) -> LLMResponse:
+        """
+        Args:
+            context: Agent execution context
+            run_timeout: Optional total timeout in seconds. None means no limit.
+        
+        Raises:
+            AgentLoopError: Raised when timeout exceeded or max_turns reached
+        """
+        ...
 
 Provides a simplified tool-calling loop on top of a Pipeline.
 When `memory` is set, the message list is trimmed by token count
 at the start of each turn to prevent unbounded memory growth.
+
+**Timeout Support (NEW in v1.1.0):**
+Use `run_timeout` parameter to enforce hard time limits on agent execution:
+```python
+# Timeout after 30 seconds
+response = await agent_loop.run(context, run_timeout=30.0)
+```
 
 ### `AgentRuntime`
 ```python

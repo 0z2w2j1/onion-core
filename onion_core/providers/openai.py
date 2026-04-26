@@ -192,5 +192,19 @@ class OpenAIProvider(LLMProvider):
             ) from exc
 
     async def cleanup(self) -> None:
+        """关闭 HTTP 客户端（如果由本实例创建）。"""
         if self._owns_client:
             await self._client.close()
+
+    async def __aenter__(self) -> OpenAIProvider:
+        """异步上下文管理器入口。"""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        """异步上下文管理器出口，确保资源清理。"""
+        await self.cleanup()
