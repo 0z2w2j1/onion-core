@@ -191,10 +191,12 @@ async def test_lock_contention_no_deadlock():
             self.thread_lock = threading.Lock()
         
         async def complete(self, context):
-            # Simulate work with lock
+            # Simulate work with lock - keep lock scope minimal to avoid deadlock
             with self.thread_lock:
                 self.call_count += 1
-                await asyncio.sleep(0.001)
+            
+            # Async operation outside the lock
+            await asyncio.sleep(0.001)
             
             return LLMResponse(
                 content="OK",
@@ -252,12 +254,13 @@ async def test_asyncio_lock_vs_threading_lock():
             self.count = 0
         
         async def complete(self, context):
-            # Use both types of locks
+            # Use both types of locks - minimize thread lock hold time
             async with self.async_lock:
                 with self.thread_lock:
                     self.count += 1
                     count_val = self.count
                 
+                # Thread lock released, now do async work
                 await asyncio.sleep(0.001)
             
             return LLMResponse(
