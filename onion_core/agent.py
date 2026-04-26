@@ -64,6 +64,8 @@ class AgentLoop:
         """
         last_response: LLMResponse | None = None
         seen_tool_calls: set[str] = set()  # 记录已执行的工具调用签名
+        consecutive_same_results: int = 0  # 连续相同工具结果的计数
+        last_tool_result_hash: str | None = None  # 上一次工具结果的哈希
 
         for turn in range(self._max_turns):
             response = await self._pipeline.run(context)
@@ -96,6 +98,21 @@ class AgentLoop:
 
                 # 通过 pipeline 处理结果（PII 脱敏等）
                 processed = await self._pipeline.execute_tool_result(context, tool_result)
+
+                # 检测连续相同结果（防止无限循环）
+                current_result_hash = f"{processed.name}:{processed.result}"
+                if current_result_hash == last_tool_result_hash:
+                    consecutive_same_results += 1
+                    if consecutive_same_results >= 3:
+                        logger.warning(
+                            "[%s] Detected %d consecutive identical tool results, stopping to prevent infinite loop",
+                            context.request_id, consecutive_same_results
+                        )
+                        # 返回当前结果而不是继续循环
+                        return last_response
+                else:
+                    consecutive_same_results = 0
+                last_tool_result_hash = current_result_hash
 
                 # 追加工具结果到对话历史
                 result_text = (

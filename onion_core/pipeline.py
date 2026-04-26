@@ -317,7 +317,13 @@ class Pipeline:
 
             if self._provider_timeout is not None:
                 # 计算绝对截止时间，确保总超时而非每 chunk 超时
-                loop = asyncio.get_event_loop()
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    raise RuntimeError(
+                        "stream() must be called from within an async context. "
+                        "Use stream_sync() for synchronous usage."
+                    ) from None
                 deadline = loop.time() + self._provider_timeout
 
                 gen = _provider_gen()
@@ -834,16 +840,17 @@ class Pipeline:
         """
         import concurrent.futures
 
-        # 创建新的事件循环用于流式传输
-        loop = asyncio.new_event_loop()
-
-        async def _stream_gen() -> AsyncIterator[StreamChunk]:
-            async for chunk in self.stream(context):
-                yield chunk
-
-        gen = _stream_gen()
-
+        loop: asyncio.AbstractEventLoop | None = None
         try:
+            # 创建新的事件循环用于流式传输
+            loop = asyncio.new_event_loop()
+
+            async def _stream_gen() -> AsyncIterator[StreamChunk]:
+                async for chunk in self.stream(context):
+                    yield chunk
+
+            gen = _stream_gen()
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 while True:
                     # 在线程池中执行异步 next()
@@ -855,9 +862,12 @@ class Pipeline:
                         yield chunk
                     except StopAsyncIteration:
                         break
+        except Exception:
+            raise
         finally:
             # 清理资源
-            loop.close()
+            if loop is not None:
+                loop.close()
 
     def execute_tool_call_sync(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         """同步版本的 execute_tool_call()。"""

@@ -221,16 +221,6 @@ Typical performance improvements with caching enabled:
 The enhanced sync API eliminates overhead from manual event loop management:
 
 ```python
-# Old approach (manual, error-prone)
-import asyncio
-try:
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # Complex workaround needed
-        ...
-except RuntimeError:
-    asyncio.run(pipeline.run(context))
-
 # New approach (automatic, safe)
 response = pipeline.run_sync(context)  # ✅ Handles everything
 ```

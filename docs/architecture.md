@@ -362,7 +362,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - **Thread safety**: Distributed cache statistics now protected with `asyncio.Lock`
 - **Enhanced security**: Added regex pattern matching and Unicode confusion detection for prompt injection
 - **CircuitBreaker reliability**: State transitions now atomic within lock scope
-- **AgentLoop protection**: Duplicate tool call detection prevents infinite loops
+- **AgentLoop protection**: Duplicate tool call detection and consecutive identical result detection (>=3 times) prevents infinite loops
 - **OpenTelemetry span propagation**: Fixed — spans are now attached to OpenTelemetry context via `trace.set_span_in_context()` + `context.attach()`, ensuring tool call sub-spans correctly inherit the parent request span
 - **Provider resource cleanup**: `LLMProvider.cleanup()` added; `OpenAIProvider` and `AnthropicProvider` now close HTTP client sessions in Pipeline shutdown, preventing connection pool leaks
 
