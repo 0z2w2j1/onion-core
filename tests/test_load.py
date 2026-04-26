@@ -207,18 +207,30 @@ class TestPipelineThroughput:
         # Should still handle reasonable throughput
         assert throughput > 50
 
-    @pytest.mark.asyncio
-    async def test_sync_api_throughput(self, context):
-        """Test synchronous API throughput."""
-        provider = EchoProvider(reply="test")
+    def test_sync_api_throughput(self, context):
+        """Test synchronous API throughput.
         
-        with Pipeline(provider=provider) as p:
-            start = time.perf_counter()
-            for _ in range(50):
-                p.run_sync(context)
-            duration = time.perf_counter() - start
+        Note: This test runs in a sync context (not async) to properly test
+        the sync API. Sync methods cannot be called from within async contexts.
+        """
+        import concurrent.futures
         
-        throughput = 50 / duration
+        def run_sync_test():
+            provider = EchoProvider(reply="test")
+            
+            with Pipeline(provider=provider) as p:
+                start = time.perf_counter()
+                for _ in range(50):
+                    p.run_sync(context)
+                duration = time.perf_counter() - start
+            
+            return 50 / duration
+        
+        # Run sync test in a separate thread to avoid async context conflict
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_sync_test)
+            throughput = future.result()
+        
         # Sync API should still be reasonably fast
         assert throughput > 30
 
