@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
+from typing import Protocol
 
 import tiktoken
 
@@ -15,8 +16,29 @@ logger = logging.getLogger("onion_core.context")
 DEFAULT_MAX_TOKENS = 4000
 DEFAULT_KEEP_ROUNDS = 2
 DEFAULT_MODEL_ENCODING = "cl100k_base"
+DEFAULT_SUMMARY_STRATEGY = "rule-based"
 # LRU 缓存最大容量，避免内存泄漏
 ENCODING_CACHE_MAX_SIZE = 10
+
+
+class ContextSummarizer(Protocol):
+    async def summarize(self, messages: list[Message]) -> str:
+        ...
+
+
+class RuleBasedContextSummarizer:
+    """轻量规则摘要器，优先保留可引用实体信息。"""
+
+    async def summarize(self, messages: list[Message]) -> str:
+        if not messages:
+            return "No earlier messages to summarize."
+        lines: list[str] = []
+        for idx, msg in enumerate(messages[-8:], start=1):
+            text = " ".join(msg.text_content.split())
+            if len(text) > 160:
+                text = f"{text[:157]}..."
+            lines.append(f"{idx}. ({msg.role}) {text}")
+        return "\n".join(lines)
 
 
 class ContextWindowMiddleware(BaseMiddleware):
@@ -41,10 +63,15 @@ class ContextWindowMiddleware(BaseMiddleware):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         keep_rounds: int = DEFAULT_KEEP_ROUNDS,
         encoding_name: str = DEFAULT_MODEL_ENCODING,
+        summary_strategy: str = DEFAULT_SUMMARY_STRATEGY,
+        summarizer: ContextSummarizer | None = None,
     ) -> None:
         self._max_tokens = max_tokens
         self._keep_rounds = keep_rounds
         self._default_encoding_name = encoding_name
+        self._summary_strategy = summary_strategy
+        self._summarizer = summarizer
+        self._rule_based_summarizer = RuleBasedContextSummarizer()
         # 默认 encoding（启动时加载）
         self._default_encoding = tiktoken.get_encoding(encoding_name)
         # LRU encoding 缓存，避免重复加载（最大容量 ENCODING_CACHE_MAX_SIZE）
@@ -75,8 +102,13 @@ class ContextWindowMiddleware(BaseMiddleware):
             return self._default_encoding
 
     async def startup(self) -> None:
-        logger.info("ContextWindowMiddleware started | max_tokens=%d | keep_rounds=%d | encoding=%s",
-                    self._max_tokens, self._keep_rounds, self._default_encoding_name)
+        logger.info(
+            "ContextWindowMiddleware started | max_tokens=%d | keep_rounds=%d | encoding=%s | summary_strategy=%s",
+            self._max_tokens,
+            self._keep_rounds,
+            self._default_encoding_name,
+            self._summary_strategy,
+        )
 
     async def shutdown(self) -> None:
         logger.info("ContextWindowMiddleware stopped.")
@@ -90,23 +122,60 @@ class ContextWindowMiddleware(BaseMiddleware):
         ) + 2
         return total
 
-    def _truncate_messages(self, messages: list[Message], keep_rounds: int) -> list[Message]:
+    async def _summarize_old_messages(
+        self,
+        old_messages: list[Message],
+        strategy: str,
+    ) -> tuple[Message | None, bool]:
+        if not old_messages or strategy == "none":
+            return None, False
+
+        try:
+            if strategy == "rule-based":
+                summary_text = await self._rule_based_summarizer.summarize(old_messages)
+            elif strategy == "llm-summary":
+                if self._summarizer is None:
+                    logger.warning("llm-summary requested but no summarizer injected; falling back to rule-based")
+                    summary_text = await self._rule_based_summarizer.summarize(old_messages)
+                else:
+                    summary_text = await self._summarizer.summarize(old_messages)
+            else:
+                logger.warning("Unknown summary strategy '%s'; disabling summary", strategy)
+                return None, False
+
+            summary_msg = Message(
+                role="system",
+                content=f"[Summary: Conversation history truncated]\n{summary_text}",
+            )
+            return summary_msg, True
+        except Exception as exc:
+            logger.warning("Summary generation failed, skipping summary: %s", exc)
+            return None, False
+
+    async def _truncate_messages(
+        self,
+        messages: list[Message],
+        keep_rounds: int,
+        summary_strategy: str,
+    ) -> tuple[list[Message], bool]:
         system_msgs = [m for m in messages if m.role == "system"]
         conv_msgs = [m for m in messages if m.role != "system"]
         keep_count = keep_rounds * 2
         if len(conv_msgs) <= keep_count:
-            return messages
+            return messages, False
+        old_msgs = conv_msgs[:-keep_count]
         kept = conv_msgs[-keep_count:]
-        summary = Message(role="system", content="[Summary: Conversation history truncated due to token limit]")
-        truncated = system_msgs + [summary] + kept
+        summary_msg, summary_generated = await self._summarize_old_messages(old_msgs, summary_strategy)
+        truncated = system_msgs + ([summary_msg] if summary_msg else []) + kept
         logger.info("Context truncated: %d → %d messages (kept last %d rounds)",
                     len(messages), len(truncated), keep_rounds)
-        return truncated
+        return truncated, summary_generated
 
     async def process_request(self, context: AgentContext) -> AgentContext:
         rt_cfg = context.config.get("context_window", {})
         max_tokens = rt_cfg.get("max_tokens", self._max_tokens)
         keep_rounds = rt_cfg.get("keep_rounds", self._keep_rounds)
+        summary_strategy = rt_cfg.get("summary_strategy", self._summary_strategy)
 
         # 动态 encoding：优先从 context.config 读取，回退到构造时的默认值
         encoding_name = rt_cfg.get("encoding_name", self._default_encoding_name)
@@ -114,6 +183,7 @@ class ContextWindowMiddleware(BaseMiddleware):
 
         token_count = self.count_tokens(context.messages, encoding)
         context.metadata["token_count_before"] = token_count
+        context.metadata["pre_tokens"] = token_count
         context.metadata["encoding_name"] = encoding_name
         logger.info("[%s] Token count: %d / %d (encoding=%s)",
                     context.request_id, token_count, max_tokens, encoding_name)
@@ -121,11 +191,22 @@ class ContextWindowMiddleware(BaseMiddleware):
         if token_count > max_tokens:
             logger.warning("[%s] Token limit exceeded (%d > %d) — truncating.",
                            context.request_id, token_count, max_tokens)
-            context.messages = self._truncate_messages(context.messages, keep_rounds)
-            context.metadata["token_count_after"] = self.count_tokens(context.messages, encoding)
+            context.messages, summary_generated = await self._truncate_messages(
+                context.messages,
+                keep_rounds,
+                summary_strategy,
+            )
+            post_tokens = self.count_tokens(context.messages, encoding)
+            context.metadata["token_count_after"] = post_tokens
+            context.metadata["post_tokens"] = post_tokens
             context.metadata["context_truncated"] = True
+            context.metadata["truncated"] = True
+            context.metadata["summary_generated"] = summary_generated
         else:
             context.metadata["context_truncated"] = False
+            context.metadata["truncated"] = False
+            context.metadata["summary_generated"] = False
+            context.metadata["post_tokens"] = token_count
         return context
 
     async def process_response(self, context: AgentContext, response: LLMResponse) -> LLMResponse:
