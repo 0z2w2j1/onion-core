@@ -1,6 +1,6 @@
 # Onion Core - Monitoring & Alerting Guide
 
-> Version: 0.7.3 | Last Updated: 2026-04-24
+> Version: 0.7.4 | Updated: 2026-04-26
 
 This guide provides comprehensive instructions for monitoring Onion Core in production environments, including Prometheus metrics, Grafana dashboards, and Alertmanager rules.
 
@@ -72,10 +72,8 @@ Onion Core exposes the following metrics via `MetricsMiddleware`:
 
 ### Cache Metrics (if using ResponseCacheMiddleware)
 
-| Metric Name | Type | Labels | Description |
-|-------------|------|--------|-------------|
-| `onion_cache_hits_total` | Counter | `pipeline_name` | Cache hits |
-| `onion_cache_misses_total` | Counter | `pipeline_name` | Cache misses |
+Cache hit/miss statistics are available via `ResponseCacheMiddleware.hits`, `.misses`, and `.hit_rate` properties.
+Prometheus metrics for cache are not currently exposed — use middleware instance attributes for monitoring.
 
 **Example PromQL Queries:**
 
@@ -199,10 +197,9 @@ groups:
 | SLO Name | Target | Measurement Window |
 |----------|--------|-------------------|
 | **Availability** | 99.9% | 30 days |
-| **Latency P95** | < 2 seconds | Rolling 5m |
-| **Latency P99** | < 5 seconds | Rolling 5m |
+| **Latency P95** | < 5 seconds | Rolling 5m |
+| **Latency P99** | < 10 seconds | Rolling 5m |
 | **Tool Call Success** | > 95% | Rolling 1h |
-| **Cache Hit Rate** | > 50% (if enabled) | Rolling 24h |
 
 ### Service Level Indicators (SLIs)
 

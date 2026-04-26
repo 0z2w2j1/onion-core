@@ -1,6 +1,6 @@
 # Onion Core - API Reference
 
-> Version: 0.7.0 | Generated: 2026-04-24
+> Version: 0.7.4 | Updated: 2026-04-26
 
 This document describes every public class, function, and configuration option in the `onion_core` package.
 
@@ -338,6 +338,7 @@ class Pipeline:
         enable_circuit_breaker: bool = True,
         circuit_failure_threshold: int = 5,
         circuit_recovery_timeout: float = 30.0,
+        max_stream_chunks: int = 10000,
     ) -> None: ...
 
     # Middleware management
@@ -579,6 +580,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         blocked_tools: Optional[List[str]] = None,
         pii_rules: Optional[List[PiiRule]] = None,
         enable_builtin_pii: bool = True,
+        enable_input_pii_masking: bool = False,
     ) -> None: ...
 
     # PII rules
@@ -776,6 +778,7 @@ class PipelineConfig(BaseModel):
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
+    max_stream_chunks: int = 10000
 
 class OnionConfig(BaseSettings):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
@@ -834,7 +837,7 @@ ERROR_RETRY_POLICY() -> Dict[ErrorCode, RetryOutcome]  # Lazy-loaded retry polic
 
 # Onion Core - API 参考
 
-> 版本：0.7.0 | 生成日期：2026-04-24
+> 版本：0.7.4 | 更新日期：2026-04-26
 
 本文档描述 `onion_core` 包中的所有公共类、函数和配置选项。
 
@@ -1168,6 +1171,7 @@ class Pipeline:
         enable_circuit_breaker: bool = True,
         circuit_failure_threshold: int = 5,
         circuit_recovery_timeout: float = 30.0,
+        max_stream_chunks: int = 10000,
     ) -> None: ...
 
     # 中间件管理
@@ -1356,6 +1360,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         blocked_tools: Optional[List[str]] = None,
         pii_rules: Optional[List[PiiRule]] = None,
         enable_builtin_pii: bool = True,
+        enable_input_pii_masking: bool = False,
     ) -> None: ...
 
     # PII 规则
@@ -1505,6 +1510,7 @@ class PipelineConfig(BaseModel):
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
+    max_stream_chunks: int = 10000
 
 class OnionConfig(BaseSettings):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)

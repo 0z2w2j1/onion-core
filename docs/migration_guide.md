@@ -1,6 +1,6 @@
 # Migration Guide - Onion Core v0.6.0 to v0.7.0
 
-> Version: 0.7.0 | Date: 2026-04-24
+> Version: 0.7.4 | Updated: 2026-04-26
 
 This guide helps you migrate from Onion Core v0.6.0 to v0.7.0, covering new features, breaking changes, and best practices.
 
