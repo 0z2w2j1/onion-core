@@ -4,7 +4,7 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -256,14 +256,14 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.8.0 (Beta) |
+| Version | 1.0.0 (Production/Stable) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 372+ tests, **92%** coverage |
+| Test Coverage | 390+ tests, **92%** coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | License | MIT |
-| Architecture | Single-process only (distributed support planned for v1.0) |
+| Architecture | Single-process only (distributed support planned for v1.1) |
 
 ### 🚧 Development Progress (Phase 1: Foundation)
 
@@ -290,6 +290,14 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Health check HTTP server for Kubernetes probes (v0.7.4)
 - [x] Comprehensive monitoring guide with Grafana dashboard JSON (v0.7.4)
 - [x] **Architecture consolidation: removed `src/`, unified models and runtime into `onion_core/` (v0.8.0)**
+- [x] **Distributed middleware enhancements: token cost tracking, P95/P99 latency, layered rate limiting (v0.9.0)**
+- [x] **Critical stability fixes: Unicode confusion false positives, race conditions, OOM prevention (v0.9.1)**
+- [x] **Redis connection timeouts, context injection, capped backoff (v0.9.2)**
+- [x] **Async improvements: non-blocking tiktoken, cache hit exception safety (v0.9.3)**
+- [x] **Anthropic streaming tool calls, accurate token estimation, TCP leak fix (v0.9.4)**
+- [x] **Tool calls depth tracking, result size limits, trace ID hierarchy (v0.9.5)**
+- [x] **Request total timeout, cache invalidation, TOCTOU documentation (v0.9.6)**
+- [x] **Integration & E2E test suite added (v1.0.0)**
 
 ### 📋 Roadmap
 
@@ -300,9 +308,26 @@ Or from file (`onion.json` / `onion.yaml`):
 | Phase 3 | Advanced Features | 🔄 Planned |
 | v1.0 | Production Ready | 🔄 Planned |
 
-> ⚠️ **Note:** This is a Beta release. APIs may change without notice until v1.0.
+> ⚠️ **Note:** This is a **Production/Stable** release (v1.0.0). APIs are stable and backward compatible.
 > 
-> ⚠️ **Architecture Limitation:** Current version supports **single-process deployment only**. Circuit breaker and rate limiter states are stored in-memory and cannot be shared across multiple instances. Distributed backends (Redis/Etcd) are planned for v1.0.
+> ⚠️ **Architecture Limitation:** Current version supports **single-process deployment only**. Circuit breaker and rate limiter states are stored in-memory and cannot be shared across multiple instances. Distributed backends (Redis/Etcd) are available via separate middleware classes but require external infrastructure.
+
+### Known Limitations
+
+#### Anthropic Streaming Tool Calls
+- Anthropic's streaming API has limited support for complex tool call scenarios. While basic tool use works (`ContentBlockDeltaEvent` with `input_json_delta`), multi-turn tool conversations may experience edge cases where partial JSON fragments need manual assembly.
+- **Workaround**: For production tool-heavy workflows, consider using `complete()` instead of `stream()` with Anthropic models, or use OpenAI-compatible providers which have more mature streaming tool call support.
+
+#### Distributed Consistency
+- The distributed middlewares (`DistributedRateLimitMiddleware`, `DistributedCacheMiddleware`, `DistributedCircuitBreakerMiddleware`) use Redis as backend but implement **eventual consistency**, not strong consistency.
+- **TOCTOU Race Condition**: There is a small time window between checking circuit breaker state and recording success/failure where concurrent requests may slip through during state transitions (CLOSED → OPEN). This is by design to prioritize availability over consistency.
+- **Cache Invalidation Lag**: Distributed cache uses TTL-based expiration without active invalidation propagation. Manual `invalidate()` calls only affect the local instance; other instances will see stale data until TTL expires.
+- **Recommendation**: For applications requiring strong consistency, implement application-level idempotency keys and accept eventual consistency for non-critical paths.
+
+#### Sync API Limitations
+- Synchronous methods (`run_sync()`, `stream_sync()`) **cannot** be called from within an async context (will raise `RuntimeError`).
+- `stream_sync()` collects all chunks in memory before yielding (bounded by `max_stream_chunks`, default 10,000), which may cause higher memory usage for very long responses.
+- **Recommendation**: Always prefer async methods (`await pipeline.run()`, `async for chunk in pipeline.stream()`) in async applications for better performance and lower memory footprint.
 
 ---
 
@@ -559,14 +584,14 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.8.0（Beta） |
+| 版本 | 1.0.0（Production/Stable） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 372+ 个测试，**92%** 覆盖率 |
+| 测试覆盖 | 390+ 个测试，**92%** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
-| 架构限制 | 仅支持单进程部署（分布式支持计划于 v1.0） |
+| 架构限制 | 仅支持单进程部署（分布式支持计划于 v1.1） |
 
 ### 🚧 开发进度（第一阶段：基础与标准化）
 
@@ -593,6 +618,14 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] Kubernetes 探针健康检查 HTTP 服务器（v0.7.4）
 - [x] 包含 Grafana Dashboard JSON 的完整监控指南（v0.7.4）
 - [x] **架构统一：移除 `src/`，模型和运行时合并到 `onion_core/`（v0.8.0）**
+- [x] **分布式中间件增强：Token 成本跟踪、P95/P99 延迟、分层限流（v0.9.0）**
+- [x] **关键稳定性修复：Unicode 混淆误报、竞态条件、OOM 预防（v0.9.1）**
+- [x] **Redis 连接超时、上下文注入、退避上限（v0.9.2）**
+- [x] **异步改进：非阻塞 tiktoken、缓存命中异常安全（v0.9.3）**
+- [x] **Anthropic 流式工具调用、精准 Token 估算、TCP 泄漏修复（v0.9.4）**
+- [x] **工具调用深度跟踪、结果大小限制、Trace ID 层级统一（v0.9.5）**
+- [x] **请求总超时、缓存失效、TOCTOU 文档化（v0.9.6）**
+- [x] **集成测试和 E2E 测试套件新增（v1.0.0）**
 
 ### 📋 路线图
 
@@ -603,9 +636,26 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | 第三阶段 | 高级功能 | 🔄 计划中 |
 | v1.0 | 生产就绪 | 🔄 计划中 |
 
-> ⚠️ **注意：** 当前为 Beta 版本，API 可能在 v1.0 之前发生变化。
+> ⚠️ **注意：** 当前为 **生产就绪** 版本（v1.0.0）。API 稳定且向后兼容。
 >
-> ⚠️ **架构限制：** 当前版本**仅支持单进程部署**。熔断器和限流器状态存储在内存中，无法在多个实例间共享。分布式后端（Redis/Etcd）计划在 v1.0 中实现。
+> ⚠️ **架构限制：** 当前版本**仅支持单进程部署**。熔断器和限流器状态存储在内存中，无法在多个实例间共享。分布式后端（Redis/Etcd）可通过独立的中间件类使用，但需要外部基础设施。
+
+### 已知限制
+
+#### Anthropic 流式工具调用
+- Anthropic 的流式 API 对复杂工具调用场景的支持有限。虽然基本工具调用可用（`ContentBlockDeltaEvent` 配合 `input_json_delta`），但在多轮工具对话中可能会遇到部分 JSON 片段需要手动组装的边缘情况。
+- **解决方案**：对于生产环境中重度依赖工具调用的工作流，建议对 Anthropic 模型使用 `complete()` 而非 `stream()`，或使用 OpenAI 兼容的 Provider，它们对流式工具调用的支持更成熟。
+
+#### 分布式一致性
+- 分布式中间件（`DistributedRateLimitMiddleware`、`DistributedCacheMiddleware`、`DistributedCircuitBreakerMiddleware`）使用 Redis 作为后端，但实现的是**最终一致性**，而非强一致性。
+- **TOCTOU 竞态条件**：在检查熔断器状态和记录成功/失败之间存在一个小的时间窗口，并发请求可能在状态转换期间（CLOSED → OPEN）穿透。这是为了优先考虑可用性而非一致性的设计选择。
+- **缓存失效延迟**：分布式缓存使用基于 TTL 的过期机制，没有主动的失效传播。手动调用 `invalidate()` 只影响本地实例；其他实例会看到旧数据直到 TTL 过期。
+- **建议**：对于需要强一致性的应用，在应用层实现幂等性键，并在非关键路径上接受最终一致性。
+
+#### 同步 API 限制
+- 同步方法（`run_sync()`、`stream_sync()`）**不能**在 async 上下文中调用（会抛出 `RuntimeError`）。
+- `stream_sync()` 会在 yield 之前将所有 chunks 收集到内存中（受 `max_stream_chunks` 限制，默认 10,000），这可能导致非常长的响应占用更多内存。
+- **建议**：在异步应用中始终优先使用异步方法（`await pipeline.run()`、`async for chunk in pipeline.stream()`）以获得更好的性能和更低的内存占用。
 
 ---
 

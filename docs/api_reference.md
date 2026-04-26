@@ -1,6 +1,6 @@
 # Onion Core - API Reference
 
-> Version: 0.8.0 | Updated: 2026-04-26
+> Version: 1.0.0 | Updated: 2026-04-26
 
 This document describes every public class, function, and configuration option in the `onion_core` package.
 
@@ -331,6 +331,7 @@ class Pipeline:
         name: str = "default",
         middleware_timeout: Optional[float] = None,
         provider_timeout: Optional[float] = None,
+        total_timeout: Optional[float] = None,  # NEW in v0.9.6
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
         fallback_providers: Optional[List[LLMProvider]] = None,
@@ -340,6 +341,21 @@ class Pipeline:
         circuit_recovery_timeout: float = 30.0,
         max_stream_chunks: int = 10000,
     ) -> None: ...
+
+    Parameters:
+        provider: The primary LLM provider to use for completions.
+        name: Pipeline identifier for logging and metrics.
+        middleware_timeout: Timeout for each middleware step (seconds).
+        provider_timeout: Timeout for provider completion (seconds).
+        total_timeout: **NEW** End-to-end request timeout including all middleware + provider calls. Raises clear TimeoutError if exceeded. Prevents indefinite hangs from slow LLM responses.
+        max_retries: Number of retry attempts on transient failures.
+        retry_base_delay: Base delay for exponential backoff (seconds).
+        fallback_providers: List of backup providers to try if primary fails.
+        retry_policy: Custom retry classification policy.
+        enable_circuit_breaker: Enable circuit breaker for failure tracking.
+        circuit_failure_threshold: Number of failures before opening circuit.
+        circuit_recovery_timeout: Time before attempting recovery (seconds).
+        max_stream_chunks: Maximum chunks to buffer in stream_sync() (DoS protection).
 
     # Middleware management
     def add_middleware(self, middleware: BaseMiddleware) -> "Pipeline": ...
@@ -804,6 +820,23 @@ and tool execution. `run_streaming_text()` yields StreamChunk tokens
 in real time for typewriter-style output.
 ```
 
+### `AgentConfig` (Updated)
+```python
+class AgentConfig(BaseModel):
+    max_turns: int = Field(default=10, ge=1, le=100)
+    raise_on_max_turns: bool = False
+    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # NEW in v0.9.5
+    # ... other fields
+
+    Parameters:
+        max_turns: Maximum number of Think-Act cycles before stopping.
+        raise_on_max_turns: If True, raise exception when max_turns exceeded.
+        tool_result_max_chars: **NEW** Maximum characters allowed per tool result. 
+            Results exceeding this limit are truncated with '...[truncated]' suffix.
+            Protects against malicious tools returning GB-scale data that could cause
+            memory explosion in context.messages. Default: 50KB per tool result.
+```
+
 ### `install_signal_handlers`
 ```python
 def install_signal_handlers(agent: Optional[AgentRuntime] = None, timeout: float = 30.0) -> None: ...
@@ -933,7 +966,7 @@ Used by `AgentRuntime._auto_tune_config()` to set sensible defaults.
 
 # Onion Core - API 参考
 
-> 版本：0.8.0 | 更新日期：2026-04-26
+> 版本：1.0.0 | 更新日期：2026-04-26
 
 本文档描述 `onion_core` 包中的所有公共类、函数和配置选项。
 
@@ -1260,6 +1293,7 @@ class Pipeline:
         name: str = "default",
         middleware_timeout: Optional[float] = None,
         provider_timeout: Optional[float] = None,
+        total_timeout: Optional[float] = None,  # v0.9.6 新增
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
         fallback_providers: Optional[List[LLMProvider]] = None,
@@ -1269,6 +1303,21 @@ class Pipeline:
         circuit_recovery_timeout: float = 30.0,
         max_stream_chunks: int = 10000,
     ) -> None: ...
+
+    参数说明：
+        provider: 用于完成的主要 LLM Provider。
+        name: Pipeline 标识符，用于日志和指标。
+        middleware_timeout: 每个中间件步骤的超时时间（秒）。
+        provider_timeout: Provider 完成的超时时间（秒）。
+        total_timeout: **新增** 端到端请求超时，包括所有中间件 + Provider 调用。如果超过则抛出明确的 TimeoutError。防止因 LLM 响应缓慢而无限期挂起。
+        max_retries: 瞬时失败时的重试次数。
+        retry_base_delay: 指数退避的基础延迟（秒）。
+        fallback_providers: 如果主 Provider 失败，要尝试的备用 Provider 列表。
+        retry_policy: 自定义重试分类策略。
+        enable_circuit_breaker: 启用熔断器进行故障跟踪。
+        circuit_failure_threshold: 打开熔断器之前的失败次数。
+        circuit_recovery_timeout: 尝试恢复之前的时间（秒）。
+        max_stream_chunks: stream_sync() 中缓冲的最大 chunks 数（DoS 保护）。
 
     # 中间件管理
     def add_middleware(self, middleware: BaseMiddleware) -> "Pipeline": ...
@@ -1628,6 +1677,23 @@ class AgentRuntime:
 
 完整的 ReAct Agent，包含状态机、规划器、记忆管理和工具执行。
 `run_streaming_text()` 实时流式输出 token 级别的 StreamChunk。
+```
+
+### `AgentConfig`（已更新）
+```python
+class AgentConfig(BaseModel):
+    max_turns: int = Field(default=10, ge=1, le=100)
+    raise_on_max_turns: bool = False
+    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # v0.9.5 新增
+    # ... 其他字段
+
+    参数说明：
+        max_turns: 停止前的最大 Think-Act 循环次数。
+        raise_on_max_turns: 如果为 True，当超过 max_turns 时抛出异常。
+        tool_result_max_chars: **新增** 每个工具结果允许的最大字符数。
+            超过此限制的结果会被截断并添加 '...[truncated]' 后缀。
+            防止恶意工具返回 GB 级数据导致 context.messages 内存爆炸。
+            默认值：每个工具结果 50KB。
 ```
 
 ### `install_signal_handlers`
