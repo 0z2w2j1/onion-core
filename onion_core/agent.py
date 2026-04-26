@@ -494,22 +494,36 @@ class _TokenEstimator:
         with contextlib.suppress(Exception):
             self._encoding = tiktoken.get_encoding(encoding_name)
 
-    def estimate_tokens(self, messages: list[Message]) -> int:
+    async def estimate_tokens(self, messages: list[Message]) -> int:
+        """异步估算 token 数量，避免阻塞事件循环。"""
         if self._encoding is not None:
-            return self._estimate_tiktoken(messages)
+            return await self._estimate_tiktoken(messages)
         return self._estimate_fallback(messages)
 
-    def _estimate_tiktoken(self, messages: list[Message]) -> int:
-        total = 0
-        enc = self._encoding
-        assert enc is not None
+    async def _estimate_tiktoken(self, messages: list[Message]) -> int:
+        """使用 tiktoken 在 executor 中异步执行，避免阻塞事件循环。"""
+        loop = asyncio.get_running_loop()
+        
+        # 将所有消息内容提取出来，在线程池中一次性编码
+        contents = []
+        base_tokens = 0
         for m in messages:
-            total += 4
+            base_tokens += 4  # 每条消息的基础 token
             if m.name:
-                total += 1
+                base_tokens += 1
             content = m.content if isinstance(m.content, str) else ""
-            total += len(enc.encode(content))
-        return max(1, total)
+            contents.append(content)
+        
+        # 在线程池中执行 tiktoken 编码（阻塞操作）
+        def _encode_all() -> int:
+            enc = self._encoding
+            assert enc is not None
+            total = base_tokens
+            for content in contents:
+                total += len(enc.encode(content))
+            return max(1, total)
+        
+        return await loop.run_in_executor(None, _encode_all)
 
     def _estimate_fallback(self, messages: list[Message]) -> int:
         total = 0.0
@@ -543,10 +557,12 @@ class SlidingWindowMemory:
         self._max_tokens = value
 
     def trim(self, messages: list[Message]) -> list[Message]:
+        """同步裁剪方法，使用 fallback 估算（不阻塞）。"""
         if not messages:
             return []
 
-        total = self._token_counter.estimate_tokens(messages)
+        # 注意：trim() 是同步方法，使用 fallback 估算避免 async
+        total = self._token_counter._estimate_fallback(messages)
         if total <= self._max_tokens:
             return messages
 
@@ -554,7 +570,7 @@ class SlidingWindowMemory:
 
         system_messages = [m for m in messages if m.role == MessageRole.SYSTEM]
         non_system = [m for m in messages if m.role != MessageRole.SYSTEM]
-        system_reserve = self._token_counter.estimate_tokens(system_messages)
+        system_reserve = self._token_counter._estimate_fallback(system_messages)
         available = self._max_tokens - system_reserve
 
         if available <= 0:
@@ -564,7 +580,7 @@ class SlidingWindowMemory:
         kept = []
         running = 0
         for m in reversed(non_system):
-            t = self._token_counter.estimate_tokens([m])
+            t = self._token_counter._estimate_fallback([m])
             if running + t > available:
                 break
             kept.append(m)
@@ -572,14 +588,15 @@ class SlidingWindowMemory:
         kept.reverse()
 
         result = system_messages + kept
-        logger.info("Trimmed from %d to %d messages (%d -> %d tokens)", len(messages), len(result), total, self._token_counter.estimate_tokens(result))
+        logger.info("Trimmed from %d to %d messages (%d -> %d tokens)", len(messages), len(result), total, self._token_counter._estimate_fallback(result))
         return result
 
     async def trim_with_summary(self, messages: list[Message]) -> list[Message]:
         if not self._summarizer:
             return self.trim(messages)
 
-        total = self._token_counter.estimate_tokens(messages)
+        # 使用异步 token 估算
+        total = await self._token_counter.estimate_tokens(messages)
         if total <= self._max_tokens:
             return messages
 
@@ -601,8 +618,9 @@ class SlidingWindowMemory:
             logger.warning("Summarization failed, falling back to trim: %s", e)
             return self.trim(messages)
 
-    def get_token_estimate(self, messages: list[Message]) -> int:
-        return self._token_counter.estimate_tokens(messages)
+    async def get_token_estimate(self, messages: list[Message]) -> int:
+        """异步获取 token 估算。"""
+        return await self._token_counter.estimate_tokens(messages)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

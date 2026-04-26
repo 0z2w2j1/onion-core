@@ -160,17 +160,11 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         self._redis = redis.Redis(connection_pool=self._redis_pool)
         
         try:
-            # 测试连接
-            ping_result = self._redis.ping()
-            if not isinstance(ping_result, bool):
-                await ping_result
+            # 测试连接（redis.asyncio 的 ping() 始终是 coroutine）
+            await self._redis.ping()  # type: ignore[misc]
             
-            # 注册 Lua 脚本
-            script_result = self._redis.script_load(LUA_SLIDING_WINDOW)
-            if isinstance(script_result, str):
-                self._lua_script_sha = script_result
-            else:
-                self._lua_script_sha = await script_result
+            # 注册 Lua 脚本（script_load() 也始终是 coroutine）
+            self._lua_script_sha = await self._redis.script_load(LUA_SLIDING_WINDOW)
             
             logger.info(
                 "DistributedRateLimitMiddleware started | redis=%s | requests=%d/%.0fs | tool_calls=%d/%.0fs | fallback=%s",

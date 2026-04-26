@@ -226,24 +226,12 @@ class DistributedCircuitBreakerMiddleware(BaseMiddleware):
         self._redis = redis.Redis(connection_pool=self._redis_pool)
         
         try:
-            # 测试连接
-            ping_result = self._redis.ping()
-            if not isinstance(ping_result, bool):
-                await ping_result
+            # 测试连接（redis.asyncio 的 ping() 始终是 coroutine）
+            await self._redis.ping()  # type: ignore[misc]
             
-            # 注册 Lua 脚本
-            update_result = self._redis.script_load(LUA_UPDATE_STATE)
-            check_result = self._redis.script_load(LUA_CHECK_STATE)
-            
-            if isinstance(update_result, str):
-                self._lua_update_sha = update_result
-            else:
-                self._lua_update_sha = await update_result
-            
-            if isinstance(check_result, str):
-                self._lua_check_sha = check_result
-            else:
-                self._lua_check_sha = await check_result
+            # 注册 Lua 脚本（script_load() 也始终是 coroutine）
+            self._lua_update_sha = await self._redis.script_load(LUA_UPDATE_STATE)
+            self._lua_check_sha = await self._redis.script_load(LUA_CHECK_STATE)
             
             logger.info(
                 "DistributedCircuitBreakerMiddleware started | redis=%s | threshold=%d/%.0fs/%d",

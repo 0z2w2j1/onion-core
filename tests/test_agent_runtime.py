@@ -201,14 +201,15 @@ class TestSlidingWindowMemory:
         mem.max_tokens = 512
         assert mem.max_tokens == 512
 
-    def test_get_token_estimate(self):
+    @pytest.mark.asyncio
+    async def test_get_token_estimate(self):
         config = AgentConfig(memory_max_tokens=4000)
         mem = SlidingWindowMemory(config)
         messages = [
             Message(role="system", content="You are a helpful assistant."),
             Message(role="user", content="Hello!"),
         ]
-        estimate = mem.get_token_estimate(messages)
+        estimate = await mem.get_token_estimate(messages)
         assert estimate > 0
 
     def test_trim_empty_messages(self):
@@ -284,18 +285,20 @@ class TestSlidingWindowMemory:
         result = mem.trim(messages)
         assert len(result) > 0
 
-    def test_token_estimator_tiktoken_path(self):
+    @pytest.mark.asyncio
+    async def test_token_estimator_tiktoken_path(self):
         config = AgentConfig(memory_max_tokens=4000)
         mem = SlidingWindowMemory(config)
         messages = [Message(role="user", content="hello world")]
-        estimate = mem.get_token_estimate(messages)
+        estimate = await mem.get_token_estimate(messages)
         assert estimate >= 2
 
-    def test_token_estimator_fallback(self):
+    @pytest.mark.asyncio
+    async def test_token_estimator_fallback(self):
         from onion_core.agent import _TokenEstimator
         est = _TokenEstimator(encoding_name="nonexistent_encoding")
         messages = [Message(role="user", content="hello world")]
-        estimate = est.estimate_tokens(messages)
+        estimate = await est.estimate_tokens(messages)
         assert estimate > 0
 
 

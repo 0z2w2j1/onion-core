@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.3] - 2026-04-26
+
+### Async & Stability Improvements
+
+- **Unified Redis Async Initialization** — Removed `isinstance` version compatibility checks in all three distributed middlewares (`DistributedRateLimitMiddleware`, `DistributedCacheMiddleware`, `DistributedCircuitBreakerMiddleware`). Now consistently uses `await self._redis.ping()` and `await self._redis.script_load(...)` since `redis.asyncio` methods always return coroutines. Simplified startup logic and added `# type: ignore[misc]` for mypy compatibility with redis-py's union return types.
+
+- **Non-blocking Tiktoken Token Estimation** — `_TokenEstimator.estimate_tokens()` is now an async method that executes tiktoken encoding in a thread pool via `asyncio.get_running_loop().run_in_executor(None, ...)`. Prevents blocking the event loop when counting tokens for long messages. The synchronous `SlidingWindowMemory.trim()` method continues to use the fast fallback estimator to avoid async overhead in hot paths. Updated `trim_with_summary()` and `get_token_estimate()` to use async estimation.
+
+- **CacheHitException Non-fatal Flag** — Added explicit `is_fatal: bool = False` class attribute to `CacheHitException` to prevent it from being misclassified as a fatal error by `RetryPolicy.classify()`. Although Pipeline currently catches this exception separately, this safeguard prevents future refactoring bugs where cache hits could trigger circuit breakers or degradation strategies.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 89 existing tests pass ✓
+- No breaking changes to public API
+- Updated 3 test cases to use async/await for new async token estimation methods
+
+---
+
 ## [0.9.2] - 2026-04-26
 
 ### Code Quality & Stability Improvements

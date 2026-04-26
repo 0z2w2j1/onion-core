@@ -1,0 +1,9 @@
+Improve async stability and prevent event loop blocking with 3 enhancements
+
+- Unified Redis Async Initialization: Removed isinstance version compatibility checks in all three distributed middlewares. Now consistently uses await self._redis.ping() and await self._redis.script_load() since redis.asyncio methods always return coroutines. Simplified startup logic and added type ignore comments for mypy compatibility.
+
+- Non-blocking Tiktoken Token Estimation: _TokenEstimator.estimate_tokens() is now an async method that executes tiktoken encoding in a thread pool via asyncio.get_running_loop().run_in_executor(None, ...). Prevents blocking the event loop when counting tokens for long messages. Synchronous SlidingWindowMemory.trim() continues to use fast fallback estimator to avoid async overhead in hot paths. Updated trim_with_summary() and get_token_estimate() to use async estimation.
+
+- CacheHitException Non-fatal Flag: Added explicit is_fatal: bool = False class attribute to CacheHitException to prevent it from being misclassified as a fatal error by RetryPolicy.classify(). Safeguard against future refactoring bugs where cache hits could trigger circuit breakers or degradation strategies.
+
+- Updated 3 test cases to use async/await for new async token estimation methods

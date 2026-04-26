@@ -125,6 +125,13 @@ class ValidationError(OnionError):
 
 
 class CacheHitException(OnionError):
+    """
+    缓存命中异常，用于中断 Provider 调用并返回缓存响应。
+    
+    注意：这不是 fatal 错误，而是控制流异常，不应触发熔断或降级。
+    """
+    is_fatal: bool = False  # 显式设置为 False，防止被误判为 fatal
+    
     def __init__(self, cached_response: LLMResponse) -> None:
         self.cached_response = cached_response
         super().__init__("Cache hit - returning cached response")
