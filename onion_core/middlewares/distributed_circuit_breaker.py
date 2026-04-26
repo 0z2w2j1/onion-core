@@ -209,6 +209,8 @@ class DistributedCircuitBreakerMiddleware(BaseMiddleware):
             redis_url,
             max_connections=pool_size,
             decode_responses=True,
+            socket_connect_timeout=5.0,  # 防止启动时 hang
+            socket_timeout=5.0,  # 防止操作时 hang
         )
         self._redis: redis.Redis | None = None
 

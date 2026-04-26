@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import inspect
 import json
 import logging
 import signal
@@ -24,7 +25,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import tiktoken
 
@@ -371,7 +372,16 @@ class ToolExecutor:
         self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
         self._semaphore = asyncio.Semaphore(config.max_concurrent_tools)
 
-    async def execute(self, tool_call: ToolCall) -> ToolResult:
+    async def execute(
+        self,
+        tool_call: ToolCall,
+        context: AgentContext | None = None,
+    ) -> ToolResult:
+        """
+        执行工具调用。
+        
+        若工具函数接受 `context` 或 `ctx` 参数，会自动注入 AgentContext。
+        """
         start = time.monotonic()
         tool_def = self._registry.get(tool_call.name)
         if tool_def is None:
@@ -384,6 +394,14 @@ class ToolExecutor:
         for attempt in range(self._config.tool_max_retries + 1):
             try:
                 kwargs = dict(tool_call.arguments)
+                
+                # 注入 context（若函数签名中有 context 或 ctx 参数）
+                sig = inspect.signature(tool_def.func)
+                if "context" in sig.parameters and context is not None:
+                    kwargs["context"] = context
+                elif "ctx" in sig.parameters and context is not None:
+                    kwargs["ctx"] = context
+                
                 if asyncio.iscoroutinefunction(tool_def.func):
                     result = await asyncio.wait_for(
                         tool_def.func(**kwargs),
@@ -407,7 +425,7 @@ class ToolExecutor:
             except TimeoutError:
                 if attempt < self._config.tool_max_retries:
                     logger.warning("Tool '%s' attempt %d timed out, retrying...", tool_call.name, attempt + 1)
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(min(2 ** attempt, 30))  # Cap at 30 seconds
                     continue
                 return ToolResult(
                     tool_call_id=tool_call.id, name=tool_call.name,
@@ -426,7 +444,7 @@ class ToolExecutor:
                     )
                 if attempt < self._config.tool_max_retries:
                     logger.warning("Tool '%s' attempt %d failed: %s, retrying...", tool_call.name, attempt + 1, e)
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(min(2 ** attempt, 30))  # Cap at 30 seconds
                     continue
                 return ToolResult(
                     tool_call_id=tool_call.id, name=tool_call.name,
@@ -442,13 +460,17 @@ class ToolExecutor:
             retry_count=0,
         )
 
-    async def execute_all(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
+    async def execute_all(
+        self,
+        tool_calls: list[ToolCall],
+        context: AgentContext | None = None,
+    ) -> list[ToolResult]:
         if not tool_calls:
             return []
 
         async def _execute_one(tc: ToolCall) -> ToolResult:
             async with self._semaphore:
-                return await self.execute(tc)
+                return await self.execute(tc, context=context)
 
         tasks = [_execute_one(tc) for tc in tool_calls]
         return await asyncio.gather(*tasks)
@@ -625,7 +647,7 @@ class _RequestContext:
 
 class AgentRuntime:
     _model_limits_applied: bool = False
-    _config_lock = threading.Lock()  # 保护类级别配置调整的线程安全
+    _config_lock: ClassVar[threading.Lock] = threading.Lock()  # 保护类级别配置调整的线程安全
 
     def __init__(
         self,
@@ -947,7 +969,14 @@ class AgentRuntime:
         start = time.monotonic()
         logger.info("Step %d acting: trace_id=%s tool_count=%d", step_index, trace_id, len(tool_calls))
 
-        results = await self._executor.execute_all(tool_calls)
+        # 创建临时 context 供工具执行使用
+        temp_context = AgentContext(
+            request_id=self._state.run_id,
+            session_id=self._state.session_id,
+            trace_id=trace_id,
+            messages=self._state.messages.copy(),
+        )
+        results = await self._executor.execute_all(tool_calls, context=temp_context)
 
         for r in results:
             self._state.add_message(r.to_message())

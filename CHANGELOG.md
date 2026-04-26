@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.2] - 2026-04-26
+
+### Code Quality & Stability Improvements
+
+- **Fixed ClassVar Type Annotation for _config_lock** — Changed `AgentRuntime._config_lock` from plain class attribute to proper `ClassVar[threading.Lock]` type annotation. Ensures correct mypy static analysis and clarifies intent that this is a class-level shared lock.
+
+- **Added Context Injection to ToolExecutor.execute()** — Tool functions can now receive `AgentContext` automatically if their signature includes `context` or `ctx` parameter. The executor inspects function signatures using `inspect.signature()` and injects the context object when available. Enables tools to access request metadata, session info, and message history. Updated `_run_act_phase()` to create temporary context and pass it to `execute_all()`.
+
+- **Capped Exponential Backoff at 30 Seconds** — Both timeout and exception retry paths in `ToolExecutor.execute()` now use `min(2 ** attempt, 30)` instead of unbounded `2 ** attempt`. Prevents excessive wait times (e.g., 2^10 = 1024 seconds) on repeated failures. Maximum retry delay is now 30 seconds regardless of attempt count.
+
+- **Added Redis Connection Timeouts** — All three distributed middlewares (`DistributedCacheMiddleware`, `DistributedCircuitBreakerMiddleware`, `DistributedRateLimitMiddleware`) now configure `socket_connect_timeout=5.0` and `socket_timeout=5.0` on Redis connection pools. Prevents application startup hangs when Redis is unreachable and avoids indefinite blocking on slow Redis operations.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 89 existing tests pass ✓
+- No breaking changes to public API
+- Added comprehensive inline documentation
+
+---
+
 ## [0.9.1] - 2026-04-26
 
 ### Critical Security & Stability Fixes (P0)
