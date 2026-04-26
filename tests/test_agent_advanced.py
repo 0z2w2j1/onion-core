@@ -247,12 +247,21 @@ class TestAgentLoopErrorHandling:
         async def test_tool() -> str:
             return "result"
         
+        # Disable progress detection to allow max_turns to be reached
+        context = AgentContext(
+            messages=[
+                Message(role="system", content="You are a helpful assistant."),
+                Message(role="user", content="What's the weather?"),
+            ],
+            config={"agent_progress_window": 0},
+        )
+        
         pipeline = Pipeline(provider=provider)
         loop = AgentLoop(pipeline=pipeline, registry=registry, max_turns=3, raise_on_max_turns=True)
 
         async with pipeline:
             with pytest.raises(AgentLoopError, match="exceeded max_turns"):
-                await loop.run(make_context())
+                await loop.run(context)
 
 
 class TestAgentLoopMiddlewareIntegration:
