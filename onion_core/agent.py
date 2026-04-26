@@ -16,10 +16,11 @@ import contextlib
 import hashlib
 import json
 import logging
+import signal
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,9 +39,11 @@ from .models import (
     RetryOutcome,
     RetryPolicy,
     StepRecord,
+    StreamChunk,
     ToolCall,
     ToolResult,
     UsageStats,
+    lookup_model_limits,
 )
 from .pipeline import Pipeline
 from .provider import LLMProvider
@@ -602,6 +605,8 @@ class _RequestContext:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentRuntime:
+    _model_limits_applied: bool = False
+
     def __init__(
         self,
         config: AgentConfig,
@@ -615,6 +620,8 @@ class AgentRuntime:
         if not tool_registry:
             raise AgentRuntimeError("tool_registry is required")
 
+        self._auto_tune_config(config)
+
         self._config = config
         self._llm_provider = llm_provider
         self._tool_registry = tool_registry
@@ -624,8 +631,28 @@ class AgentRuntime:
         self._state: AgentState | None = None
         self._fsm: StateMachine | None = None
         self._cancelled = False
+        self._active_count: int = 0
+        self._active_lock = asyncio.Lock()
         self._step_hooks: list[Callable[[StepRecord], None]] = []
         self._error_hooks: list[Callable[[str, Exception], None]] = []
+
+    @classmethod
+    def _auto_tune_config(cls, config: AgentConfig) -> None:
+        if cls._model_limits_applied:
+            return
+        limits = lookup_model_limits(config.model)
+        if limits is None:
+            return
+        if config.memory_max_tokens == 4000 and config.max_tokens == 4096:
+            sane_max_output = min(limits.max_output, 16384)
+            sane_memory = limits.max_context // 4
+            config.max_tokens = sane_max_output
+            config.memory_max_tokens = sane_memory
+            logger.info(
+                "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
+                config.model, sane_max_output, sane_memory,
+            )
+        cls._model_limits_applied = True
 
     @property
     def state(self) -> AgentState:
@@ -639,6 +666,10 @@ class AgentRuntime:
             raise AgentRuntimeError("Agent not initialized. Call run() first.")
         return self._fsm
 
+    @property
+    def is_idle(self) -> bool:
+        return self._active_count == 0
+
     def on_step(self, callback: Callable[[StepRecord], None]) -> None:
         self._step_hooks.append(callback)
 
@@ -651,86 +682,102 @@ class AgentRuntime:
             with contextlib.suppress(Exception):
                 self._state.set_status(AgentStatus.CANCELLED)
 
+    async def drain(self, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        while self._active_count > 0:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning("AgentRuntime drain timeout after %.0fs", timeout)
+                return
+            await asyncio.sleep(0.1)
+
     async def _run_loop(
         self, user_message: str, state: AgentState | None,
+        on_chunk: Callable[[StreamChunk], Awaitable[None]] | None = None,
     ) -> AsyncIterator[StepRecord]:
-        self._cancelled = False
-        self._state = state if state is not None else AgentState()
-        self._fsm = StateMachine(self._state)
+        async with self._active_lock:
+            self._active_count += 1
+        try:
+            self._cancelled = False
+            self._state = state if state is not None else AgentState()
+            self._fsm = StateMachine(self._state)
 
-        if self._config.system_prompt:
-            self._state.add_message(Message(role=MessageRole.SYSTEM, content=self._config.system_prompt))
+            if self._config.system_prompt:
+                self._state.add_message(Message(role=MessageRole.SYSTEM, content=self._config.system_prompt))
 
-        self._state.add_message(Message(role=MessageRole.USER, content=user_message))
+            self._state.add_message(Message(role=MessageRole.USER, content=user_message))
 
-        with _RequestContext(request_id=self._state.run_id, trace_id=self._state.session_id):
-            logger.info(
-                "AgentRuntime starting: run_id=%s session_id=%s max_steps=%d",
-                self._state.run_id, self._state.session_id, self._config.max_steps,
-            )
+            with _RequestContext(request_id=self._state.run_id, trace_id=self._state.session_id):
+                logger.info(
+                    "AgentRuntime starting: run_id=%s session_id=%s max_steps=%d",
+                    self._state.run_id, self._state.session_id, self._config.max_steps,
+                )
 
-            try:
-                self._fsm.transition_to(AgentStatus.THINKING)
+                try:
+                    self._fsm.transition_to(AgentStatus.THINKING)
 
-                while self._state.steps < self._config.max_steps and not self._cancelled:
-                    self._state.increment_step()
-                    step_index = self._state.steps
-                    trace_id_str = f"{self._state.run_id}.{step_index}"
+                    while self._state.steps < self._config.max_steps and not self._cancelled:
+                        self._state.increment_step()
+                        step_index = self._state.steps
+                        trace_id_str = f"{self._state.run_id}.{step_index}"
 
-                    self._state.compact(self._config)
+                        self._state.compact(self._config)
 
-                    logger.info("Step %d starting: trace_id=%s status=%s", step_index, trace_id_str, self._state.status.value)
+                        logger.info("Step %d starting: trace_id=%s status=%s", step_index, trace_id_str, self._state.status.value)
 
-                    try:
-                        decision = await self._run_think_phase(trace_id_str, step_index)
-                    except Exception as e:
-                        logger.error("LLM error at step %d: %s", step_index, e, exc_info=True)
-                        self._handle_error(trace_id_str, str(e), e)
-                        self._fsm.transition_to(AgentStatus.ERROR)
-                        break
+                        try:
+                            decision = await self._run_think_phase(trace_id_str, step_index, on_chunk=on_chunk)
+                        except Exception as e:
+                            logger.error("LLM error at step %d: %s", step_index, e, exc_info=True)
+                            self._handle_error(trace_id_str, str(e), e)
+                            self._fsm.transition_to(AgentStatus.ERROR)
+                            break
 
-                    if decision is None:
-                        logger.warning("Step %d produced no decision, breaking", step_index)
-                        self._fsm.transition_to(AgentStatus.FINISHED)
-                        break
+                        if decision is None:
+                            logger.warning("Step %d produced no decision, breaking", step_index)
+                            self._fsm.transition_to(AgentStatus.FINISHED)
+                            break
 
-                    last = self._state.last_step
-                    if last is not None:
-                        yield last
-
-                    if decision.action_type == ActionType.FINISH:
-                        self._fsm.transition_to(AgentStatus.FINISHED)
-                        logger.info("Agent finished at step %d: %s", step_index, decision.reasoning)
-                        break
-
-                    if decision.action_type == ActionType.ACT:
-                        await self._run_act_phase(trace_id_str, step_index)
                         last = self._state.last_step
                         if last is not None:
                             yield last
-                    elif decision.action_type == ActionType.ERROR:
-                        self._fsm.transition_to(AgentStatus.ERROR)
-                        break
 
-                if self._cancelled:
-                    self._state.set_status(AgentStatus.CANCELLED)
-                    logger.info("Agent cancelled at step %d", self._state.steps)
+                        if decision.action_type == ActionType.FINISH:
+                            self._fsm.transition_to(AgentStatus.FINISHED)
+                            logger.info("Agent finished at step %d: %s", step_index, decision.reasoning)
+                            break
 
-                if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
-                    self._state.set_status(AgentStatus.FINISHED)
-                    logger.warning("Agent reached max_steps (%d), forced finish", self._config.max_steps)
+                        if decision.action_type == ActionType.ACT:
+                            await self._run_act_phase(trace_id_str, step_index)
+                            last = self._state.last_step
+                            if last is not None:
+                                yield last
+                        elif decision.action_type == ActionType.ERROR:
+                            self._fsm.transition_to(AgentStatus.ERROR)
+                            break
 
-            except Exception as e:
-                logger.exception("AgentRuntime fatal error: %s", e)
-                self._state.set_status(AgentStatus.ERROR)
-                last_step = self._state.last_step
-                if last_step:
-                    last_step.error = str(e)
-                for hook in self._error_hooks:
-                    try:
-                        hook(self._state.run_id, e)
-                    except Exception as hook_exc:
-                        logger.warning("Error hook failed during fatal handler: %s", hook_exc)
+                    if self._cancelled:
+                        self._state.set_status(AgentStatus.CANCELLED)
+                        logger.info("Agent cancelled at step %d", self._state.steps)
+
+                    if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
+                        self._state.set_status(AgentStatus.FINISHED)
+                        logger.warning("Agent reached max_steps (%d), forced finish", self._config.max_steps)
+
+                except Exception as e:
+                    logger.exception("AgentRuntime fatal error: %s", e)
+                    self._state.set_status(AgentStatus.ERROR)
+                    last_step = self._state.last_step
+                    if last_step:
+                        last_step.error = str(e)
+                    for hook in self._error_hooks:
+                        try:
+                            hook(self._state.run_id, e)
+                        except Exception as hook_exc:
+                            logger.warning("Error hook failed during fatal handler: %s", hook_exc)
+        finally:
+            async with self._active_lock:
+                self._active_count -= 1
 
     async def run(self, user_message: str, state: AgentState | None = None) -> AgentState:
         async for _ in self._run_loop(user_message, state):
@@ -738,7 +785,10 @@ class AgentRuntime:
         assert self._state is not None
         return self._state
 
-    async def _run_think_phase(self, trace_id: str, step_index: int) -> PlannerDecision | None:
+    async def _run_think_phase(
+        self, trace_id: str, step_index: int,
+        on_chunk: Callable[[StreamChunk], Awaitable[None]] | None = None,
+    ) -> PlannerDecision | None:
         assert self._state is not None
         assert self._fsm is not None
         start = time.monotonic()
@@ -751,7 +801,11 @@ class AgentRuntime:
             trace_id=trace_id,
             messages=trimmed,
         )
-        llm_response = await self._llm_provider.complete(ctx)
+
+        if on_chunk is not None:
+            llm_response = await self._run_streaming_think(ctx, on_chunk)
+        else:
+            llm_response = await self._llm_provider.complete(ctx)
 
         assistant_msg = llm_response.to_assistant_message()
         self._state.add_message(assistant_msg)
@@ -778,6 +832,54 @@ class AgentRuntime:
         )
 
         return decision
+
+    async def _run_streaming_think(
+        self, ctx: AgentContext,
+        on_chunk: Callable[[StreamChunk], Awaitable[None]],
+    ) -> LLMResponse:
+        content_parts: list[str] = []
+        tool_call_chunks: dict[int, dict[str, Any]] = {}
+        final_finish_reason = None
+        usage = UsageStats()
+
+        async for chunk in self._llm_provider.stream(ctx):
+            await on_chunk(chunk)
+            if chunk.delta:
+                content_parts.append(chunk.delta)
+            if chunk.tool_call_delta:
+                idx = chunk.tool_call_delta.get("index", 0)
+                if idx not in tool_call_chunks:
+                    tool_call_chunks[idx] = {"id": "", "name": "", "arguments": ""}
+                tc = tool_call_chunks[idx]
+                if chunk.tool_call_delta.get("id"):
+                    tc["id"] = chunk.tool_call_delta["id"]
+                if chunk.tool_call_delta.get("function_name"):
+                    tc["name"] = chunk.tool_call_delta["function_name"]
+                if chunk.tool_call_delta.get("arguments"):
+                    tc["arguments"] += chunk.tool_call_delta["arguments"]
+            if chunk.finish_reason:
+                final_finish_reason = chunk.finish_reason
+
+        tool_calls = []
+        for idx in sorted(tool_call_chunks):
+            tc_chunk = tool_call_chunks[idx]
+            try:
+                args = json.loads(tc_chunk["arguments"]) if tc_chunk["arguments"] else {}
+            except (json.JSONDecodeError, ValueError):
+                args = {"_raw": tc_chunk["arguments"]}
+            tool_calls.append(ToolCall(
+                id=tc_chunk["id"],
+                name=tc_chunk["name"],
+                arguments=args,
+            ))
+
+        content = "".join(content_parts) if content_parts else None
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=final_finish_reason,
+            usage=usage,
+        )
 
     async def _run_act_phase(self, trace_id: str, step_index: int) -> None:
         assert self._state is not None
@@ -824,3 +926,66 @@ class AgentRuntime:
     async def run_streaming(self, user_message: str, state: AgentState | None = None) -> AsyncIterator[StepRecord]:
         async for step in self._run_loop(user_message, state):
             yield step
+
+    async def run_streaming_text(self, user_message: str, state: AgentState | None = None) -> AsyncIterator[StreamChunk]:
+        chunk_queue: asyncio.Queue[StreamChunk] = asyncio.Queue()
+        _SENTINEL: StreamChunk = StreamChunk()  # sentinel marker
+
+        async def _collect(chunk: StreamChunk) -> None:
+            await chunk_queue.put(chunk)
+
+        async def _run() -> None:
+            async for _ in self._run_loop(user_message, state, on_chunk=_collect):
+                pass
+            await chunk_queue.put(_SENTINEL)
+
+        runner = asyncio.create_task(_run())
+        try:
+            while True:
+                chunk = await chunk_queue.get()
+                if chunk is _SENTINEL:
+                    break
+                yield chunk
+        finally:
+            if not runner.done():
+                runner.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await runner
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 信号处理 & 优雅关闭
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_SHUTDOWN_REQUESTED = False
+
+
+def shutdown_requested() -> bool:
+    return _SHUTDOWN_REQUESTED
+
+
+def install_signal_handlers(agent: AgentRuntime | None = None, timeout: float = 30.0) -> None:
+    global _SHUTDOWN_REQUESTED
+
+    def _handler(signum: int, frame: object) -> None:
+        global _SHUTDOWN_REQUESTED
+        if _SHUTDOWN_REQUESTED:
+            logger.warning("Second signal received, forcing exit")
+            raise SystemExit(1)
+        _SHUTDOWN_REQUESTED = True
+        sig_name = signal.Signals(signum).name
+        logger.warning("Received %s, initiating graceful shutdown", sig_name)
+        if agent is not None:
+            agent.cancel()
+        if agent is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.call_soon_threadsafe(
+                    asyncio.ensure_future, agent.drain(timeout)
+                )
+            except RuntimeError:
+                pass
+
+    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, _handler)
+    logger.info("Signal handlers installed (SIGTERM, SIGINT)")

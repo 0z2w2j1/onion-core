@@ -159,10 +159,15 @@ class ToolRegistry:
 
     执行工具：
         result = await registry.execute(tool_call, context)
+
+    幂等性支持：
+        当 tool_call.idempotency_key 设置时，相同的 key 只执行一次，
+        后续调用直接返回首次执行的结果。适用于网络重试导致工具被调用多次的场景。
     """
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
+        self._idempotency_cache: dict[str, ToolResult] = {}
 
     def register(
         self,
@@ -209,6 +214,9 @@ class ToolRegistry:
         """生成 Anthropic tool_use 格式的工具列表。"""
         return [t.to_anthropic_format() for t in self._tools.values()]
 
+    def clear_idempotency_cache(self) -> None:
+        self._idempotency_cache.clear()
+
     async def execute(
         self,
         tool_call: ToolCall,
@@ -219,6 +227,9 @@ class ToolRegistry:
 
         若工具函数接受 `context` 参数，会自动注入 AgentContext。
         同步函数会在线程池中执行，不阻塞事件循环。
+
+        幂等性：当 tool_call.idempotency_key 设置时，相同 key 的结果会被缓存，
+        避免幂等操作失败重试时的副作用。
         """
         tool_def = self._tools.get(tool_call.name)
         if tool_def is None:
@@ -228,6 +239,12 @@ class ToolRegistry:
                 result=None,
                 error=f"Tool '{tool_call.name}' not found in registry",
             )
+
+        if tool_call.idempotency_key is not None:
+            cached = self._idempotency_cache.get(tool_call.idempotency_key)
+            if cached is not None:
+                logger.info("Idempotency hit for key='%s', returning cached result", tool_call.idempotency_key)
+                return cached.model_copy(deep=True)
 
         try:
             sig = inspect.signature(tool_def.func)
@@ -263,11 +280,17 @@ class ToolRegistry:
             # 统一转为 str 以满足 Pydantic Union[str, Dict, List] 类型约束
             if not isinstance(result, (str, dict, list)):
                 result = str(result)
-            return ToolResult(
+            tool_result = ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
                 result=result,
             )
+            if tool_call.idempotency_key is not None:
+                self._idempotency_cache[tool_call.idempotency_key] = tool_result
+                if len(self._idempotency_cache) > 10000:
+                    oldest = next(iter(self._idempotency_cache))
+                    del self._idempotency_cache[oldest]
+            return tool_result
         except Exception as exc:
             logger.error("Tool '%s' raised %s: %s", tool_call.name, type(exc).__name__, exc)
             return ToolResult(

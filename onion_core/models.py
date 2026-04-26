@@ -225,6 +225,7 @@ class ToolCall(BaseModel):
     id: str = Field(default_factory=lambda: f"call_{uuid.uuid4().hex[:12]}")
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -469,6 +470,52 @@ class AgentState(BaseModel):
 
     def snapshot(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
+
+    @classmethod
+    def from_snapshot(cls, data: dict[str, Any]) -> AgentState:
+        return cls.model_validate(data)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 模型 Token 限制配置
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ModelTokenLimits(BaseModel):
+    max_context: int
+    max_output: int
+    encoding: str = "cl100k_base"
+
+
+MODEL_TOKEN_LIMITS: dict[str, ModelTokenLimits] = {
+    # OpenAI
+    "gpt-4o": ModelTokenLimits(max_context=128000, max_output=16384, encoding="o200k_base"),
+    "gpt-4o-mini": ModelTokenLimits(max_context=128000, max_output=16384, encoding="o200k_base"),
+    "gpt-4-turbo": ModelTokenLimits(max_context=128000, max_output=4096, encoding="cl100k_base"),
+    "gpt-4": ModelTokenLimits(max_context=8192, max_output=4096, encoding="cl100k_base"),
+    "gpt-3.5-turbo": ModelTokenLimits(max_context=16385, max_output=4096, encoding="cl100k_base"),
+    # Anthropic
+    "claude-3-5-sonnet-20241022": ModelTokenLimits(max_context=200000, max_output=8192, encoding="cl100k_base"),
+    "claude-3-opus-20240229": ModelTokenLimits(max_context=200000, max_output=4096, encoding="cl100k_base"),
+    "claude-3-haiku-20240307": ModelTokenLimits(max_context=200000, max_output=4096, encoding="cl100k_base"),
+    # DeepSeek
+    "deepseek-chat": ModelTokenLimits(max_context=64000, max_output=4096, encoding="cl100k_base"),
+    # Moonshot
+    "moonshot-v1-8k": ModelTokenLimits(max_context=8192, max_output=4096, encoding="cl100k_base"),
+    "moonshot-v1-32k": ModelTokenLimits(max_context=32768, max_output=4096, encoding="cl100k_base"),
+    "moonshot-v1-128k": ModelTokenLimits(max_context=128000, max_output=4096, encoding="cl100k_base"),
+    # Zhipu (GLM)
+    "glm-4": ModelTokenLimits(max_context=131072, max_output=4096, encoding="cl100k_base"),
+    # Qwen
+    "qwen-turbo": ModelTokenLimits(max_context=32768, max_output=8192, encoding="cl100k_base"),
+    "qwen-plus": ModelTokenLimits(max_context=131072, max_output=8192, encoding="cl100k_base"),
+}
+
+
+def lookup_model_limits(model: str) -> ModelTokenLimits | None:
+    for prefix, limits in MODEL_TOKEN_LIMITS.items():
+        if model.startswith(prefix):
+            return limits
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

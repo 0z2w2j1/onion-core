@@ -17,6 +17,24 @@
 
 ### Added
 
+- **AgentRuntime text-granularity streaming (`run_streaming_text`)**: New method yields `StreamChunk` tokens in real time while maintaining the full ReAct loop internally. Uses `provider.stream()` instead of `provider.complete()` when text streaming is requested. The `_run_think_phase` accepts an optional `on_chunk` callback.
+
+- **AgentRuntime `drain(timeout)` & `is_idle` property**: Graceful shutdown support — tracks in-flight requests via `_active_count`. `drain()` waits for all active tasks to complete. `is_idle` allows external orchestration to check if the agent can be safely shut down.
+
+- **`install_signal_handlers()`**: Registers SIGTERM/SIGINT handlers that call `agent.cancel()` and `agent.drain()`. Double-signal forces `SystemExit(1)`.
+
+- **AgentState `from_snapshot()`**: New `@classmethod` restores state from a dictionary previously produced by `snapshot()`, enabling checkpoint/resume for long-running agents.
+
+- **`ModelTokenLimits` & `MODEL_TOKEN_LIMITS`**: Built-in profiles for 15+ models (GPT-4o, Claude 3.5, DeepSeek, Qwen, Moonshot, etc.). `AgentRuntime._auto_tune_config()` auto-adjusts `max_tokens` and `memory_max_tokens` based on the configured model.
+
+- **`lookup_model_limits(model) -> ModelTokenLimits | None`**: Prefix-based model limit lookup utility.
+
+- **ToolCall `idempotency_key` field**: Added optional `idempotency_key` to `ToolCall` model. `ToolRegistry` caches results for matching keys and returns the cached result on repeat calls, preventing side-effect duplication on network retries.
+
+- **`ToolRegistry.clear_idempotency_cache()`**: Clears the idempotency cache (bounded at 10k entries with LRU eviction).
+
+- **`auto_configure_tracing(service_name, otlp_endpoint)`**: Reads `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, and `OTEL_TRACES_SAMPLER` environment variables to auto-configure OpenTelemetry tracing via `BatchSpanProcessor` + `OTLPSpanExporter`. Gracefully degrades if optional deps are not installed.
+
 - **Test coverage increased from 79% to 92%**: Added comprehensive test suites for previously uncovered modules:
   - `test_health_server.py` — Full HTTP-level tests for `HealthServer`, `HealthCheckHandler` (all endpoints: liveness, readiness, startup, health, 404), and `start_health_server()` convenience function
   - `test_agent_runtime.py` — Tests for `AgentRuntime` (init validation, run/run_streaming, hooks, cancel), `StateMachine` (transitions, callbacks, determine_next_action), `DefaultPlanner` (all 6 decision branches), `SlidingWindowMemory` (trim, trim_with_summary, token estimation), and `ToolExecutor` (unknown tool, retry, concurrent execution)

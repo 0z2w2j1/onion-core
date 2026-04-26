@@ -10,6 +10,11 @@ request_id 作为 trace attribute 传播，工具调用创建子 span。
 若未安装 opentelemetry，所有操作退化为 no-op，不影响正常运行。
 
 用法：
+    # 方式一：自动配置（读取环境变量 OTEL_EXPORTER_OTLP_ENDPOINT 等）
+    from onion_core.observability.tracing import auto_configure_tracing
+    auto_configure_tracing(service_name="my-agent")
+
+    # 方式二：手动配置
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
@@ -58,6 +63,60 @@ class _NoOpSpan:
 
 
 TracersType = TracerLike | None
+
+
+def auto_configure_tracing(
+    service_name: str = "onion-core",
+    otlp_endpoint: str | None = None,
+) -> bool:
+    """
+    自动从环境变量配置 OpenTelemetry 追踪导出。
+
+    读取的环境变量：
+      - OTEL_EXPORTER_OTLP_ENDPOINT (默认 http://localhost:4317)
+      - OTEL_SERVICE_NAME (默认 service_name 参数)
+      - OTEL_TRACES_SAMPLER (默认 parentbased_always_on)
+
+    如果 opentelemetry-sdk 未安装，函数静默返回 False。
+
+    Args:
+        service_name: 服务名称，会被 OTEL_SERVICE_NAME 覆盖
+        otlp_endpoint: OTLP gRPC 端点，会被 OTEL_EXPORTER_OTLP_ENDPOINT 覆盖
+
+    Returns:
+        True 如果追踪成功配置，False 如果 opentelemetry 未安装
+    """
+    import os
+
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError:
+        logger.warning(
+            "auto_configure_tracing: opentelemetry-sdk or OTLP exporter not installed. "
+            "Install with: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp"
+        )
+        return False
+
+    resolved_service = os.environ.get("OTEL_SERVICE_NAME", service_name)
+    resolved_endpoint = otlp_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+
+    resource = Resource.create({"service.name": resolved_service})
+    tracer_provider = TracerProvider(resource=resource)
+    exporter = OTLPSpanExporter(endpoint=resolved_endpoint)
+    tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(tracer_provider)
+
+    logger.info(
+        "OpenTelemetry tracing configured: service=%s endpoint=%s",
+        resolved_service, resolved_endpoint,
+    )
+    return True
 
 
 class TracingMiddleware(BaseMiddleware):

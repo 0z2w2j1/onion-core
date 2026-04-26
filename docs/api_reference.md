@@ -646,6 +646,18 @@ class TracingMiddleware(BaseMiddleware):
     ) -> None: ...
 ```
 
+### `auto_configure_tracing`
+```python
+def auto_configure_tracing(
+    service_name: str = "onion-core",
+    otlp_endpoint: Optional[str] = None,
+) -> bool: ...
+```
+Auto-configures OpenTelemetry from environment variables:
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`.
+Returns `True` if tracing was configured, `False` if optional deps are missing.
+Requires: `pip install opentelemetry-exporter-otlp`
+
 ### `ResponseCacheMiddleware` (priority=75) **[NEW in v0.7.0]**
 ```python
 class ResponseCacheMiddleware(BaseMiddleware):
@@ -758,7 +770,53 @@ class AgentLoop:
 Provides a simplified tool-calling loop on top of a Pipeline.
 When `memory` is set, the message list is trimmed by token count
 at the start of each turn to prevent unbounded memory growth.
+
+### `AgentRuntime`
+```python
+class AgentRuntime:
+    def __init__(
+        self,
+        config: AgentConfig,
+        llm_provider: LLMProvider,
+        tool_registry: ToolRegistry,
+        planner: Optional[BasePlanner] = None,
+        memory: Optional[SlidingWindowMemory] = None,
+    ) -> None: ...
+
+    @property
+    def state(self) -> AgentState: ...
+    @property
+    def fsm(self) -> StateMachine: ...
+    @property
+    def is_idle(self) -> bool: ...
+
+    def on_step(self, callback: Callable[[StepRecord], None]) -> None: ...
+    def on_error(self, callback: Callable[[str, Exception], None]) -> None: ...
+    def cancel(self) -> None: ...
+    async def drain(self, timeout: float = 30.0) -> None: ...
+
+    async def run(self, user_message: str, state: Optional[AgentState] = None) -> AgentState: ...
+    async def run_streaming(self, user_message: str, state: Optional[AgentState] = None) -> AsyncIterator[StepRecord]: ...
+    async def run_streaming_text(self, user_message: str, state: Optional[AgentState] = None) -> AsyncIterator[StreamChunk]: ...
+
+Full ReAct agent with state machine, planner, memory management,
+and tool execution. `run_streaming_text()` yields StreamChunk tokens
+in real time for typewriter-style output.
 ```
+
+### `install_signal_handlers`
+```python
+def install_signal_handlers(agent: Optional[AgentRuntime] = None, timeout: float = 30.0) -> None: ...
+```
+Registers SIGTERM/SIGINT handlers for graceful shutdown.
+Calls `agent.cancel()` and `agent.drain()` on first signal;
+forces `SystemExit(1)` on second signal.
+
+### `shutdown_requested`
+```python
+def shutdown_requested() -> bool: ...
+```
+Returns `True` if a termination signal has been received.
 
 ---
 
@@ -841,6 +899,35 @@ def fallback_error(
 ERROR_MESSAGES: Dict[ErrorCode, str]       # Default human-readable messages
 ERROR_RETRY_POLICY() -> Dict[ErrorCode, RetryOutcome]  # Lazy-loaded retry policy
 ```
+
+---
+
+## Module: `onion_core.models` (Token Limits)
+
+### `ModelTokenLimits`
+```python
+class ModelTokenLimits(BaseModel):
+    max_context: int       # Max total context window
+    max_output: int        # Max output tokens
+    encoding: str          # tiktoken encoding name
+```
+
+### `MODEL_TOKEN_LIMITS`
+```python
+MODEL_TOKEN_LIMITS: Dict[str, ModelTokenLimits] = {
+    "gpt-4o":   ModelTokenLimits(max_context=128000, max_output=16384, ...),
+    "claude-3-5-sonnet-20241022": ModelTokenLimits(max_context=200000, ...),
+    "deepseek-chat": ModelTokenLimits(max_context=64000, ...),
+    # See source for the full list
+}
+```
+
+### `lookup_model_limits`
+```python
+def lookup_model_limits(model: str) -> Optional[ModelTokenLimits]: ...
+```
+Prefix-matches a model name against `MODEL_TOKEN_LIMITS`.
+Used by `AgentRuntime._auto_tune_config()` to set sensible defaults.
 
 ---
 
@@ -1435,6 +1522,17 @@ class TracingMiddleware(BaseMiddleware):
     ) -> None: ...
 ```
 
+### `auto_configure_tracing`
+```python
+def auto_configure_tracing(
+    service_name: str = "onion-core",
+    otlp_endpoint: Optional[str] = None,
+) -> bool: ...
+```
+从环境变量自动配置 OpenTelemetry 追踪导出。
+读取 `OTEL_EXPORTER_OTLP_ENDPOINT`、`OTEL_SERVICE_NAME` 等变量。
+可选依赖：`pip install opentelemetry-exporter-otlp`
+
 ---
 
 ## 模块：`onion_core.tools`
@@ -1499,7 +1597,51 @@ class AgentLoop:
 在 Pipeline 之上提供简化的工具调用循环。
 当传入 `memory` 参数时，每轮循环开始时按 token 数裁剪消息列表，
 防止长时间运行的 Agent 出现内存泄漏。
+
+### `AgentRuntime`
+```python
+class AgentRuntime:
+    def __init__(
+        self,
+        config: AgentConfig,
+        llm_provider: LLMProvider,
+        tool_registry: ToolRegistry,
+        planner: Optional[BasePlanner] = None,
+        memory: Optional[SlidingWindowMemory] = None,
+    ) -> None: ...
+
+    @property
+    def state(self) -> AgentState: ...
+    @property
+    def fsm(self) -> StateMachine: ...
+    @property
+    def is_idle(self) -> bool: ...
+
+    def on_step(self, callback: Callable[[StepRecord], None]) -> None: ...
+    def on_error(self, callback: Callable[[str, Exception], None]) -> None: ...
+    def cancel(self) -> None: ...
+    async def drain(self, timeout: float = 30.0) -> None: ...
+
+    async def run(self, user_message: str, state: Optional[AgentState] = None) -> AgentState: ...
+    async def run_streaming(self, user_message: str, state: Optional[AgentState] = None) -> AsyncIterator[StepRecord]: ...
+    async def run_streaming_text(self, user_message: str, state: Optional[AgentState] = None) -> AsyncIterator[StreamChunk]: ...
+
+完整的 ReAct Agent，包含状态机、规划器、记忆管理和工具执行。
+`run_streaming_text()` 实时流式输出 token 级别的 StreamChunk。
 ```
+
+### `install_signal_handlers`
+```python
+def install_signal_handlers(agent: Optional[AgentRuntime] = None, timeout: float = 30.0) -> None: ...
+```
+注册 SIGTERM/SIGINT 信号处理函数，实现优雅关闭。
+首次信号触发 `agent.cancel()` + `agent.drain()`，重复信号强制退出。
+
+### `shutdown_requested`
+```python
+def shutdown_requested() -> bool: ...
+```
+返回是否已收到终止信号。
 
 ---
 
