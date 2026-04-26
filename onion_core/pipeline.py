@@ -305,7 +305,7 @@ class Pipeline:
                     self._run_with_cache_handling(context),
                     timeout=self._total_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise TimeoutError(
                     f"Pipeline total timeout ({self._total_timeout}s) exceeded for request {context.request_id}"
                 ) from None
