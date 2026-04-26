@@ -14,12 +14,15 @@ Onion Core - Pipeline（核心调度引擎）
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import queue
 import random
+import threading
 import types
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Iterator
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, cast, overload
 
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
@@ -854,31 +857,62 @@ class Pipeline:
             if "no running event loop" not in str(exc):
                 raise
 
-        # 创建专用事件循环和线程来运行异步生成器
-        import concurrent.futures
-
+        # 生产者线程 + 线程安全队列，避免一次性聚合全部 chunk
+        stream_queue: queue.Queue[object] = queue.Queue(maxsize=64)
+        sentinel = object()
+        error_sentinel = object()
+        stop_event = threading.Event()
         loop = asyncio.new_event_loop()
-        
-        async def _collect_chunks() -> list[StreamChunk]:
-            """收集所有 chunks 到列表（内存可控，因为 max_stream_chunks 有限制）"""
-            chunks: list[StreamChunk] = []
+        producer_task: asyncio.Task[None] | None = None
+
+        def _put_with_stop(item: object) -> bool:
+            while not stop_event.is_set():
+                try:
+                    stream_queue.put(item, timeout=0.1)
+                    return True
+                except queue.Full:
+                    continue
+            return False
+
+        async def _producer() -> None:
             async for chunk in self.stream(context):
-                chunks.append(chunk)
-            return chunks
+                if stop_event.is_set():
+                    break
+                if not _put_with_stop(chunk):
+                    return
+
+        def _producer_runner() -> None:
+            nonlocal producer_task
+            asyncio.set_event_loop(loop)
+            try:
+                producer_task = loop.create_task(_producer())
+                loop.run_until_complete(producer_task)
+            except Exception as exc:
+                _put_with_stop((error_sentinel, exc))
+            finally:
+                _put_with_stop(sentinel)
+                with contextlib.suppress(Exception):
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                with contextlib.suppress(Exception):
+                    loop.close()
+
+        worker = threading.Thread(target=_producer_runner, name="pipeline-stream-sync", daemon=True)
+        worker.start()
 
         try:
-            # 在线程池中运行整个流式过程，避免频繁跨线程切换
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(lambda: loop.run_until_complete(_collect_chunks()))
-                all_chunks = future.result()
-            
-            # 逐个 yield chunks（此时已在同步上下文）
-            yield from all_chunks
+            while True:
+                item = stream_queue.get()
+                if item is sentinel:
+                    break
+                if isinstance(item, tuple) and len(item) == 2 and item[0] is error_sentinel:
+                    raise item[1]
+                yield cast(StreamChunk, item)
         finally:
-            # 确保资源清理
-            import contextlib
-            with contextlib.suppress(Exception):
-                loop.close()
+            stop_event.set()
+            if producer_task is not None and not producer_task.done():
+                with contextlib.suppress(Exception):
+                    loop.call_soon_threadsafe(producer_task.cancel)
+            worker.join(timeout=2.0)
 
     def execute_tool_call_sync(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         """同步版本的 execute_tool_call()。"""

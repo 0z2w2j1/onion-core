@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from onion_core import EchoProvider, LLMResponse, Pipeline, StreamChunk
@@ -39,6 +40,36 @@ def test_stream_sync_yields_chunks(sync_pipeline):
     assert chunks[-1].finish_reason is not None
     full = "".join(c.delta for c in chunks)
     assert full  # assembled text non-empty
+
+
+def test_stream_sync_large_chunks_incremental_output():
+    """测试大量 chunk 可逐步产出，不需要先聚合成 list。"""
+
+    class ManyChunksProvider(EchoProvider):
+        def __init__(self, total: int = 1500) -> None:
+            self.total = total
+            self.produced = 0
+
+        async def stream(self, context):
+            for i in range(self.total):
+                await asyncio.sleep(0.0005)
+                self.produced += 1
+                yield StreamChunk(delta=f"{i}|", finish_reason=None)
+            yield StreamChunk(delta="", finish_reason="stop")
+
+    provider = ManyChunksProvider()
+    p = Pipeline(provider=provider, max_stream_chunks=3000)
+    p.startup_sync()
+    try:
+        iterator = p.stream_sync(make_context())
+        first_ten = [next(iterator) for _ in range(10)]
+        assert len(first_ten) == 10
+        # 如果 stream_sync 先聚合全部 chunk，produced 会很快接近 total。
+        # 这里验证前 10 个 chunk 时，生产端尚未产出全部内容，说明是增量消费。
+        assert provider.produced < provider.total
+        iterator.close()
+    finally:
+        p.shutdown_sync()
 
 
 def test_execute_tool_call_sync(sync_pipeline):
