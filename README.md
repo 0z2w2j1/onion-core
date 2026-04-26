@@ -121,6 +121,11 @@ if __name__ == "__main__":
 
 #### Synchronous API (for Flask/Django/Scripts)
 
+> **⚠️ Important Limitations:**
+> - Sync methods **cannot** be called from within an async context (will raise `RuntimeError`)
+> - `stream_sync()` collects all chunks in memory before yielding (bounded by `max_stream_chunks`, default 10,000)
+> - For best performance in async applications, always use `await pipeline.run()` and `async for chunk in pipeline.stream()`
+
 ```python
 from onion_core import Pipeline, AgentContext, Message, EchoProvider
 from onion_core.middlewares import (
@@ -417,6 +422,11 @@ if __name__ == "__main__":
 ```
 
 #### 同步 API（适用于 Flask/Django/脚本）
+
+> **⚠️ 重要限制：**
+> - 同步方法**不能**在 async 上下文中调用（会抛出 `RuntimeError`）
+> - `stream_sync()` 会在 yield 之前将所有 chunks 收集到内存中（受 `max_stream_chunks` 限制，默认 10,000）
+> - 在异步应用中为了最佳性能，请始终使用 `await pipeline.run()` 和 `async for chunk in pipeline.stream()`
 
 ```python
 from onion_core import Pipeline, AgentContext, Message, EchoProvider

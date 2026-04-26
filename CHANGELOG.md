@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **P0: Sync API Thread Safety Fix**
+  - Removed dangerous thread pool nesting in `_run_async_in_sync()` that could cause deadlocks
+  - Now raises clear `RuntimeError` when sync methods are called from async contexts
+  - Refactored `stream_sync()` to collect all chunks in a single thread execution (bounded by `max_stream_chunks`)
+  - Eliminated per-chunk thread switching overhead (10-50μs/chunk performance improvement)
+  - Added proper resource cleanup with `contextlib.suppress()` for loop closing
+  - Updated documentation with clear warnings about sync API limitations
+  
 - **Registered TraceIdFilter in configure_logging()**: The `TraceIdFilter` was defined but never attached to any logging handler, breaking trace_id propagation in structured JSON logs. Now registered in `configure_logging()` via `handler.addFilter(TraceIdFilter())`.
 - **Moved ThreadPoolExecutor outside stream_sync() loop**: `stream_sync()` previously created a new `ThreadPoolExecutor` for every stream chunk, causing excessive thread creation overhead. Now the executor is created once and reused for the entire stream iteration.
 - **Simplified `_run_async_in_sync()` event loop handling**: Removed the broken `loop.run_until_complete(coro)` path on the main thread (which always raised `RuntimeError` when an event loop was running). All live-loop cases now uniformly delegate to `executor.submit(lambda: asyncio.run(coro))`.

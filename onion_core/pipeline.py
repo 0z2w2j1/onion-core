@@ -798,27 +798,29 @@ class Pipeline:
         """
         在同步环境中安全运行异步协程。
 
-        自动检测事件循环状态，避免 RuntimeError。
-        使用统一的事件循环管理策略，减少代码重复。
+        策略：
+          - 若无运行中的事件循环，直接使用 asyncio.run()
+          - 若已有事件循环（如在 async 函数中调用），抛出明确错误
+            避免线程池嵌套导致的死锁和资源泄露风险
         """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
+            # 无运行中的 loop，安全使用 asyncio.run()
             return asyncio.run(coro)  # type: ignore[arg-type]
 
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future: concurrent.futures.Future[_T] = executor.submit(
-                lambda: asyncio.run(coro),  # type: ignore[arg-type]
-            )
-            return future.result()
+        # 已有事件循环，禁止同步调用以避免死锁
+        raise RuntimeError(
+            "Cannot call sync methods from within an async context. "
+            "Use 'await pipeline.run()' or other async methods instead. "
+            "Sync methods are only for non-async environments (e.g., Flask/Django views)."
+        )
 
     def run_sync(self, context: AgentContext) -> LLMResponse:
         """
         同步版本的 run() 方法，适用于非异步环境（如 Flask/Django）。
 
-        内部使用统一的事件循环管理，线程安全。
+        注意：不能在 async 函数中调用此方法，否则会抛出 RuntimeError。
 
         用法：
             with Pipeline(provider=MyProvider()) as p:
@@ -830,43 +832,52 @@ class Pipeline:
         """
         同步版本的 stream() 方法，将异步生成器包装为同步生成器。
 
-        使用线程池桥接模式，避免收集所有 chunks 到内存导致 OOM。
-        自动检测是否已有运行中的事件循环，避免 RuntimeError。
+        使用单一线程和事件循环，避免每个 chunk 都跨线程切换的性能问题。
+        
+        注意：
+          - 不能在 async 函数中调用此方法
+          - 生成器会独占一个线程直到流式响应结束
 
         用法：
             with Pipeline(provider=MyProvider()) as p:
                 for chunk in p.stream_sync(context):
                     print(chunk.delta, end="", flush=True)
         """
+        # 检查是否在 async 上下文中
+        try:
+            asyncio.get_running_loop()
+            raise RuntimeError(
+                "Cannot call stream_sync() from within an async context. "
+                "Use 'async for chunk in pipeline.stream()' instead."
+            )
+        except RuntimeError as exc:
+            if "no running event loop" not in str(exc):
+                raise
+
+        # 创建专用事件循环和线程来运行异步生成器
         import concurrent.futures
 
-        loop: asyncio.AbstractEventLoop | None = None
+        loop = asyncio.new_event_loop()
+        
+        async def _collect_chunks() -> list[StreamChunk]:
+            """收集所有 chunks 到列表（内存可控，因为 max_stream_chunks 有限制）"""
+            chunks: list[StreamChunk] = []
+            async for chunk in self.stream(context):
+                chunks.append(chunk)
+            return chunks
+
         try:
-            # 创建新的事件循环用于流式传输
-            loop = asyncio.new_event_loop()
-
-            async def _stream_gen() -> AsyncIterator[StreamChunk]:
-                async for chunk in self.stream(context):
-                    yield chunk
-
-            gen = _stream_gen()
-
+            # 在线程池中运行整个流式过程，避免频繁跨线程切换
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                while True:
-                    # 在线程池中执行异步 next()
-                    future: concurrent.futures.Future[StreamChunk] = executor.submit(
-                        lambda: loop.run_until_complete(gen.__anext__())
-                    )
-                    try:
-                        chunk = future.result()
-                        yield chunk
-                    except StopAsyncIteration:
-                        break
-        except Exception:
-            raise
+                future = executor.submit(lambda: loop.run_until_complete(_collect_chunks()))
+                all_chunks = future.result()
+            
+            # 逐个 yield chunks（此时已在同步上下文）
+            yield from all_chunks
         finally:
-            # 清理资源
-            if loop is not None:
+            # 确保资源清理
+            import contextlib
+            with contextlib.suppress(Exception):
                 loop.close()
 
     def execute_tool_call_sync(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
