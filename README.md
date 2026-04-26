@@ -4,7 +4,7 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -166,7 +166,7 @@ with Pipeline(provider=EchoProvider()) as p:
 #### 🛡️ Security Guardrail
 - Built-in prompt injection detection
 - PII masking: email, China phone, intl phone, ID card, credit card
-- Streaming PII masking (minimal latency)
+- **Streaming PII masking with timeout**: Time-based buffer flush (2s max) to ensure low TTFT
 - Tool call blocking
 
 #### 🌏 Domestic AI Support
@@ -188,10 +188,13 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM, etc.
 
 #### 📏 Context Window Management
 - Accurate token counting with `tiktoken` (OpenAI-compatible)
+- **Async computation**: ThreadPoolExecutor for long messages (>1000 chars) to avoid event loop blocking
 - Auto-truncation: preserves system prompt + latest N rounds
+- AgentState synchronization: truncated context automatically synced back to agent memory
 
 #### ⚡ Rate Limiting & Circuit Breaker
-- Per-session sliding window rate limiting (in-memory, single-process)
+- **Layered rate limiting**: Separate limits for regular requests vs tool calls (prevents tool call storms)
+- Per-session sliding window (in-memory, single-process)
 - Circuit breaker: stops hitting a failing provider (CLOSED → OPEN → HALF_OPEN → CLOSED)
 - **Note**: Distributed backends (Redis/Etcd) are planned for v1.0
 

@@ -255,7 +255,9 @@ def test_rate_limit_get_usage():
     mw = RateLimitMiddleware(max_requests=10, window_seconds=60)
     usage = mw.get_usage("unknown-session")
     assert usage["requests_in_window"] == 0
-    assert usage["remaining"] == 10
+    assert usage["request_remaining"] == 10
+    assert usage["tool_calls_in_window"] == 0
+    assert usage["tool_call_remaining"] == 10
 
 
 # ── MetricsMiddleware（no-op 模式）────────────────────────────────────────────

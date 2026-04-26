@@ -793,20 +793,32 @@ class AgentRuntime:
         assert self._fsm is not None
         start = time.monotonic()
 
+        # 1. 先执行内存裁剪（基于 AgentState）
         trimmed = await self._memory.trim_with_summary(self._state.messages)
 
+        # 2. 创建临时 context 供 Pipeline 使用
         ctx = AgentContext(
             request_id=self._state.run_id,
             session_id=self._state.session_id,
             trace_id=trace_id,
-            messages=trimmed,
+            messages=trimmed.copy(),  # 传递副本，避免 Pipeline 修改影响原始数据
         )
 
+        # 3. Pipeline 执行（ContextWindowMiddleware 可能再次裁剪）
         if on_chunk is not None:
             llm_response = await self._run_streaming_think(ctx, on_chunk)
         else:
             llm_response = await self._llm_provider.complete(ctx)
 
+        # 4. 【关键】将 Pipeline 裁剪后的消息同步回 AgentState
+        if ctx.metadata.get("context_truncated"):
+            logger.info(
+                "[%s] Syncing truncated messages back to AgentState: %d → %d messages",
+                trace_id, len(self._state.messages), len(ctx.messages),
+            )
+            self._state.messages = ctx.messages.copy()
+
+        # 5. 添加助手回复到 AgentState
         assistant_msg = llm_response.to_assistant_message()
         self._state.add_message(assistant_msg)
 

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.0] - 2026-04-26
+
+### Critical Fixes (P0)
+
+- **Streaming Response Buffer Timeout** — `SafetyGuardrailMiddleware.process_stream_chunk()` now uses a time-based flush mechanism (`_MAX_BUFFER_AGE = 2.0s`) in addition to the size-based buffer. Previously, the fixed 50-character buffer could cause excessive Time-To-First-Token (TTFT) delay if the LLM output slow single characters. The new implementation forces buffer flush after 2 seconds, ensuring responsive streaming UX.
+
+- **AgentState Context Synchronization** — Fixed critical data inconsistency where `ContextWindowMiddleware` truncated `context.messages` but `AgentState.messages` remained unsynchronized. Now `_run_think_phase()` explicitly syncs truncated messages back to `AgentState` when `context.metadata["context_truncated"]` is True. This prevents memory pollution and ensures subsequent turns use the correct context.
+
+### Enhanced Features (P1)
+
+- **Layered Rate Limiting** — `RateLimitMiddleware` now supports separate rate limits for regular requests vs tool calls. New parameters: `max_tool_calls`, `tool_call_window`. Detects tool call results by checking recent message roles. Prevents tool call storms from exhausting quota meant for regular conversations. Example: `RateLimitMiddleware(max_requests=60, max_tool_calls=30, tool_call_window=120.0)`.
+
+- **Async Token Counting** — `ContextWindowMiddleware` now uses a `ThreadPoolExecutor` (2 workers) for tiktoken encoding on long messages (>1000 chars), avoiding event loop blocking. Short messages use fast synchronous path to avoid thread switching overhead. Added `count_tokens_async()` method with automatic fallback logic.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- No breaking changes to public API
+- Backward compatible: existing code continues to work without modification
+
+---
+
 ## [0.8.0] - 2026-04-26
 
 ### Architecture Consolidation

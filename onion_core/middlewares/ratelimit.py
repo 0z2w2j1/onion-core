@@ -18,6 +18,8 @@ class RateLimitMiddleware(BaseMiddleware):
     滑动窗口速率限制中间件。priority=150。
 
     按 session_id 独立计数，LRU 淘汰长期不活跃的 session（防内存泄漏）。
+    
+    改进：支持分层限流，区分普通对话和工具调用，避免工具调用风暴。
     """
 
     priority: int = 150
@@ -30,41 +32,68 @@ class RateLimitMiddleware(BaseMiddleware):
         self,
         max_requests: int = 60,
         window_seconds: float = 60.0,
+        max_tool_calls: int | None = None,  # 新增：工具调用独立限额
+        tool_call_window: float | None = None,  # 新增：工具调用独立窗口
         max_sessions: int = 10_000,  # LRU 容量上限
     ) -> None:
         self._max_requests = max_requests
         self._window = window_seconds
+        self._max_tool_calls = max_tool_calls or max_requests
+        self._tool_call_window = tool_call_window or window_seconds
         self._max_sessions = max_sessions
-        self._windows: OrderedDict[str, deque[float]] = OrderedDict()
-        self._lock = asyncio.Lock()  # 保护 _windows 的并发访问
+        
+        # 分离存储：普通请求 vs 工具调用
+        self._request_windows: OrderedDict[str, deque[float]] = OrderedDict()
+        self._tool_call_windows: OrderedDict[str, deque[float]] = OrderedDict()
+        self._lock = asyncio.Lock()  # 保护并发访问
 
     async def startup(self) -> None:
-        logger.info("RateLimitMiddleware started | max=%d req / %.0fs | lru_cap=%d",
-                    self._max_requests, self._window, self._max_sessions)
+        logger.info(
+            "RateLimitMiddleware started | requests=%d/%.0fs | tool_calls=%d/%.0fs | lru_cap=%d",
+            self._max_requests, self._window,
+            self._max_tool_calls, self._tool_call_window,
+            self._max_sessions,
+        )
 
     async def shutdown(self) -> None:
         async with self._lock:
-            self._windows.clear()
+            self._request_windows.clear()
+            self._tool_call_windows.clear()
         logger.info("RateLimitMiddleware stopped.")
 
-    def _get_window(self, sid: str) -> deque[float]:
+    def _get_window(self, storage: OrderedDict[str, deque[float]], sid: str) -> deque[float]:
         """获取 session 的时间窗口，LRU 更新访问顺序。调用方必须持有 self._lock。"""
-        if sid in self._windows:
-            self._windows.move_to_end(sid)
+        if sid in storage:
+            storage.move_to_end(sid)
         else:
-            if len(self._windows) >= self._max_sessions:
-                self._windows.popitem(last=False)  # 淘汰最久未访问的
-            self._windows[sid] = deque()
-        return self._windows[sid]
+            if len(storage) >= self._max_sessions:
+                storage.popitem(last=False)  # 淘汰最久未访问的
+            storage[sid] = deque()
+        return storage[sid]
 
     async def process_request(self, context: AgentContext) -> AgentContext:
         sid = context.session_id
         now = time.monotonic()
+        
+        # 检测是否为工具调用结果阶段（检查最近的消息中是否有 tool 角色）
+        is_tool_result = any(m.role == "tool" for m in context.messages[-3:])
 
         async with self._lock:
-            window = self._get_window(sid)
+            # 根据请求类型选择对应的限流窗口
+            if is_tool_result:
+                storage = self._tool_call_windows
+                max_req = self._max_tool_calls
+                win_sec = self._tool_call_window
+                limit_type = "tool_call"
+            else:
+                storage = self._request_windows
+                max_req = self._max_requests
+                win_sec = self._window
+                limit_type = "request"
+            
+            window = self._get_window(storage, sid)
 
-            cutoff = now - self._window
+            cutoff = now - win_sec
             while window and window[0] < cutoff:
                 window.popleft()
 
@@ -74,19 +103,23 @@ class RateLimitMiddleware(BaseMiddleware):
                 for _ in range(excess):
                     window.popleft()
 
-            if len(window) >= self._max_requests:
-                retry_after = self._window - (now - window[0])
-                logger.warning("[%s] Rate limit exceeded for session %s (retry after %.1fs)",
-                               context.request_id, sid, retry_after)
+            if len(window) >= max_req:
+                retry_after = win_sec - (now - window[0])
+                logger.warning(
+                    "[%s] %s rate limit exceeded for session %s (retry after %.1fs)",
+                    context.request_id, limit_type, sid, retry_after,
+                )
                 raise RateLimitExceeded(
-                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s.",
+                    f"Rate limit exceeded ({limit_type}) for session '{sid}'. "
+                    f"Retry after {retry_after:.1f}s.",
                     error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
                 )
 
             window.append(now)
-            remaining = self._max_requests - len(window)
+            remaining = max_req - len(window)
 
         context.metadata["rate_limit_remaining"] = remaining
+        context.metadata["rate_limit_type"] = limit_type
         return context
 
     async def process_response(self, context: AgentContext, response: LLMResponse) -> LLMResponse:
@@ -107,14 +140,22 @@ class RateLimitMiddleware(BaseMiddleware):
     def get_usage(self, session_id: str) -> dict[str, Any]:
         now = time.monotonic()
         # 注意：此方法为同步，仅做快照读取，不修改结构，竞态影响可接受
-        window = self._windows.get(session_id, deque())
-        active = sum(1 for t in window if t >= now - self._window)
+        request_window = self._request_windows.get(session_id, deque())
+        tool_call_window = self._tool_call_windows.get(session_id, deque())
+        
+        active_requests = sum(1 for t in request_window if t >= now - self._window)
+        active_tool_calls = sum(1 for t in tool_call_window if t >= now - self._tool_call_window)
+        
         return {
             "session_id": session_id,
-            "requests_in_window": active,
+            "requests_in_window": active_requests,
             "max_requests": self._max_requests,
-            "remaining": max(0, self._max_requests - active),
+            "request_remaining": max(0, self._max_requests - active_requests),
+            "tool_calls_in_window": active_tool_calls,
+            "max_tool_calls": self._max_tool_calls,
+            "tool_call_remaining": max(0, self._max_tool_calls - active_tool_calls),
             "window_seconds": self._window,
+            "tool_call_window_seconds": self._tool_call_window,
         }
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from re import Pattern
 
@@ -169,26 +170,34 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         滑动窗口流式 PII 过滤：
         保持末尾一定长度（_STREAM_BUFFER_SIZE）的缓冲区不输出，
         以确保不会将一个 PII 模式（如手机号）的前半部分先输出。
+        
+        改进：增加超时强制刷新机制，避免首字延迟（TTFT）过长。
         """
         buf_key = f"_safety_buf_{context.request_id}"
+        timestamp_key = f"_safety_buf_ts_{context.request_id}"
+        
+        now = time.monotonic()
         full_buf: str = context.metadata.get(buf_key, "") + chunk.delta
-
-        if chunk.finish_reason:
-            # 流结束：对剩余缓冲区做完整过滤并输出
-            context.metadata.pop(buf_key, None)
+        buf_start_time = context.metadata.get(timestamp_key, now)
+        
+        # 强制刷新条件：流结束、缓冲区满、或缓冲超时
+        should_flush = (
+            chunk.finish_reason is not None or
+            len(full_buf) > self._STREAM_BUFFER_SIZE or
+            (now - buf_start_time) > self._MAX_BUFFER_AGE
+        )
+        
+        if should_flush:
+            # 清理时间戳和缓冲区
+            context.metadata.pop(timestamp_key, None)
             masked = self._mask_pii(full_buf)
+            context.metadata.pop(buf_key, None)
             return chunk.model_copy(update={"delta": masked})
-
-        # 中间 chunk：保留末尾缓冲区，输出确认安全的前缀
-        if len(full_buf) > self._STREAM_BUFFER_SIZE:
-            split_at = len(full_buf) - self._STREAM_BUFFER_SIZE
-            safe_prefix = full_buf[:split_at]
-            remaining = full_buf[split_at:]
-
-            context.metadata[buf_key] = remaining
-            # 对前缀进行脱敏后输出
-            return chunk.model_copy(update={"delta": self._mask_pii(safe_prefix)})
-
+        
+        # 首次写入时记录时间戳
+        if buf_key not in context.metadata:
+            context.metadata[timestamp_key] = now
+        
         context.metadata[buf_key] = full_buf
         return chunk.model_copy(update={"delta": ""})
 
@@ -196,6 +205,9 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
     # 信用卡号最长约 19 位，国际电话含分隔符约 20 字符，身份证 18 位
     # 设为 50 以确保任何单个 PII 模式都不会被截断在边界处
     _STREAM_BUFFER_SIZE = 50
+    
+    # 最大缓冲时间（秒），超过此时间强制刷新以避免首字延迟过长
+    _MAX_BUFFER_AGE = 2.0
 
     async def on_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         if tool_call.name in self._blocked_tools:

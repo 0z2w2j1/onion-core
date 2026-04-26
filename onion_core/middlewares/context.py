@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 import tiktoken
@@ -55,6 +57,8 @@ class ContextWindowMiddleware(BaseMiddleware):
 
     超出 Token 阈值时执行滑动窗口裁剪，支持通过 context.config 运行时覆盖，
     包括动态指定 encoding 名称（适配不同模型的 tokenizer）。
+    
+    改进：使用线程池异步执行 tiktoken 计算，避免阻塞事件循环。
 
     context.config 运行时覆盖示例：
         context.config["context_window"] = {
@@ -65,6 +69,9 @@ class ContextWindowMiddleware(BaseMiddleware):
     """
 
     priority: int = 300
+    
+    # 线程池用于异步 Token 计算，避免阻塞事件循环
+    _executor: ThreadPoolExecutor | None = None
 
     def __init__(
         self,
@@ -110,6 +117,8 @@ class ContextWindowMiddleware(BaseMiddleware):
             return self._default_encoding
 
     async def startup(self) -> None:
+        # 创建线程池用于异步 Token 计算
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tiktoken")
         logger.info(
             "ContextWindowMiddleware started | max_tokens=%d | keep_rounds=%d | encoding=%s | summary_strategy=%s",
             self._max_tokens,
@@ -119,6 +128,8 @@ class ContextWindowMiddleware(BaseMiddleware):
         )
 
     async def shutdown(self) -> None:
+        if self._executor:
+            self._executor.shutdown(wait=False)
         logger.info("ContextWindowMiddleware stopped.")
 
     def count_tokens(self, messages: list[Message], encoding: tiktoken.Encoding | None = None) -> int:
@@ -129,6 +140,32 @@ class ContextWindowMiddleware(BaseMiddleware):
             for m in messages
         ) + 2
         return total
+    
+    async def count_tokens_async(self, messages: list[Message], encoding: tiktoken.Encoding | None = None) -> int:
+        """
+        异步 Token 计数，使用线程池避免阻塞事件循环。
+        
+        对于短消息（< 1000 字符），直接使用同步方法以避免线程切换开销。
+        对于长消息，使用线程池执行 tiktoken 编码。
+        """
+        # 快速路径：短消息直接同步计算
+        total_chars = sum(len(m.text_content) for m in messages)
+        if total_chars < 1000:
+            return self.count_tokens(messages, encoding)
+        
+        # 长消息：使用线程池异步计算
+        if not self._executor:
+            # fallback：如果线程池未初始化，使用同步方法
+            return self.count_tokens(messages, encoding)
+        
+        loop = asyncio.get_event_loop()
+        enc = encoding or self._default_encoding
+        
+        # 在线程池中执行编码计算
+        def _encode_messages() -> int:
+            return self.count_tokens(messages, enc)
+        
+        return await loop.run_in_executor(self._executor, _encode_messages)
 
     async def _summarize_old_messages(
         self,
@@ -189,7 +226,8 @@ class ContextWindowMiddleware(BaseMiddleware):
         encoding_name = rt_cfg.get("encoding_name", self._default_encoding_name)
         encoding = self._get_encoding(encoding_name)
 
-        token_count = self.count_tokens(context.messages, encoding)
+        # 使用异步 Token 计数，避免阻塞事件循环
+        token_count = await self.count_tokens_async(context.messages, encoding)
         context.metadata["token_count_before"] = token_count
         context.metadata["pre_tokens"] = token_count
         context.metadata["encoding_name"] = encoding_name
