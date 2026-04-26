@@ -143,9 +143,6 @@ plugins:
             docstring_section_style: table  # 表格样式
             show_if_no_docstring: false  # 没有文档字符串时不显示
             
-            # 交叉引用
-            enable_inventory: true  # 启用 inventory 文件
-            
             # 过滤选项
             filters:
               - "!^_"  # 排除私有成员（除了特殊方法）
