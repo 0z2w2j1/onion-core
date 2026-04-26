@@ -146,7 +146,7 @@ class StateMachine:
         AgentStatus.THINKING: {AgentStatus.ACTING, AgentStatus.FINISHED, AgentStatus.ERROR},
         AgentStatus.ACTING: {AgentStatus.THINKING, AgentStatus.FINISHED, AgentStatus.ERROR},
         AgentStatus.FINISHED: set(),
-        AgentStatus.ERROR: {AgentStatus.THINKING, AgentStatus.FINISHED, AgentStatus.CANCELLED},
+        AgentStatus.ERROR: set(),
         AgentStatus.CANCELLED: set(),
     }
 

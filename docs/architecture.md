@@ -9,6 +9,7 @@
 - **Configurable limits**: `state_max_messages` (default: 200) and `state_max_history_steps` (default: 100) in `AgentConfig`
 - **Layered storage**: Old step records are automatically archived to `archived_summaries` preserving traceability
 - **Auto-compaction**: `AgentRuntime.run()` calls `compact()` on each step to prevent OOM in long-running sessions
+- **Summary-based trimming**: `_run_think_phase` now uses `SlidingWindowMemory.trim_with_summary()` instead of `trim()`, enabling high-quality context compression via the `MemorySummarizer` interface when configured
 
 ### LLM Client Ownership
 - **External lifecycle management**: `AgentRuntime` now accepts `owns_client=False` to skip client cleanup (for singleton/shared clients)
@@ -16,17 +17,26 @@
 - **Thread safety**: Singleton `OpenAILLMClient` instances are no longer prematurely closed by runtime instances
 
 ### Standardized Observability
-- **Full trace context**: `JsonFormatter` now includes `trace_id`, `span_id`, `error_code`, and `request_id` in structured JSON logs
+- **Full trace context**: `StructuredLogFilter` injects `request_id`, `trace_id`, `span_id`, and `error_code` into log records automatically via logging filters
 - **StructuredLogAdapter**: Convenience wrapper for injecting context fields into any logger
 - **RequestContext**: `ContextVar`-based request/trace/span propagation for the `src/` library
 - **End-to-end traceability**: request_id → trace_id → span_id → error_code chain throughout all modules
 
-### Unified Concurrency Configuration
-- **ConcurrencyConfig**: Centralized `tool_concurrency`, `llm_max_connections`, `llm_max_keepalive`, `retry_max_attempts`, `retry_min_wait`, `retry_max_wait`
-- **AgentConfig extensions**: `max_concurrent_tools`, `llm_max_connections`, `llm_max_keepalive`, `retry_max_attempts`, `retry_min_wait`, `retry_max_wait`
-- **Configurable semaphore**: `ToolExecutor` semaphore size is now driven by `config.max_concurrent_tools`
-- **Configurable HTTP pool**: `BaseLLMClient` HTTP connection pool uses config values for limits
-- **Configurable retry budget**: All retry decorators now accept parameterized attempt counts and wait ranges
+### State Machine Hardening
+- **Fixed redundant transition**: Removed duplicate `transition_to(AgentStatus.THINKING)` from `_run_think_phase` — the main loop already ensures the state is THINKING
+- **Terminal ERROR state**: `AgentStatus.ERROR` is now a true terminal state (empty allowed transitions) — `ERROR -> THINKING` and `ERROR -> FINISHED` removed, eliminating illegal back-edges that could cause `StateTransitionError` at runtime
+
+### Configurable LLM Retry
+- **Fixed bypassed config**: `OpenAILLMClient.complete()` now calls `_make_request_with_retry_configurable()` instead of the hardcoded `_make_request_with_retry()`, so `AgentConfig.retry_max_attempts`, `retry_min_wait`, and `retry_max_wait` actually take effect
+
+### Packaging Fix
+- **Included `src/` package**: `pyproject.toml` now includes `src*` in `[tool.setuptools.packages.find]`, ensuring the new Agent middleware core is shipped in published distributions
+
+### Streaming API
+- **Implemented `run_streaming()`**: `AgentRuntime.run_streaming()` is now an `AsyncIterator[StepRecord]` that yields step records as they occur, fulfilling the streaming contract
+
+### Structured Logging Filter
+- **`StructuredLogFilter`**: New `logging.Filter` in `src/observability/context.py` that injects `request_id`, `trace_id`, `span_id`, and `error_code` from `ContextVar` into every `LogRecord`, enabling cross-module trace correlation without manual field injection
 
 ## 1. Overview
 
@@ -415,14 +425,23 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. Limitations (v0.7.4)
+## 9. Limitations (v0.7.5)
 
 | Area | Limitation |
 |------|------------|
 | **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
-| **Version** | 0.7.4 (Beta) — API may change without notice until v1.0 |
+| **Version** | 0.7.5 (Beta) — API may change without notice until v1.0 |
 | **Documentation** | Bilingual (English + Chinese) documentation maintained |
 | **CI/CD** | GitHub Actions configured for testing, linting, and benchmarks |
+
+### Recent Improvements (v0.7.5)
+
+- **State machine hardening**: ERROR is now a true terminal state; redundant THINKING transition removed from `_run_think_phase`
+- **Configurable retry activation**: `OpenAILLMClient.complete()` now uses configurable retry, respecting `retry_max_attempts`/`retry_min_wait`/`retry_max_wait` in `AgentConfig`
+- **Packaging fix**: `pyproject.toml` includes `src*` so the new agent middleware core is shipped in distributions
+- **Streaming API implemented**: `AgentRuntime.run_streaming()` is now a working `AsyncIterator[StepRecord]`
+- **Structured log filter**: `StructuredLogFilter` in `src/observability/context.py` injects `request_id`/`trace_id`/`span_id`/`error_code` into all log records
+- **Summary-based memory compression**: `_run_think_phase` now uses `trim_with_summary()` for higher-quality context compression
 
 ### Recent Improvements (v0.7.4)
 
@@ -894,14 +913,23 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. 限制 (v0.7.4)
+## 9. 限制 (v0.7.5)
 
 | 领域 | 限制 |
 |------|------------|
 | **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
-| **版本** | 0.7.4（Beta）— API 可能在 v1.0 之前发生变化 |
+| **版本** | 0.7.5（Beta）— API 可能在 v1.0 之前发生变化 |
 | **文档** | 维护中英双语文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试、代码检查和基准测试 |
+
+### 近期改进 (v0.7.5)
+
+- **状态机加固**：ERROR 现在是真正的终态；`_run_think_phase` 中的冗余 THINKING 转移已移除
+- **可配置重试生效**：`OpenAILLMClient.complete()` 现使用可配置重试，`AgentConfig.retry_max_attempts`/`retry_min_wait`/`retry_max_wait` 实际生效
+- **打包修复**：`pyproject.toml` 包含 `src*`，确保新 Agent 中间件核心进入发布包
+- **流式 API 实现**：`AgentRuntime.run_streaming()` 现在是一个可用的 `AsyncIterator[StepRecord]`
+- **结构化日志过滤器**：`StructuredLogFilter` 将 `request_id`/`trace_id`/`span_id`/`error_code` 注入所有日志记录
+- **基于摘要的内存压缩**：`_run_think_phase` 使用 `trim_with_summary()` 实现更高质量的上下文压缩
 
 ### 近期改进 (v0.7.4)
 

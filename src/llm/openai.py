@@ -76,7 +76,7 @@ class OpenAILLMClient(BaseLLMClient):
         start = time.monotonic()
 
         try:
-            response = await self._make_request_with_retry(client, url, payload)
+            response = await self._make_request_with_retry_configurable(client, url, payload)
         except RetryError as e:
             raise LLMError(f"All retries exhausted for LLM request: {e}") from e
 

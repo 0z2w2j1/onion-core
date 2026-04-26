@@ -59,7 +59,7 @@ Changelog = "https://github.com/0z2w2j1/onion-core/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["onion_core*"]
+include = ["onion_core*", "src*"]
 
 # ── pytest ──────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

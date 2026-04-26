@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 
 from src.core.executor import ToolExecutor
 from src.core.planner import BasePlanner, DefaultPlanner, PlannerDecision
@@ -184,9 +184,8 @@ class AgentRuntime:
         assert self._state is not None
         assert self._fsm is not None
         start = time.monotonic()
-        self._fsm.transition_to(AgentStatus.THINKING)
 
-        trimmed = self._memory.trim(self._state.messages)
+        trimmed = await self._memory.trim_with_summary(self._state.messages)
 
         llm_response = await self._llm_client.complete(trimmed)
 
@@ -271,5 +270,91 @@ class AgentRuntime:
 
     async def run_streaming(
         self, user_message: str, state: AgentState | None = None
-    ) -> AgentState:
-        raise NotImplementedError("Streaming mode will be implemented in v2")
+    ) -> AsyncIterator[StepRecord]:
+        self._cancelled = False
+
+        if state is not None:
+            self._state = state
+        else:
+            self._state = AgentState()
+
+        self._fsm = StateMachine(self._state)
+
+        if self._config.system_prompt:
+            self._state.add_message(
+                Message(role=MessageRole.SYSTEM, content=self._config.system_prompt)
+            )
+
+        self._state.add_message(Message(role=MessageRole.USER, content=user_message))
+
+        with RequestContext(
+            request_id=self._state.run_id,
+            trace_id=self._state.session_id,
+        ):
+            logger.info(
+                "AgentRuntime streaming: run_id=%s session_id=%s max_steps=%d",
+                self._state.run_id,
+                self._state.session_id,
+                self._config.max_steps,
+            )
+
+            try:
+                self._fsm.transition_to(AgentStatus.THINKING)
+
+                while self._state.steps < self._config.max_steps and not self._cancelled:
+                    self._state.increment_step()
+                    step_index = self._state.steps
+                    trace_id_str = f"{self._state.run_id}.{step_index}"
+
+                    self._state.compact(self._config)
+
+                    try:
+                        decision = await self._run_think_phase(trace_id_str, step_index)
+                    except LLMError as e:
+                        logger.error(
+                            "LLM error at step %d: %s", step_index, e, exc_info=True
+                        )
+                        self._handle_error(trace_id_str, str(e), e)
+                        self._fsm.transition_to(AgentStatus.ERROR)
+                        break
+
+                    if decision is None:
+                        self._fsm.transition_to(AgentStatus.FINISHED)
+                        break
+
+                    last = self._state.last_step
+                    if last is not None:
+                        yield last
+
+                    if decision.action_type == ActionType.FINISH:
+                        self._fsm.transition_to(AgentStatus.FINISHED)
+                        break
+
+                    if decision.action_type == ActionType.ACT:
+                        await self._run_act_phase(trace_id_str, step_index)
+                        last = self._state.last_step
+                        if last is not None:
+                            yield last
+                    elif decision.action_type == ActionType.ERROR:
+                        self._fsm.transition_to(AgentStatus.ERROR)
+                        break
+
+                if self._cancelled:
+                    self._state.set_status(AgentStatus.CANCELLED)
+
+                if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
+                    self._state.set_status(AgentStatus.FINISHED)
+
+            except Exception as e:
+                logger.exception("AgentRuntime streaming fatal error: %s", e)
+                self._state.set_status(AgentStatus.ERROR)
+                last_step = self._state.last_step
+                if last_step:
+                    last_step.error = str(e)
+                for hook in self._error_hooks:
+                    with contextlib.suppress(Exception):
+                        hook(self._state.run_id, e)
+
+            finally:
+                if self._owns_client:
+                    await self._llm_client.close()

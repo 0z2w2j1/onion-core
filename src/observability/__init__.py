@@ -1,5 +1,6 @@
 from src.observability.context import (
     RequestContext,
+    StructuredLogFilter,
     current_request_id,
     current_trace_id,
     reset_context,
@@ -9,6 +10,7 @@ from src.observability.context import (
 
 __all__ = [
     "RequestContext",
+    "StructuredLogFilter",
     "set_context",
     "reset_context",
     "current_request_id",

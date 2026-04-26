@@ -98,3 +98,20 @@ def with_request_context(
         span_id=span_id,
         error_code=error_code,
     )
+
+
+class StructuredLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        request_id = _request_id_var.get()
+        trace_id = _trace_id_var.get()
+        span_id = _span_id_var.get()
+        error_code = _error_code_var.get()
+        if request_id:
+            record.request_id = request_id
+        if trace_id:
+            record.trace_id = trace_id
+        if span_id:
+            record.span_id = span_id
+        if error_code:
+            record.error_code = error_code
+        return True
