@@ -63,6 +63,8 @@ class ObservabilityMiddleware(BaseMiddleware):
             response.finish_reason,
             usage_info,
         )
+        # 清理 ContextVar，防止泄漏到下一个请求
+        _trace_id_var.set("")
         return response
 
     async def process_stream_chunk(self, context: AgentContext, chunk: StreamChunk) -> StreamChunk:
@@ -76,6 +78,8 @@ class ObservabilityMiddleware(BaseMiddleware):
                 context.trace_id,
                 chunk.finish_reason,
             )
+            # 流式响应结束时清理 ContextVar
+            _trace_id_var.set("")
         return chunk
 
     async def on_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
@@ -105,3 +109,5 @@ class ObservabilityMiddleware(BaseMiddleware):
             error,
             exc_info=True,
         )
+        # 错误时也清理 ContextVar，防止泄漏
+        _trace_id_var.set("")

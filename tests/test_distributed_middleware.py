@@ -539,3 +539,99 @@ class TestIntegrationWithPipeline:
                 
                 assert response.content == "Test"
                 mock_redis.setex.assert_called()
+
+    async def test_distributed_rate_limit_redis_unavailable_fallback_allow(self):
+        """Test DistributedRateLimitMiddleware with Redis unavailable and fallback_allow=True."""
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(side_effect=ConnectionError("Redis unreachable"))
+        
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+            
+            limiter = DistributedRateLimitMiddleware(
+                redis_url="redis://unreachable:6379",
+                max_requests=10,
+                fallback_allow=True,  # Allow on failure
+            )
+            
+            # Startup should not raise due to fallback_allow
+            await limiter.startup()
+            
+            ctx = AgentContext(
+                session_id="test-user",
+                messages=[Message(role="user", content="Hello")],
+            )
+            
+            # Should allow request despite Redis being down
+            result = await limiter.process_request(ctx)
+            assert result is ctx
+            assert ctx.metadata.get("rate_limit_remaining") == -1  # Unknown
+            
+            await limiter.shutdown()
+
+    async def test_distributed_rate_limit_redis_unavailable_fallback_deny(self):
+        """Test DistributedRateLimitMiddleware with Redis unavailable and fallback_allow=False."""
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(side_effect=ConnectionError("Redis unreachable"))
+        
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+            
+            limiter = DistributedRateLimitMiddleware(
+                redis_url="redis://unreachable:6379",
+                max_requests=10,
+                fallback_allow=False,  # Deny on failure
+            )
+            
+            # Startup should raise due to fallback_allow=False
+            with pytest.raises(ConnectionError):
+                await limiter.startup()
+
+    async def test_distributed_cache_redis_unavailable_raises(self):
+        """Test DistributedCacheMiddleware raises error when Redis unavailable."""
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(side_effect=ConnectionError("Redis unreachable"))
+        
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+            
+            cache = DistributedCacheMiddleware(
+                redis_url="redis://unreachable:6379",
+                ttl_seconds=300,
+            )
+            
+            # Startup should raise
+            with pytest.raises(ConnectionError):
+                await cache.startup()
+
+    async def test_distributed_circuit_breaker_redis_unavailable_fallback_allow(self):
+        """Test DistributedCircuitBreakerMiddleware with Redis unavailable and fallback_allow=True."""
+        from onion_core.middlewares import DistributedCircuitBreakerMiddleware
+        
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(side_effect=ConnectionError("Redis unreachable"))
+        
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+            
+            breaker = DistributedCircuitBreakerMiddleware(
+                redis_url="redis://unreachable:6379",
+                failure_threshold=5,
+                recovery_timeout=30.0,
+                fallback_allow=True,  # Allow on failure
+            )
+            
+            # Startup should not raise due to fallback_allow
+            await breaker.startup()
+            
+            ctx = AgentContext(
+                session_id="test-user",
+                messages=[Message(role="user", content="Hello")],
+                metadata={"provider_name": "test-provider"},
+            )
+            
+            # Should allow request despite Redis being down
+            result = await breaker.process_request(ctx)
+            assert result is ctx
+            
+            await breaker.shutdown()
