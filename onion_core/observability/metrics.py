@@ -60,7 +60,14 @@ class _NoOpMetric:
 
 
 # ── 模型定价表（USD per 1K tokens）─────────────────────────────────────────────
+# 注意：LLM 厂商定价会频繁调整，建议通过以下方式管理：
+#   1. 环境变量：ONION_MODEL_PRICING='{"gpt-4o": [0.005, 0.015]}'
+#   2. 配置文件：config.yaml 中的 model_pricing 字段
+#   3. 动态加载：从数据库/API 获取最新价格
+#   4. 默认值：此处保留作为 fallback
+#
 # 来源：https://openai.com/api/pricing/ (2024-12)
+# 最后更新：2024-12-01
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     # OpenAI
     "gpt-4o": (0.005, 0.015),      # prompt, completion
@@ -76,7 +83,43 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+def _load_pricing_from_env() -> dict[str, tuple[float, float]] | None:
+    """
+    从环境变量加载定价配置（可选）。
+    
+    环境变量格式：
+        ONION_MODEL_PRICING='{"gpt-4o": [0.005, 0.015], "custom-model": [0.01, 0.02]}'
+    
+    Returns:
+        定价字典或 None（如果环境变量未设置）
+    """
+    import os
+    pricing_str = os.getenv("ONION_MODEL_PRICING")
+    if not pricing_str:
+        return None
+    
+    try:
+        import json
+        pricing_dict = json.loads(pricing_str)
+        return {k: tuple(v) for k, v in pricing_dict.items()}
+    except Exception as exc:
+        logger.warning("Failed to parse ONION_MODEL_PRICING: %s", exc)
+        return None
+
+
+# 尝试从环境变量加载定价，fallback 到默认值
+_ENV_PRICING = _load_pricing_from_env()
+if _ENV_PRICING:
+    MODEL_PRICING.update(_ENV_PRICING)
+    logger.info("Loaded model pricing from environment variables")
+
+
+def calculate_cost(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    custom_pricing: dict[str, tuple[float, float]] | None = None,
+) -> float:
     """
     计算 LLM 调用成本（USD）。
     
@@ -84,13 +127,25 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
         model: 模型名称
         prompt_tokens: 输入 token 数
         completion_tokens: 输出 token 数
+        custom_pricing: 自定义定价表（可选，优先级高于全局 MODEL_PRICING）
     
     Returns:
         成本（美元）
+    
+    Examples:
+        >>> calculate_cost("gpt-4o", 1000, 500)
+        0.0125
+        
+        >>> # 使用自定义定价
+        >>> custom = {"my-model": (0.001, 0.002)}
+        >>> calculate_cost("my-model", 1000, 500, custom_pricing=custom)
+        0.002
     """
+    pricing_source = custom_pricing or MODEL_PRICING
+    
     # 尝试匹配模型前缀
-    pricing = MODEL_PRICING.get("default")
-    for key, value in MODEL_PRICING.items():
+    pricing = pricing_source.get("default")
+    for key, value in pricing_source.items():
         if model.startswith(key):
             pricing = value
             break
@@ -177,12 +232,24 @@ class MetricsMiddleware(BaseMiddleware):
     增强功能（v0.9.0）：
       - Summary 指标提供 P95/P99 延迟百分位监控
       - Token 成本追踪（基于模型定价表）
+      - 支持通过环境变量 ONION_MODEL_PRICING 动态配置价格
+      - 支持运行时传入 custom_pricing 覆盖默认价格
     """
 
     priority: int = 90
 
-    def __init__(self, pipeline_name: str = "default") -> None:
+    def __init__(
+        self,
+        pipeline_name: str = "default",
+        custom_pricing: dict[str, tuple[float, float]] | None = None,
+    ) -> None:
+        """
+        Args:
+            pipeline_name: Pipeline 名称（用于指标标签）
+            custom_pricing: 自定义定价表（可选），优先级高于全局 MODEL_PRICING
+        """
         self._pipeline_name = pipeline_name
+        self._custom_pricing = custom_pricing
 
     async def startup(self) -> None:
         if _PROM_AVAILABLE:
@@ -216,7 +283,12 @@ class MetricsMiddleware(BaseMiddleware):
             _TOKEN_USAGE.labels(pipeline_name=self._pipeline_name, model=model, type="completion").inc(response.usage.completion_tokens)
             
             # Token 成本追踪
-            cost = calculate_cost(model, response.usage.prompt_tokens, response.usage.completion_tokens)
+            cost = calculate_cost(
+                model,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                custom_pricing=self._custom_pricing
+            )
             _TOKEN_COST_USD.labels(
                 pipeline_name=self._pipeline_name,
                 model=model,
