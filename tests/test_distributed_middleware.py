@@ -106,25 +106,33 @@ class TestDistributedRateLimitMiddleware:
         assert "Retry after 30.5s" in str(exc_info.value)
 
     async def test_get_usage_returns_stats(self, rate_limiter, mock_redis):
-        """Test get_usage returns correct statistics."""
+        """Test get_usage returns layered stats (requests + tool calls)."""
+        # Mock both request and tool call keys
         mock_redis.zremrangebyscore = AsyncMock()
-        mock_redis.zcard = AsyncMock(return_value=7)
+        mock_redis.zcard = AsyncMock(side_effect=[7, 3])  # 7 requests, 3 tool calls
         
         usage = await rate_limiter.get_usage("test-user")
         
         assert usage["session_id"] == "test-user"
         assert usage["requests_in_window"] == 7
         assert usage["max_requests"] == 10
-        assert usage["remaining"] == 3
+        assert usage["request_remaining"] == 3
+        assert usage["tool_calls_in_window"] == 3
+        assert usage["max_tool_calls"] == 10  # Default equals max_requests
+        assert usage["tool_call_remaining"] == 7
         assert usage["distributed"] is True
 
     async def test_reset_session_deletes_key(self, rate_limiter, mock_redis):
-        """Test reset_session deletes the Redis key."""
+        """Test reset_session deletes both request and tool call keys."""
         mock_redis.delete = AsyncMock()
         
         await rate_limiter.reset_session("test-user")
         
-        mock_redis.delete.assert_called_once_with("onion:ratelimit:test-user")
+        # Should delete both :req and :tool keys
+        mock_redis.delete.assert_called_once_with(
+            "onion:ratelimit:test-user:req",
+            "onion:ratelimit:test-user:tool"
+        )
 
     async def test_fallback_allow_on_redis_error(self):
         """Test that fallback_allow permits requests when Redis fails."""

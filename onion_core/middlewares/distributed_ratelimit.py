@@ -90,10 +90,16 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
     
     特性：
       - 分布式限流（多实例共享状态）
+      - 分层限流：区分普通请求和工具调用
       - 原子性操作（Lua 脚本）
       - 自动过期清理（Redis TTL）
       - 连接池管理
       - 降级策略（Redis 不可用时可选跳过或拒绝）
+    
+    改进（v0.9.0）：
+      - 支持 max_tool_calls 和 tool_call_window 参数
+      - 自动检测工具调用结果并应用独立限流策略
+      - 防止工具调用风暴耗尽普通对话配额
     """
 
     priority: int = 150
@@ -104,6 +110,8 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         redis_url: str = "redis://localhost:6379",
         max_requests: int = 60,
         window_seconds: float = 60.0,
+        max_tool_calls: int | None = None,  # 新增：工具调用独立限额
+        tool_call_window: float | None = None,  # 新增：工具调用独立窗口
         key_prefix: str = "onion:ratelimit",
         pool_size: int = 10,
         fallback_allow: bool = False,  # Redis 不可用时是否允许请求
@@ -111,8 +119,10 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         """
         Args:
             redis_url: Redis 连接 URL
-            max_requests: 时间窗口内最大请求数
-            window_seconds: 时间窗口大小（秒）
+            max_requests: 时间窗口内最大普通请求数
+            window_seconds: 普通请求时间窗口大小（秒）
+            max_tool_calls: 工具调用独立限额（默认与 max_requests 相同）
+            tool_call_window: 工具调用独立窗口（默认与 window_seconds 相同）
             key_prefix: Redis key 前缀
             pool_size: Redis 连接池大小
             fallback_allow: Redis 不可用时是否允许请求（True=允许，False=拒绝）
@@ -127,6 +137,8 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
         self._redis_url = redis_url
         self._max_requests = max_requests
         self._window = window_seconds
+        self._max_tool_calls = max_tool_calls or max_requests
+        self._tool_call_window = tool_call_window or window_seconds
         self._key_prefix = key_prefix
         self._fallback_allow = fallback_allow
         self._lua_script_sha: str | None = None
@@ -159,8 +171,9 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 self._lua_script_sha = await script_result
             
             logger.info(
-                "DistributedRateLimitMiddleware started | redis=%s | max=%d req / %.0fs | fallback=%s",
-                self._redis_url, self._max_requests, self._window, 
+                "DistributedRateLimitMiddleware started | redis=%s | requests=%d/%.0fs | tool_calls=%d/%.0fs | fallback=%s",
+                self._redis_url, self._max_requests, self._window,
+                self._max_tool_calls, self._tool_call_window,
                 "allow" if self._fallback_allow else "deny"
             )
         except Exception as exc:
@@ -175,10 +188,26 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             logger.info("DistributedRateLimitMiddleware stopped.")
 
     async def process_request(self, context: AgentContext) -> AgentContext:
-        """检查限流状态。"""
+        """检查限流状态，支持分层限流。"""
         sid = context.session_id
-        key = f"{self._key_prefix}:{sid}"
         now = time.time()
+        
+        # 检测是否为工具调用结果阶段（检查最近的消息中是否有 tool 角色）
+        is_tool_result = any(m.role == "tool" for m in context.messages[-3:])
+        
+        # 根据请求类型选择对应的限流配置
+        if is_tool_result:
+            max_req = self._max_tool_calls
+            win_sec = self._tool_call_window
+            limit_type = "tool_call"
+            key_suffix = "tool"
+        else:
+            max_req = self._max_requests
+            win_sec = self._window
+            limit_type = "request"
+            key_suffix = "req"
+        
+        key = f"{self._key_prefix}:{sid}:{key_suffix}"
 
         try:
             if not self._redis or not self._lua_script_sha:
@@ -190,8 +219,8 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 1,  # number of keys
                 key,
                 str(now),
-                str(self._window),
-                str(self._max_requests),
+                str(win_sec),
+                str(max_req),
             )
             # redis.asyncio 版本兼容性：某些版本返回 Awaitable，某些直接返回值
             if isinstance(evalsha_result, (list, tuple)):
@@ -205,19 +234,21 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             if remaining < 0:
                 # 限流触发
                 logger.warning(
-                    "[%s] Rate limit exceeded for session %s (retry after %.1fs)",
-                    context.request_id, sid, retry_after
+                    "[%s] %s rate limit exceeded for session %s (retry after %.1fs)",
+                    context.request_id, limit_type, sid, retry_after
                 )
                 raise RateLimitExceeded(
-                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s.",
+                    f"Rate limit exceeded ({limit_type}) for session '{sid}'. "
+                    f"Retry after {retry_after:.1f}s.",
                     error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
                 )
 
-            # 记录剩余配额
+            # 记录剩余配额和限流类型
             context.metadata["rate_limit_remaining"] = remaining
+            context.metadata["rate_limit_type"] = limit_type
             logger.debug(
-                "[%s] Rate limit check passed for session %s (remaining=%d)",
-                context.request_id, sid, remaining
+                "[%s] %s rate limit check passed for session %s (remaining=%d)",
+                context.request_id, limit_type, sid, remaining
             )
 
         except RateLimitExceeded:
@@ -227,6 +258,7 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             if self._fallback_allow:
                 logger.warning("[%s] Allowing request due to Redis failure", context.request_id)
                 context.metadata["rate_limit_remaining"] = -1  # Unknown
+                context.metadata["rate_limit_type"] = limit_type
             else:
                 raise RateLimitExceeded(
                     f"Rate limiter unavailable: {exc}",
@@ -260,31 +292,37 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
 
     async def get_usage(self, session_id: str) -> dict[str, Any]:
         """
-        获取 session 的限流使用情况。
+        获取 session 的限流使用情况（分层统计）。
         
         Returns:
-            包含限流状态的字典
+            包含限流状态的字典，包括普通请求和工具调用的独立统计
         """
         if not self._redis:
             raise RuntimeError("Redis not initialized")
 
-        key = f"{self._key_prefix}:{session_id}"
         now = time.time()
-        cutoff = now - self._window
-
+        
         try:
-            # 清理过期条目
-            await self._redis.zremrangebyscore(key, "-inf", cutoff)
+            # 获取普通请求统计
+            req_key = f"{self._key_prefix}:{session_id}:req"
+            await self._redis.zremrangebyscore(req_key, "-inf", now - self._window)
+            req_count = await self._redis.zcard(req_key)
             
-            # 获取当前计数
-            current_count = await self._redis.zcard(key)
+            # 获取工具调用统计
+            tool_key = f"{self._key_prefix}:{session_id}:tool"
+            await self._redis.zremrangebyscore(tool_key, "-inf", now - self._tool_call_window)
+            tool_count = await self._redis.zcard(tool_key)
             
             return {
                 "session_id": session_id,
-                "requests_in_window": current_count,
+                "requests_in_window": req_count,
                 "max_requests": self._max_requests,
-                "remaining": max(0, self._max_requests - current_count),
+                "request_remaining": max(0, self._max_requests - req_count),
+                "tool_calls_in_window": tool_count,
+                "max_tool_calls": self._max_tool_calls,
+                "tool_call_remaining": max(0, self._max_tool_calls - tool_count),
                 "window_seconds": self._window,
+                "tool_call_window_seconds": self._tool_call_window,
                 "distributed": True,
             }
         except Exception as exc:
@@ -296,13 +334,14 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             }
 
     async def reset_session(self, session_id: str) -> None:
-        """重置指定 session 的限流计数。"""
+        """重置指定 session 的所有限流计数（普通请求 + 工具调用）。"""
         if not self._redis:
             raise RuntimeError("Redis not initialized")
 
-        key = f"{self._key_prefix}:{session_id}"
-        await self._redis.delete(key)
-        logger.info("Rate limit reset for session %s", session_id)
+        req_key = f"{self._key_prefix}:{session_id}:req"
+        tool_key = f"{self._key_prefix}:{session_id}:tool"
+        await self._redis.delete(req_key, tool_key)
+        logger.info("Rate limit reset for session %s (both request and tool_call)", session_id)
 
     async def reset_all(self) -> None:
         """重置所有限流计数（谨慎使用）。"""
@@ -321,4 +360,4 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             if cursor == 0:
                 break
         
-        logger.info("All rate limits reset (deleted %d keys)", deleted)
+        logger.info("All distributed rate limits reset (deleted %d keys)", deleted)
