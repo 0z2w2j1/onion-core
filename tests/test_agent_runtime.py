@@ -212,20 +212,22 @@ class TestSlidingWindowMemory:
         estimate = await mem.get_token_estimate(messages)
         assert estimate > 0
 
-    def test_trim_empty_messages(self):
+    @pytest.mark.asyncio
+    async def test_trim_empty_messages(self):
         config = AgentConfig(memory_max_tokens=1024)
         mem = SlidingWindowMemory(config)
-        result = mem.trim([])
+        result = await mem.trim([])
         assert result == []
 
-    def test_trim_under_limit_returns_all(self):
+    @pytest.mark.asyncio
+    async def test_trim_under_limit_returns_all(self):
         config = AgentConfig(memory_max_tokens=4000)
         mem = SlidingWindowMemory(config)
         messages = [
             Message(role="system", content="sys"),
             Message(role="user", content="hi"),
         ]
-        result = mem.trim(messages)
+        result = await mem.trim(messages)
         assert result == messages
 
     @pytest.mark.asyncio
@@ -275,14 +277,15 @@ class TestSlidingWindowMemory:
         result = await mem.trim_with_summary(messages)
         assert len(result) <= len(messages)
 
-    def test_trim_system_exceeds_limit(self):
+    @pytest.mark.asyncio
+    async def test_trim_system_exceeds_limit(self):
         config = AgentConfig(memory_max_tokens=256)
         mem = SlidingWindowMemory(config)
         messages = [
             Message(role="system", content="x" * 5000),
             Message(role="user", content="hello"),
         ]
-        result = mem.trim(messages)
+        result = await mem.trim(messages)
         assert len(result) > 0
 
     @pytest.mark.asyncio

@@ -908,6 +908,17 @@ class Pipeline:
                 if not stop_event.is_set():
                     _put_with_stop((error_sentinel, exc))
             finally:
+                # 清理 Provider 资源（关闭 HTTP 连接）
+                async def _cleanup() -> None:
+                    if hasattr(self._provider, 'cleanup'):
+                        await self._provider.cleanup()
+                    for fallback in self._fallback_providers:
+                        if hasattr(fallback, 'cleanup'):
+                            await fallback.cleanup()
+                
+                with contextlib.suppress(Exception):
+                    loop.run_until_complete(_cleanup())
+                
                 _put_with_stop(sentinel)
                 with contextlib.suppress(Exception):
                     loop.run_until_complete(loop.shutdown_asyncgens())
@@ -932,10 +943,10 @@ class Pipeline:
                     loop.call_soon_threadsafe(producer_task.cancel)
             
             # 等待工作线程结束，超时后记录警告
-            worker.join(timeout=2.0)
+            worker.join(timeout=5.0)
             if worker.is_alive():
                 logger.warning(
-                    "stream_sync worker thread '%s' did not terminate within 2s timeout. "
+                    "stream_sync worker thread '%s' did not terminate within 5s timeout. "
                     "This may indicate a resource leak.",
                     worker.name,
                 )

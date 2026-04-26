@@ -1,5 +1,0 @@
-Fix stream_sync thread leak with timeout warning and CancelledError handling
-
-- Added worker thread join timeout check with warning log if thread doesn't terminate within 2s
-- Captured asyncio.CancelledError in _producer_runner to prevent unhandled thread exceptions
-- Improved resource cleanup visibility for debugging potential zombie threads

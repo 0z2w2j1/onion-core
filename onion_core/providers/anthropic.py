@@ -187,31 +187,85 @@ class AnthropicProvider(LLMProvider):
         )
         if system:
             kwargs["system"] = system
+        tools = self._build_tools(context)
+        if tools:
+            kwargs["tools"] = tools
 
         index = 0
+        tool_use_id: str | None = None
+        tool_use_name: str | None = None
+        tool_input_parts: list[str] = []
+        
         try:
             async with self._client.messages.stream(**kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield StreamChunk(delta=text, index=index)
-                    index += 1
-                # 最后一个 chunk 携带 finish_reason
-                final = await stream.get_final_message()
-                # 将 Anthropic 的 stop_reason 映射到 FinishReason 枚举
-                from ..models import FinishReason
-                finish_reason_map: dict[str, FinishReason] = {
-                    "end_turn": FinishReason.STOP,
-                    "max_tokens": FinishReason.LENGTH,
-                    "stop_sequence": FinishReason.STOP,
-                    "tool_use": FinishReason.TOOL_CALLS,
-                    "pause_turn": FinishReason.STOP,
-                    "refusal": FinishReason.CONTENT_FILTER,
-                }
-                mapped_reason = finish_reason_map.get(final.stop_reason) if final.stop_reason else None
-                yield StreamChunk(
-                    delta="",
-                    finish_reason=mapped_reason,
-                    index=index,
-                )
+                async for event in stream:
+                    # 处理 ContentBlockStartEvent - 捕获 tool_use 开始
+                    if (
+                        hasattr(event, 'type') and event.type == 'content_block_start'
+                        and hasattr(event, 'content_block') and hasattr(event.content_block, 'type')
+                        and event.content_block.type == 'tool_use'
+                    ):
+                        tool_use_id = getattr(event.content_block, 'id', None)
+                        tool_use_name = getattr(event.content_block, 'name', None)
+                        tool_input_parts = []
+                    
+                    # 处理 ContentBlockDeltaEvent - 捕获文本和工具输入增量
+                    elif hasattr(event, 'type') and event.type == 'content_block_delta':
+                        if hasattr(event, 'delta'):
+                            delta = event.delta
+                            # 文本增量
+                            if hasattr(delta, 'type') and delta.type == 'text_delta':
+                                text = getattr(delta, 'text', '')
+                                if text:
+                                    yield StreamChunk(delta=text, index=index)
+                                    index += 1
+                            # 工具输入增量
+                            elif hasattr(delta, 'type') and delta.type == 'input_json_delta':
+                                partial_json = getattr(delta, 'partial_json', '')
+                                if partial_json:
+                                    tool_input_parts.append(partial_json)
+                    
+                    # 处理 MessageStopEvent - 产出最终 chunk
+                    elif hasattr(event, 'type') and event.type == 'message_stop':
+                        final = await stream.get_final_message()
+                        from ..models import FinishReason
+                        finish_reason_map: dict[str, FinishReason] = {
+                            "end_turn": FinishReason.STOP,
+                            "max_tokens": FinishReason.LENGTH,
+                            "stop_sequence": FinishReason.STOP,
+                            "tool_use": FinishReason.TOOL_CALLS,
+                            "pause_turn": FinishReason.STOP,
+                            "refusal": FinishReason.CONTENT_FILTER,
+                        }
+                        mapped_reason = finish_reason_map.get(final.stop_reason) if final.stop_reason else None
+                        
+                        # 如果有工具调用，产出带有 tool_call_delta 的 chunk
+                        if tool_use_id and tool_use_name:
+                            import json
+                            try:
+                                tool_arguments = json.loads(''.join(tool_input_parts)) if tool_input_parts else {}
+                            except json.JSONDecodeError:
+                                tool_arguments = {}
+                            
+                            yield StreamChunk(
+                                delta="",
+                                tool_call_delta={
+                                    "index": 0,
+                                    "id": tool_use_id,
+                                    "function_name": tool_use_name,
+                                    "arguments": json.dumps(tool_arguments),
+                                },
+                                finish_reason=mapped_reason,
+                                index=index,
+                            )
+                            index += 1
+                        else:
+                            yield StreamChunk(
+                                delta="",
+                                finish_reason=mapped_reason,
+                                index=index,
+                            )
+                            index += 1
         except Exception as exc:
             raise ProviderError(
                 f"Anthropic streaming error: {exc}",

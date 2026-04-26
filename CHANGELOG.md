@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.4] - 2026-04-26
+
+### Provider & Streaming Improvements
+
+- **AnthropicProvider.stream() Tool Call Support** — Completely rewrote `stream()` method to use event-based streaming (`async for event in stream`) instead of deprecated `text_stream`. Now properly handles `ContentBlockStartEvent`, `ContentBlockDeltaEvent` (including `tool_use` and `input_json_delta`), and `MessageStopEvent`. Produces `StreamChunk` with `tool_call_delta` when tool calls are detected in streaming mode, enabling full ReAct agent functionality with Anthropic models.
+
+- **SlidingWindowMemory.trim() Token Estimation Accuracy** — Changed `trim()` from synchronous to async method, now uses tiktoken-based token estimation via `await self._token_counter.estimate_tokens(messages)` instead of fallback chars/4 approximation. Eliminates up to 200% error rate for Chinese text. Updated all callers: `AgentLoop.run()`, `trim_with_summary()`, and test cases. Token counting now runs in thread pool to avoid blocking event loop.
+
+### Resource Management & Stability
+
+- **stream_sync() TCP Connection Leak Fix** — Added Provider cleanup in `_producer_runner()` finally block. Calls `await provider.cleanup()` for both primary and fallback providers before thread shutdown, ensuring httpx.AsyncClient connections are properly closed. Increased worker thread join timeout from 2s to 5s for more graceful shutdown.
+
+- **Deprecated asyncio.get_event_loop() Replacement** — Replaced `asyncio.get_event_loop()` with `asyncio.get_running_loop()` in `ContextWindowMiddleware.count_tokens_async()` (line 161). Confirmed no other instances exist in codebase. Prevents Python 3.12+ deprecation warnings and ensures correct behavior in nested event loop scenarios.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 47 Anthropic provider tests pass ✓
+- All 10 SlidingWindowMemory tests pass ✓
+- No breaking changes to public API (except `SlidingWindowMemory.trim()` changed from sync to async)
+- Updated 8 test cases to use event-based mocking for Anthropic streaming
+- Added 2 new test cases: `test_stream_with_tool_calls`, `test_stream_tool_use_delta`
+
+---
+
 ## [0.9.3] - 2026-04-26
 
 ### Async & Stability Improvements

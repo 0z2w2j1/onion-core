@@ -158,7 +158,7 @@ class ContextWindowMiddleware(BaseMiddleware):
             # fallback：如果线程池未初始化，使用同步方法
             return self.count_tokens(messages, encoding)
         
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         enc = encoding or self._default_encoding
         
         # 在线程池中执行编码计算

@@ -259,13 +259,31 @@ class TestAnthropicProviderStream:
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
         mock_stream.__aexit__ = AsyncMock(return_value=None)
         
-        # 模拟文本流
-        async def text_stream():
-            yield "Hello"
-            yield " from"
-            yield " Claude!"
+        # 模拟事件流（替代 text_stream）
+        async def event_stream():
+            # ContentBlockStartEvent
+            start_event = MagicMock(type='content_block_start')
+            start_event.content_block = MagicMock(type='text')
+            yield start_event
+            
+            # ContentBlockDeltaEvent - 文本增量
+            delta1 = MagicMock(type='content_block_delta')
+            delta1.delta = MagicMock(type='text_delta', text='Hello')
+            yield delta1
+            
+            delta2 = MagicMock(type='content_block_delta')
+            delta2.delta = MagicMock(type='text_delta', text=' from')
+            yield delta2
+            
+            delta3 = MagicMock(type='content_block_delta')
+            delta3.delta = MagicMock(type='text_delta', text=' Claude!')
+            yield delta3
+            
+            # MessageStopEvent
+            stop_event = MagicMock(type='message_stop')
+            yield stop_event
         
-        mock_stream.text_stream = text_stream()
+        mock_stream.__aiter__ = lambda self: event_stream()
         
         # 模拟最终消息
         final_message = MagicMock()
@@ -306,15 +324,6 @@ class TestAnthropicProviderStream:
     @pytest.mark.asyncio
     async def test_stream_finish_reason_mapping(self, context):
         """测试 stop_reason 到 FinishReason 的映射。"""
-        mock_stream = MagicMock()
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
-        
-        async def text_stream():
-            yield "Test"
-        
-        mock_stream.text_stream = text_stream()
-        
         # 测试不同的 stop_reason
         test_cases = [
             ("end_turn", FinishReason.STOP),
@@ -324,6 +333,20 @@ class TestAnthropicProviderStream:
         ]
 
         for stop_reason, expected_finish in test_cases:
+            mock_stream = MagicMock()
+            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+            mock_stream.__aexit__ = AsyncMock(return_value=None)
+            
+            async def event_stream():
+                delta = MagicMock(type='content_block_delta')
+                delta.delta = MagicMock(type='text_delta', text='Test')
+                yield delta
+                
+                stop_event = MagicMock(type='message_stop')
+                yield stop_event
+            
+            mock_stream.__aiter__ = lambda self: event_stream()
+            
             final_message = MagicMock()
             final_message.stop_reason = stop_reason
             mock_stream.get_final_message = AsyncMock(return_value=final_message)
@@ -339,3 +362,104 @@ class TestAnthropicProviderStream:
                     chunks.append(chunk)
                 
                 assert chunks[-1].finish_reason == expected_finish
+
+    @pytest.mark.asyncio
+    async def test_stream_with_tool_calls(self, context):
+        """测试流式模式下的工具调用。"""
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        
+        async def event_stream():
+            # ContentBlockStartEvent - tool_use
+            content_block = MagicMock()
+            content_block.type = 'tool_use'
+            content_block.id = 'toolu_123'
+            type(content_block).name = property(lambda self: 'get_weather')
+            start_event = MagicMock(type='content_block_start')
+            start_event.content_block = content_block
+            yield start_event
+            
+            # ContentBlockDeltaEvent - input_json_delta
+            delta1 = MagicMock(type='content_block_delta')
+            delta1.delta = MagicMock(type='input_json_delta', partial_json='{"city": ')
+            yield delta1
+            
+            delta2 = MagicMock(type='content_block_delta')
+            delta2.delta = MagicMock(type='input_json_delta', partial_json='"Beijing"}')
+            yield delta2
+            
+            # MessageStopEvent
+            stop_event = MagicMock(type='message_stop')
+            yield stop_event
+        
+        mock_stream.__aiter__ = lambda self: event_stream()
+        
+        final_message = MagicMock()
+        final_message.stop_reason = "tool_use"
+        mock_stream.get_final_message = AsyncMock(return_value=final_message)
+
+        with patch("anthropic.AsyncAnthropic") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.messages.stream = MagicMock(return_value=mock_stream)
+            mock_client_class.return_value = mock_client
+
+            provider = AnthropicProvider(api_key="test-key")
+            chunks = []
+            async for chunk in provider.stream(context):
+                chunks.append(chunk)
+
+            # 应该有一个带有 tool_call_delta 的 chunk
+            tool_chunks = [c for c in chunks if c.tool_call_delta is not None]
+            assert len(tool_chunks) == 1
+            assert tool_chunks[0].tool_call_delta['id'] == 'toolu_123'
+            assert tool_chunks[0].tool_call_delta['function_name'] == 'get_weather'
+            assert chunks[-1].finish_reason == FinishReason.TOOL_CALLS
+
+    @pytest.mark.asyncio
+    async def test_stream_tool_use_delta(self, context):
+        """测试工具输入增量的累积。"""
+        mock_stream = MagicMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        
+        async def event_stream():
+            # tool_use 开始
+            content_block = MagicMock()
+            content_block.type = 'tool_use'
+            content_block.id = 'toolu_456'
+            type(content_block).name = property(lambda self: 'search')
+            start_event = MagicMock(type='content_block_start')
+            start_event.content_block = content_block
+            yield start_event
+            
+            # 多个 input_json_delta
+            for part in ['{"query":', ' "test",', ' "limit":', ' 10}']:
+                delta = MagicMock(type='content_block_delta')
+                delta.delta = MagicMock(type='input_json_delta', partial_json=part)
+                yield delta
+            
+            stop_event = MagicMock(type='message_stop')
+            yield stop_event
+        
+        mock_stream.__aiter__ = lambda self: event_stream()
+        
+        final_message = MagicMock()
+        final_message.stop_reason = "tool_use"
+        mock_stream.get_final_message = AsyncMock(return_value=final_message)
+
+        with patch("anthropic.AsyncAnthropic") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.messages.stream = MagicMock(return_value=mock_stream)
+            mock_client_class.return_value = mock_client
+
+            provider = AnthropicProvider(api_key="test-key")
+            chunks = []
+            async for chunk in provider.stream(context):
+                chunks.append(chunk)
+
+            tool_chunks = [c for c in chunks if c.tool_call_delta is not None]
+            assert len(tool_chunks) == 1
+            import json
+            args = json.loads(tool_chunks[0].tool_call_delta['arguments'])
+            assert args == {"query": "test", "limit": 10}

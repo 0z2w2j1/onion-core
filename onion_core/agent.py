@@ -113,7 +113,7 @@ class AgentLoop:
         for turn in range(self._max_turns):
             # 1. 内存裁剪（可能修改 context.messages）
             if self._memory is not None:
-                trimmed_messages = self._memory.trim(context.messages)
+                trimmed_messages = await self._memory.trim(context.messages)
                 # 【关键】如果 trim 返回了新列表，更新 context.messages
                 if trimmed_messages is not context.messages:
                     logger.info(
@@ -556,13 +556,13 @@ class SlidingWindowMemory:
             raise ValueError("max_tokens must be at least 256")
         self._max_tokens = value
 
-    def trim(self, messages: list[Message]) -> list[Message]:
-        """同步裁剪方法，使用 fallback 估算（不阻塞）。"""
+    async def trim(self, messages: list[Message]) -> list[Message]:
+        """异步裁剪方法，使用 tiktoken 精确估算。"""
         if not messages:
             return []
 
-        # 注意：trim() 是同步方法，使用 fallback 估算避免 async
-        total = self._token_counter._estimate_fallback(messages)
+        # 使用异步 token 估算
+        total = await self._token_counter.estimate_tokens(messages)
         if total <= self._max_tokens:
             return messages
 
@@ -570,7 +570,7 @@ class SlidingWindowMemory:
 
         system_messages = [m for m in messages if m.role == MessageRole.SYSTEM]
         non_system = [m for m in messages if m.role != MessageRole.SYSTEM]
-        system_reserve = self._token_counter._estimate_fallback(system_messages)
+        system_reserve = await self._token_counter.estimate_tokens(system_messages)
         available = self._max_tokens - system_reserve
 
         if available <= 0:
@@ -580,7 +580,7 @@ class SlidingWindowMemory:
         kept = []
         running = 0
         for m in reversed(non_system):
-            t = self._token_counter._estimate_fallback([m])
+            t = await self._token_counter.estimate_tokens([m])
             if running + t > available:
                 break
             kept.append(m)
@@ -588,12 +588,13 @@ class SlidingWindowMemory:
         kept.reverse()
 
         result = system_messages + kept
-        logger.info("Trimmed from %d to %d messages (%d -> %d tokens)", len(messages), len(result), total, self._token_counter._estimate_fallback(result))
+        final_tokens = await self._token_counter.estimate_tokens(result)
+        logger.info("Trimmed from %d to %d messages (%d -> %d tokens)", len(messages), len(result), total, final_tokens)
         return result
 
     async def trim_with_summary(self, messages: list[Message]) -> list[Message]:
         if not self._summarizer:
-            return self.trim(messages)
+            return await self.trim(messages)
 
         # 使用异步 token 估算
         total = await self._token_counter.estimate_tokens(messages)
@@ -604,7 +605,7 @@ class SlidingWindowMemory:
         non_system = [m for m in messages if m.role != MessageRole.SYSTEM]
 
         if len(non_system) <= 4:
-            return self.trim(messages)
+            return await self.trim(messages)
 
         boundary = max(1, len(non_system) // 3)
         to_summarize = non_system[:boundary]
@@ -613,10 +614,10 @@ class SlidingWindowMemory:
         try:
             summary_text = await self._summarizer.summarize(to_summarize)
             summary_msg = Message(role=MessageRole.SYSTEM, content=f"[Conversation Summary]\n{summary_text}")
-            return self.trim(system_messages + [summary_msg] + recent)
+            return await self.trim(system_messages + [summary_msg] + recent)
         except Exception as e:
             logger.warning("Summarization failed, falling back to trim: %s", e)
-            return self.trim(messages)
+            return await self.trim(messages)
 
     async def get_token_estimate(self, messages: list[Message]) -> int:
         """异步获取 token 估算。"""

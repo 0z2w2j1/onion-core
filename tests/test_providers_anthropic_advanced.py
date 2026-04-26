@@ -284,20 +284,32 @@ class TestAnthropicProviderAdvanced:
     @pytest.mark.asyncio
     async def test_stream_basic_flow(self):
         """基本流式调用流程。"""
-        # 创建正确的异步迭代器
-        async def mock_text_stream():
-            yield "Hello"
-            yield " World"
-        
         mock_stream = MagicMock()
-        mock_stream.text_stream = mock_text_stream()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        
+        async def event_stream():
+            start_event = MagicMock(type='content_block_start')
+            start_event.content_block = MagicMock(type='text')
+            yield start_event
+            
+            delta1 = MagicMock(type='content_block_delta')
+            delta1.delta = MagicMock(type='text_delta', text='Hello')
+            yield delta1
+            
+            delta2 = MagicMock(type='content_block_delta')
+            delta2.delta = MagicMock(type='text_delta', text=' World')
+            yield delta2
+            
+            stop_event = MagicMock(type='message_stop')
+            yield stop_event
+        
+        mock_stream.__aiter__ = lambda self: event_stream()
         
         async def mock_get_final():
             return MagicMock(stop_reason="end_turn")
         
         mock_stream.get_final_message = mock_get_final
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
 
         with patch("anthropic.AsyncAnthropic") as mock_client_class:
             mock_client = MagicMock()
@@ -333,18 +345,24 @@ class TestAnthropicProviderAdvanced:
     @pytest.mark.asyncio
     async def test_stream_finish_reason_mapping(self):
         """流式响应结束原因映射。"""
-        async def mock_text_stream():
-            yield "Response"
-        
         mock_stream = MagicMock()
-        mock_stream.text_stream = mock_text_stream()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=None)
+        
+        async def event_stream():
+            delta = MagicMock(type='content_block_delta')
+            delta.delta = MagicMock(type='text_delta', text='Response')
+            yield delta
+            
+            stop_event = MagicMock(type='message_stop')
+            yield stop_event
+        
+        mock_stream.__aiter__ = lambda self: event_stream()
         
         async def mock_get_final():
             return MagicMock(stop_reason="max_tokens")
         
         mock_stream.get_final_message = mock_get_final
-        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-        mock_stream.__aexit__ = AsyncMock(return_value=None)
 
         with patch("anthropic.AsyncAnthropic") as mock_client_class:
             mock_client = MagicMock()
