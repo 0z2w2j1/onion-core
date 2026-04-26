@@ -903,7 +903,8 @@ class Pipeline:
             try:
                 producer_task = loop.create_task(_producer())
                 loop.run_until_complete(producer_task)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError) as exc:
+                # 捕获 CancelledError 和其他异常，防止线程崩溃
                 if not stop_event.is_set():
                     _put_with_stop((error_sentinel, exc))
             finally:
@@ -929,7 +930,16 @@ class Pipeline:
             if producer_task is not None and not producer_task.done():
                 with contextlib.suppress(Exception):
                     loop.call_soon_threadsafe(producer_task.cancel)
+            
+            # 等待工作线程结束，超时后记录警告
             worker.join(timeout=2.0)
+            if worker.is_alive():
+                logger.warning(
+                    "stream_sync worker thread '%s' did not terminate within 2s timeout. "
+                    "This may indicate a resource leak.",
+                    worker.name,
+                )
+                # 不强制终止 daemon 线程，但记录警告供排查
 
     def execute_tool_call_sync(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         """同步版本的 execute_tool_call()。"""

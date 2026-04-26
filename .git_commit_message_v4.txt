@@ -1,5 +1,0 @@
-Fix high-priority issues: ContextVar leak, distributed middleware tests, and .env.example
-
-- Fixed ContextVar trace_id leak in ObservabilityMiddleware by resetting in process_response, process_stream_chunk, and on_error
-- Added 4 integration tests for distributed middlewares Redis fallback paths (fallback_allow/deny scenarios)
-- Created comprehensive .env.example with all ONION__* configuration variables documented
