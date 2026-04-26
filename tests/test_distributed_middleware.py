@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from onion_core import AgentContext, EchoProvider, Message, Pipeline
+from onion_core import (
+    AgentContext,
+    CacheHitException,
+    EchoProvider,
+    Message,
+    Pipeline,
+)
 from onion_core.middlewares import (
     DistributedCacheMiddleware,
     DistributedRateLimitMiddleware,
@@ -327,12 +333,11 @@ class TestDistributedCacheMiddleware:
         result = await cache_middleware.process_request(ctx)
         
         assert result is ctx
-        assert ctx.metadata.get("_cache_hit") is None
         assert cache_middleware.misses == 1
         assert cache_middleware.hits == 0
 
     async def test_cache_hit_on_second_request(self, cache_middleware, mock_redis):
-        """Test that second identical request is a cache hit."""
+        """Test that second identical request is a cache hit and raises CacheHitException."""
         # First request - cache miss
         mock_redis.get = AsyncMock(return_value=None)
         ctx1 = AgentContext(
@@ -347,40 +352,29 @@ class TestDistributedCacheMiddleware:
         ctx2 = AgentContext(
             messages=[Message(role="user", content="Hello")],
         )
-        await cache_middleware.process_request(ctx2)
+        with pytest.raises(CacheHitException) as exc_info:
+            await cache_middleware.process_request(ctx2)
         
-        assert ctx2.metadata.get("_cache_hit") is True
-        assert "_cached_response" in ctx2.metadata
+        assert exc_info.value.cached_response.content == "Cached response"
         assert cache_middleware.hits == 1
         assert cache_middleware.misses == 1
 
-    async def test_process_response_returns_cached(self, cache_middleware):
-        """Test that process_response returns cached response when hit."""
+    async def test_process_response_passthrough_on_miss(self, cache_middleware):
+        """Test that process_response passes through response on cache miss."""
         from onion_core.models import FinishReason, LLMResponse
-        
-        cached_response = LLMResponse(
-            content="Cached!",
-            finish_reason=FinishReason.STOP,
-            model="echo",
-        )
         
         ctx = AgentContext(
             messages=[Message(role="user", content="Hello")],
         )
-        ctx.metadata["_cache_hit"] = True
-        ctx.metadata["_cached_response"] = cached_response
         
-        # Create a different response to verify it's replaced
-        new_response = LLMResponse(
+        response = LLMResponse(
             content="New response",
-            finish_reason=FinishReason.STOP,
+            finish_reason=FinishReason.LENGTH,
         )
         
-        result = await cache_middleware.process_response(ctx, new_response)
+        result = await cache_middleware.process_response(ctx, response)
         
-        assert result.content == "Cached!"
-        assert "_cache_hit" not in ctx.metadata
-        assert "_cached_response" not in ctx.metadata
+        assert result is response
 
     async def test_process_response_caches_new_response(self, cache_middleware, mock_redis):
         """Test that process_response caches new responses."""

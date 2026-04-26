@@ -16,6 +16,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
 
@@ -90,7 +91,10 @@ class OpenAIProvider(LLMProvider):
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            raise ProviderError(f"OpenAI API error: {exc}") from exc
+            raise ProviderError(
+                f"OpenAI API error: {exc}",
+                error_code=ErrorCode.PROVIDER_INVALID_REQUEST,
+            ) from exc
 
         choice = resp.choices[0]
         msg = choice.message
@@ -135,7 +139,10 @@ class OpenAIProvider(LLMProvider):
             # 使用 stream=True 的 create()，返回可异步迭代的流对象
             response = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            raise ProviderError(f"OpenAI API error: {exc}") from exc
+            raise ProviderError(
+                f"OpenAI API error: {exc}",
+                error_code=ErrorCode.PROVIDER_INVALID_REQUEST,
+            ) from exc
 
         index = 0
         try:
@@ -161,7 +168,10 @@ class OpenAIProvider(LLMProvider):
                 )
                 index += 1
         except Exception as exc:
-            raise ProviderError(f"OpenAI streaming error: {exc}") from exc
+            raise ProviderError(
+                f"OpenAI streaming error: {exc}",
+                error_code=ErrorCode.PROVIDER_INVALID_REQUEST,
+            ) from exc
 
     async def cleanup(self) -> None:
         await self._client.close()

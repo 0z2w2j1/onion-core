@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import uuid
 from enum import StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from .error_codes import ErrorCode
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
 
@@ -17,21 +20,56 @@ MessageRole = Literal["system", "user", "assistant", "tool"]
 
 class OnionError(Exception):
     """Onion Core 所有异常的基类。"""
+    is_fatal: bool = True
+    error_code: ErrorCode | None = None
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        error_code: ErrorCode | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class SecurityException(OnionError):
     """安全策略拦截异常（链路中断，不可重试）。"""
     is_fatal: bool = True
 
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        error_code: ErrorCode | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code)
+
 
 class RateLimitExceeded(OnionError):
     """限流异常（链路中断，不可重试）。"""
     is_fatal: bool = True
 
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        error_code: ErrorCode | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code)
+
 
 class ProviderError(OnionError):
     """Provider 调用失败（可重试）。"""
     is_fatal: bool = False
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        error_code: ErrorCode | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code)
 
 
 class CircuitBreakerError(OnionError):
@@ -42,6 +80,14 @@ class CircuitBreakerError(OnionError):
 class ValidationError(OnionError):
     """输入验证失败异常（不可重试）。"""
     is_fatal: bool = True
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        error_code: ErrorCode | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code)
 
 
 class CacheHitException(OnionError):
@@ -106,8 +152,10 @@ class RetryPolicy:
 
     def classify(self, exc: Exception) -> RetryOutcome:
         """对异常进行三分类。"""
-        # OnionError 子类：按 is_fatal 标志位判断
         if isinstance(exc, OnionError):
+            retry_outcome: RetryOutcome | None = getattr(exc, "retry_outcome", None)
+            if retry_outcome is not None:
+                return retry_outcome
             if getattr(exc, "is_fatal", False):
                 return RetryOutcome.FATAL
             if isinstance(exc, self._FALLBACK_TYPES):
@@ -130,6 +178,9 @@ class RetryPolicy:
     def is_chain_breaking(self, exc: Exception) -> bool:
         """链路中断：FATAL 或 OnionError 子类标记为 fatal（安全/限流拦截）。"""
         if isinstance(exc, OnionError):
+            retry_outcome: RetryOutcome | None = getattr(exc, "retry_outcome", None)
+            if retry_outcome is not None:
+                return retry_outcome == RetryOutcome.FATAL
             return getattr(exc, "is_fatal", False)
         return self.classify(exc) == RetryOutcome.FATAL
 

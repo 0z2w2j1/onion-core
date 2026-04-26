@@ -32,10 +32,16 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import cast
 
 from ..base import BaseMiddleware
-from ..models import AgentContext, FinishReason, LLMResponse, StreamChunk, UsageStats
+from ..models import (
+    AgentContext,
+    CacheHitException,
+    FinishReason,
+    LLMResponse,
+    StreamChunk,
+    UsageStats,
+)
 
 logger = logging.getLogger("onion_core.middleware.distributed_cache")
 
@@ -198,7 +204,8 @@ class DistributedCacheMiddleware(BaseMiddleware):
         """
         在请求阶段检查缓存。
         
-        如果缓存命中，在 metadata 中标记，后续 response 阶段返回缓存结果。
+        如果缓存命中，抛出 CacheHitException 中断 Provider 调用，
+        Pipeline 捕获后直接返回缓存的响应，行为与 ResponseCacheMiddleware 一致。
         """
         if not self._redis:
             raise RuntimeError("Redis not initialized")
@@ -207,33 +214,29 @@ class DistributedCacheMiddleware(BaseMiddleware):
         redis_key = f"{self._key_prefix}:{cache_key}"
 
         try:
-            # 尝试从 Redis 获取缓存
             cached_data = await self._redis.get(redis_key)
-            
+
             if cached_data:
-                # 缓存命中
+                cached_response = self._deserialize_response(cached_data)
                 async with self._stats_lock:
                     self._hits += 1
-                
-                # 反序列化缓存数据
-                cached_response = self._deserialize_response(cached_data)
-                
-                # 在上下文中存储缓存的响应
-                context.metadata["_cached_response"] = cached_response
-                context.metadata["_cache_hit"] = True
-                
-                logger.debug(
-                    "[%s] Cache HIT (key=%s, ttl=%.0fs)",
+
+                logger.info(
+                    "[%s] Cache HIT (key=%s, ttl=%.0fs, hit_rate=%.1f%%)",
                     context.request_id,
                     cache_key[:16],
                     self._ttl_seconds,
+                    self.hit_rate * 100,
                 )
+
+                raise CacheHitException(cached_response)
             else:
-                # 缓存未命中
                 async with self._stats_lock:
                     self._misses += 1
                 logger.debug("[%s] Cache MISS (key=%s)", context.request_id, cache_key[:16])
 
+        except CacheHitException:
+            raise
         except Exception as exc:
             logger.error("[%s] Redis cache error: %s", context.request_id, exc)
             async with self._stats_lock:
@@ -245,25 +248,8 @@ class DistributedCacheMiddleware(BaseMiddleware):
         self, context: AgentContext, response: LLMResponse
     ) -> LLMResponse:
         """
-        在响应阶段处理缓存。
-        
-        如果是缓存命中，直接返回缓存的响应。
-        否则，将新响应存入 Redis 缓存。
+        在响应阶段缓存新响应。
         """
-        # 检查是否是缓存命中
-        if context.metadata.get("_cache_hit"):
-            cached_response = context.metadata.pop("_cached_response", None)
-            context.metadata.pop("_cache_hit", None)
-            
-            if cached_response is not None:
-                logger.info(
-                    "[%s] Returning cached response (hit_rate=%.1f%%)",
-                    context.request_id,
-                    self.hit_rate * 100,
-                )
-                return cast(LLMResponse, cached_response)
-
-        # 缓存新响应（仅当 finish_reason 为 stop 时）
         if response.finish_reason == FinishReason.STOP:
             cache_key = self._generate_cache_key(context)
             await self._store_in_cache(cache_key, response)

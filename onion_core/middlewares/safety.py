@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from re import Pattern
 
 from ..base import BaseMiddleware
+from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, SecurityException, StreamChunk, ToolCall, ToolResult
 
 logger = logging.getLogger("onion_core.safety")
@@ -31,34 +32,14 @@ BUILTIN_PII_RULES: list[PiiRule] = [
 ]
 
 DEFAULT_BLOCKED_KEYWORDS: list[str] = [
-    # English keywords
-    "ignore instructions",
+    # English multi-word injection patterns (specific, low false-positive)
     "ignore previous instructions",
-    "system prompt",
     "disregard above",
     "override safety",
-    "disregard",
-    "bypass",
-    "circumvent",
-    "ignore",
     "prompt injection",
-    "jailbreak",
-    "escape prompt",
-    "never mind",
-    "unfollow",
-    "instruction injection",
     # Chinese keywords
-    "忽略指令",
-    "忽略以上",
-    "系统提示",
     "绕过安全",
     "越狱",
-    "逃逸",
-    # Case variations (lowercase)
-    "igNoRe InStRu CtIoNs",
-    "IGNORE INSTRUCTIONS",
-    "bypass security",
-    "BYPASS SECURITY",
 ]
 
 # 预编译的注入检测正则模式（增强检测能力）
@@ -91,7 +72,11 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         enable_builtin_pii: bool = True,
         enable_input_pii_masking: bool = False,
     ) -> None:
-        self._blocked_keywords = [kw.lower() for kw in (blocked_keywords or DEFAULT_BLOCKED_KEYWORDS)]
+        self._blocked_keywords = list(blocked_keywords or DEFAULT_BLOCKED_KEYWORDS)
+        self._keyword_patterns = [
+            re.compile(r'\b' + re.escape(kw) + r'\b', re.IGNORECASE)
+            for kw in self._blocked_keywords
+        ]
         self._blocked_tools: set[str] = set(blocked_tools or [])
         self._enable_input_pii_masking = enable_input_pii_masking
         self._pii_rules: list[PiiRule] = []
@@ -116,7 +101,10 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         return self
 
     def add_blocked_keyword(self, keyword: str) -> SafetyGuardrailMiddleware:
-        self._blocked_keywords.append(keyword.lower())
+        self._blocked_keywords.append(keyword)
+        self._keyword_patterns.append(
+            re.compile(r'\b' + re.escape(keyword) + r'\b', re.IGNORECASE)
+        )
         return self
 
     def add_blocked_tool(self, tool_name: str) -> SafetyGuardrailMiddleware:
@@ -128,24 +116,31 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         if last_user_msg is None:
             return context
         
-        text_lower = last_user_msg.lower()
-        
-        # 1. 关键词检测（现有逻辑）
-        for keyword in self._blocked_keywords:
-            if keyword in text_lower:
+        # 1. 关键词检测（整词边界匹配，避免误报）
+        for keyword, pattern in zip(self._blocked_keywords, self._keyword_patterns, strict=True):
+            if pattern.search(last_user_msg):
                 logger.warning("[%s] BLOCKED — keyword: '%s'", context.request_id, keyword)
-                raise SecurityException(f"Request blocked: detected prohibited keyword '{keyword}'")
+                raise SecurityException(
+                    f"Request blocked: detected prohibited keyword '{keyword}'",
+                    error_code=ErrorCode.SECURITY_BLOCKED_KEYWORD,
+                )
         
         # 2. 正则模式检测（增强检测能力）
         for pattern in self._injection_patterns:
             if pattern.search(last_user_msg):
                 logger.warning("[%s] BLOCKED — injection pattern detected", context.request_id)
-                raise SecurityException("Potential prompt injection detected")
+                raise SecurityException(
+                    "Potential prompt injection detected",
+                    error_code=ErrorCode.SECURITY_PROMPT_INJECTION,
+                )
         
         # 3. Unicode 混淆检测
         if self._detect_unicode_confusion(last_user_msg):
             logger.warning("[%s] BLOCKED — unicode confusion detected", context.request_id)
-            raise SecurityException("Suspicious character encoding detected")
+            raise SecurityException(
+                "Suspicious character encoding detected",
+                error_code=ErrorCode.SECURITY_PROMPT_INJECTION,
+            )
         
         # 4. 输入侧 PII 脱敏（默认关闭，由 enable_input_pii_masking 控制）
         if self._enable_input_pii_masking:
@@ -205,7 +200,10 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
     async def on_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         if tool_call.name in self._blocked_tools:
             logger.warning("[%s] Tool '%s' blocked.", context.request_id, tool_call.name)
-            raise SecurityException(f"Tool '{tool_call.name}' is not permitted")
+            raise SecurityException(
+                f"Tool '{tool_call.name}' is not permitted",
+                error_code=ErrorCode.SECURITY_FORBIDDEN_TOOL,
+            )
         logger.debug("[%s] Tool call '%s' passed.", context.request_id, tool_call.name)
         return tool_call
 

@@ -15,6 +15,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
 
@@ -119,7 +120,10 @@ class AnthropicProvider(LLMProvider):
         try:
             resp = await self._client.messages.create(**kwargs)
         except Exception as exc:
-            raise ProviderError(f"Anthropic API error: {exc}") from exc
+            raise ProviderError(
+                f"Anthropic API error: {exc}",
+                error_code=ErrorCode.PROVIDER_INVALID_REQUEST,
+            ) from exc
 
         # 拼接所有 text block，而不是只保留最后一个
         text_parts: list[str] = []
@@ -197,7 +201,10 @@ class AnthropicProvider(LLMProvider):
                     index=index,
                 )
         except Exception as exc:
-            raise ProviderError(f"Anthropic streaming error: {exc}") from exc
+            raise ProviderError(
+                f"Anthropic streaming error: {exc}",
+                error_code=ErrorCode.PROVIDER_INVALID_REQUEST,
+            ) from exc
 
     async def cleanup(self) -> None:
         await self._client.close()

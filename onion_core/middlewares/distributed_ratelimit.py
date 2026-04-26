@@ -33,6 +33,7 @@ import time
 from typing import Any
 
 from ..base import BaseMiddleware
+from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
 
 logger = logging.getLogger("onion_core.middleware.distributed_ratelimit")
@@ -208,7 +209,8 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                     context.request_id, sid, retry_after
                 )
                 raise RateLimitExceeded(
-                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s."
+                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s.",
+                    error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
                 )
 
             # 记录剩余配额
@@ -227,7 +229,8 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
                 context.metadata["rate_limit_remaining"] = -1  # Unknown
             else:
                 raise RateLimitExceeded(
-                    f"Rate limiter unavailable: {exc}"
+                    f"Rate limiter unavailable: {exc}",
+                    error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
                 ) from exc
 
         return context

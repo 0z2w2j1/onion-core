@@ -7,6 +7,7 @@ from collections import OrderedDict, deque
 from typing import Any
 
 from ..base import BaseMiddleware
+from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, RateLimitExceeded, StreamChunk, ToolCall, ToolResult
 
 logger = logging.getLogger("onion_core.ratelimit")
@@ -78,7 +79,8 @@ class RateLimitMiddleware(BaseMiddleware):
                 logger.warning("[%s] Rate limit exceeded for session %s (retry after %.1fs)",
                                context.request_id, sid, retry_after)
                 raise RateLimitExceeded(
-                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s."
+                    f"Rate limit exceeded for session '{sid}'. Retry after {retry_after:.1f}s.",
+                    error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
                 )
 
             window.append(now)

@@ -24,6 +24,7 @@ from typing import Any, TypeVar, overload
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
 from .config import OnionConfig
+from .error_codes import ErrorCode
 from .models import (
     AgentContext,
     CacheHitException,
@@ -468,7 +469,8 @@ class Pipeline:
         # 验证消息数量
         if len(context.messages) > _MAX_MESSAGES:
             raise ValidationError(
-                f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})"
+                f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})",
+                error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
             )
         
         # 验证每条消息的内容
@@ -478,13 +480,15 @@ class Pipeline:
                 if len(msg.content) > _MAX_CONTENT_LENGTH:
                     raise ValidationError(
                         f"Message {i} content too long: {len(msg.content)} chars "
-                        f"(max: {_MAX_CONTENT_LENGTH})"
+                        f"(max: {_MAX_CONTENT_LENGTH})",
+                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
                 
                 # 检查 Unicode 炸弹
                 if _detect_unicode_bomb(msg.content):
                     raise ValidationError(
-                        f"Message {i} contains suspicious Unicode characters (possible Zalgo text)"
+                        f"Message {i} contains suspicious Unicode characters (possible Zalgo text)",
+                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
                     
             elif isinstance(msg.content, list):
@@ -497,28 +501,32 @@ class Pipeline:
                 if total_length > _MAX_CONTENT_LENGTH:
                     raise ValidationError(
                         f"Message {i} multimodal content too long: {total_length} chars "
-                        f"(max: {_MAX_CONTENT_LENGTH})"
+                        f"(max: {_MAX_CONTENT_LENGTH})",
+                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
                 
                 # 检查嵌套深度
                 if len(msg.content) > _MAX_NESTING_LEVEL:
                     raise ValidationError(
                         f"Message {i} content blocks too nested: {len(msg.content)} levels "
-                        f"(max: {_MAX_NESTING_LEVEL})"
+                        f"(max: {_MAX_NESTING_LEVEL})",
+                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
                 
                 # 检查每个文本块的 Unicode 炸弹
                 for block_idx, block in enumerate(msg.content):
                     if block.type == "text" and block.text and _detect_unicode_bomb(block.text):
                         raise ValidationError(
-                            f"Message {i} block {block_idx} contains suspicious Unicode characters"
+                            f"Message {i} block {block_idx} contains suspicious Unicode characters",
+                            error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                         )
         
         # 验证工具调用的嵌套深度
         if context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
             raise ValidationError(
                 f"Tool call nesting depth exceeded: {context.metadata['tool_calls_depth']} "
-                f"(max: {_MAX_TOOL_CALL_DEPTH})"
+                f"(max: {_MAX_TOOL_CALL_DEPTH})",
+                error_code=ErrorCode.VALIDATION_INVALID_TOOL_CALL,
             )
 
     @overload

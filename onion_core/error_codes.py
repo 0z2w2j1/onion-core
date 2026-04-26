@@ -34,6 +34,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .models import RetryOutcome
 
+from .models import OnionError
+
+
 # 为避免循环导入，运行时直接使用 models 模块
 def _get_retry_outcome() -> type[RetryOutcome]:
     from .models import RetryOutcome
@@ -231,9 +234,11 @@ def ERROR_RETRY_POLICY() -> dict[ErrorCode, RetryOutcome]:
 
 # ── 带错误码的异常基类 ─────────────────────────────────────────────────────────
 
-class OnionErrorWithCode(Exception):
+class OnionErrorWithCode(OnionError):
     """
     Onion Core 带错误码的异常基类。
+
+    继承 OnionError 确保与 RetryPolicy 兼容。
 
     用法：
         raise OnionErrorWithCode(
@@ -271,7 +276,7 @@ class OnionErrorWithCode(Exception):
         full_msg = f"[{code}] [{category_name}] {display_msg}"
         if cause:
             full_msg += f" (caused by: {type(cause).__name__}: {cause})"
-        super().__init__(full_msg)
+        super().__init__(full_msg, error_code=code)
 
     @property
     def retry_outcome(self) -> RetryOutcome:
@@ -281,19 +286,20 @@ class OnionErrorWithCode(Exception):
         return policy.get(self.code, RO.FATAL)
 
     @property
-    def is_fatal(self) -> bool:
+    def is_fatal(self) -> bool:  # type: ignore[override]
         """是否为致命错误（不可重试、不可降级）。"""
         from .models import RetryOutcome as RO
         return self.retry_outcome == RO.FATAL
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为字典，便于日志结构化和 API 返回。"""
+        from .models import RetryOutcome as RO
         return {
             "error_code": self.code,
             "error_category": self.code.split("-")[1][0] if "-" in self.code else "UNKNOWN",
             "message": str(self),
             "retry_outcome": self.retry_outcome.value,
-            "is_fatal": self.is_fatal,
+            "is_fatal": self.retry_outcome == RO.FATAL,
             "extra": self.extra,
         }
 
