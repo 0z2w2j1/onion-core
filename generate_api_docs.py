@@ -2,7 +2,6 @@
 批量生成 mkdocstrings API Reference 文档
 """
 
-import os
 from pathlib import Path
 
 # 定义需要生成的模块
