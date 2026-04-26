@@ -56,25 +56,25 @@ _T = TypeVar("_T")
 def _detect_unicode_bomb(text: str) -> bool:
     """
     检测 Unicode 炸弹（Zalgo 文本等）。
-    
+
     检查组合字符（combining characters）比例是否超过阈值。
     Zalgo 文本通过大量组合字符实现“溢出”效果，可能导致渲染引擎崩溃。
-    
+
     Args:
         text: 待检测的文本
-        
+
     Returns:
         True 如果检测到 Unicode 炸弹
     """
     if not text:
         return False
-    
+
     combining_count = sum(1 for c in text if unicodedata.combining(c))
     total_chars = len(text)
-    
+
     if total_chars == 0:
         return False
-    
+
     ratio = combining_count / total_chars
     return ratio > _UNICODE_COMBINING_THRESHOLD
 
@@ -143,7 +143,7 @@ class Pipeline:
                 self._circuit_breakers[id(p)] = CircuitBreaker(
                     name=p_name,
                     failure_threshold=circuit_failure_threshold,
-                    recovery_timeout=circuit_recovery_timeout
+                    recovery_timeout=circuit_recovery_timeout,
                 )
 
         self._lock = asyncio.Lock()
@@ -167,7 +167,9 @@ class Pipeline:
         async with self._lock:
             self._middlewares.append(middleware)
             self._sorted_cache = None
-        logger.info("Middleware registered (async): %s (priority=%d)", middleware.name, middleware.priority)
+        logger.info(
+            "Middleware registered (async): %s (priority=%d)", middleware.name, middleware.priority
+        )
         if self._started:
             await middleware.startup()
         return self
@@ -199,7 +201,9 @@ class Pipeline:
                 return
 
             started: list[BaseMiddleware] = []
-            logger.info("Pipeline '%s' starting up (%d middlewares)...", self.name, len(self._middlewares))
+            logger.info(
+                "Pipeline '%s' starting up (%d middlewares)...", self.name, len(self._middlewares)
+            )
 
             for mw in self._get_sorted_middlewares():
                 try:
@@ -207,12 +211,16 @@ class Pipeline:
                     started.append(mw)
                     logger.debug("Middleware started: %s", mw.name)
                 except Exception as exc:
-                    logger.error("Middleware '%s' failed during startup: %s — rolling back", mw.name, exc)
+                    logger.error(
+                        "Middleware '%s' failed during startup: %s — rolling back", mw.name, exc
+                    )
                     for started_mw in reversed(started):
                         try:
                             await started_mw.shutdown()
                         except Exception as inner:
-                            logger.warning("Rollback shutdown failed for '%s': %s", started_mw.name, inner)
+                            logger.warning(
+                                "Rollback shutdown failed for '%s': %s", started_mw.name, inner
+                            )
                     raise
 
             self._started = True
@@ -282,7 +290,7 @@ class Pipeline:
                 context.request_id,
             )
             return await self._run_response(context, exc.cached_response)
-        
+
         raw_response = await self._call_provider_with_retry(context)
         return await self._run_response(context, raw_response)
 
@@ -298,10 +306,11 @@ class Pipeline:
                 context.request_id,
             )
             # 继续执行 provider 调用
-        
+
         buf_key = f"_safety_buf_{context.request_id}"
         chunk_count = 0
         try:
+
             async def _provider_gen() -> AsyncIterator[StreamChunk]:
                 async for chunk in self._provider.stream(context):
                     yield chunk
@@ -310,7 +319,7 @@ class Pipeline:
                 # 计算绝对截止时间，确保总超时而非每 chunk 超时
                 loop = asyncio.get_event_loop()
                 deadline = loop.time() + self._provider_timeout
-                
+
                 gen = _provider_gen()
                 while True:
                     try:
@@ -320,20 +329,18 @@ class Pipeline:
                             raise TimeoutError(
                                 f"Stream timeout exceeded ({self._provider_timeout}s)"
                             )
-                        
-                        raw_chunk = await asyncio.wait_for(
-                            gen.__anext__(), timeout=remaining
-                        )
+
+                        raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
                     except StopAsyncIteration:
                         break
-                    
+
                     # 检查 chunk 数量防止 DoS
                     chunk_count += 1
                     if chunk_count > self._max_stream_chunks:
                         raise ValidationError(
                             f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
                         )
-                    
+
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
             else:
@@ -344,7 +351,7 @@ class Pipeline:
                         raise ValidationError(
                             f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
                         )
-                    
+
                     chunk = await self._run_stream_chunk(context, raw_chunk)
                     yield chunk
         except Exception:
@@ -376,7 +383,10 @@ class Pipeline:
             if is_fallback:
                 logger.warning(
                     "[%s][pipeline=%s] Switching to fallback provider #%d: %s",
-                    context.request_id, self.name, provider_idx, type(provider).__name__,
+                    context.request_id,
+                    self.name,
+                    provider_idx,
+                    type(provider).__name__,
                 )
 
             # 检查熔断状态
@@ -384,8 +394,12 @@ class Pipeline:
                 try:
                     await cb.check_call()
                 except CircuitBreakerError as cb_exc:
-                    logger.warning("[%s][pipeline=%s] Provider #%d is circuit-broken, skipping", 
-                                   context.request_id, self.name, provider_idx)
+                    logger.warning(
+                        "[%s][pipeline=%s] Provider #%d is circuit-broken, skipping",
+                        context.request_id,
+                        self.name,
+                        provider_idx,
+                    )
                     exceptions.append((provider_name, cb_exc))
                     continue  # 尝试下一个 fallback
 
@@ -398,7 +412,7 @@ class Pipeline:
                         )
                     else:
                         resp = await provider.complete(context)
-                    
+
                     # 调用成功，记录熔断器成功
                     if cb:
                         await cb.record_success()
@@ -419,38 +433,54 @@ class Pipeline:
                         # 跳过当前 provider 的剩余重试，直接尝试下一个 fallback
                         logger.warning(
                             "[%s][pipeline=%s] Provider[%d] non-retryable (%s), trying fallback",
-                            context.request_id, self.name, provider_idx, type(exc).__name__,
+                            context.request_id,
+                            self.name,
+                            provider_idx,
+                            type(exc).__name__,
                         )
                         exceptions.append((provider_name, exc))
                         break  # 跳出 attempt 循环，进入下一个 provider
 
                     # RETRY
                     if attempt < self._max_retries:
-                        delay = self._retry_base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                        delay = self._retry_base_delay * (2**attempt) + random.uniform(0, 0.1)
                         logger.warning(
                             "[%s][pipeline=%s] Provider[%d] call failed (attempt %d/%d): %s — retrying in %.2fs",
-                            context.request_id, self.name, provider_idx,
-                            attempt + 1, self._max_retries + 1, exc, delay,
+                            context.request_id,
+                            self.name,
+                            provider_idx,
+                            attempt + 1,
+                            self._max_retries + 1,
+                            exc,
+                            delay,
                         )
                         await asyncio.sleep(delay)
                     else:
                         logger.error(
                             "[%s][pipeline=%s] Provider[%d] failed after %d attempts: %s",
-                            context.request_id, self.name, provider_idx, self._max_retries + 1, exc,
+                            context.request_id,
+                            self.name,
+                            provider_idx,
+                            self._max_retries + 1,
+                            exc,
                         )
                         exceptions.append((provider_name, exc))
 
         # 所有 provider 都失败，聚合异常信息
         if exceptions:
-            error_summary = "; ".join(f"{name}: {type(exc).__name__}({exc})" for name, exc in exceptions)
+            error_summary = "; ".join(
+                f"{name}: {type(exc).__name__}({exc})" for name, exc in exceptions
+            )
             logger.error(
                 "[%s][pipeline=%s] All providers failed: %s",
-                context.request_id, self.name, error_summary,
+                context.request_id,
+                self.name,
+                error_summary,
             )
             # 使用最后一个异常作为主异常，保留完整上下文
             last_exc = exceptions[-1][1]
             raise last_exc
-        
+
         raise RuntimeError("Unexpected state: no providers were attempted")  # pragma: no cover
 
     # ------------------------------------------------------------------
@@ -460,9 +490,9 @@ class Pipeline:
     def _validate_context(self, context: AgentContext) -> None:
         """
         验证 AgentContext 的合法性。
-        
+
         防止恶意用户构造超大 payload、Unicode 炸弹等导致 DoS。
-        
+
         Raises:
             ValidationError: 当验证失败时抛出
         """
@@ -472,7 +502,7 @@ class Pipeline:
                 f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})",
                 error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
             )
-        
+
         # 验证每条消息的内容
         for i, msg in enumerate(context.messages):
             if isinstance(msg.content, str):
@@ -483,14 +513,14 @@ class Pipeline:
                         f"(max: {_MAX_CONTENT_LENGTH})",
                         error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
-                
+
                 # 检查 Unicode 炸弹
                 if _detect_unicode_bomb(msg.content):
                     raise ValidationError(
                         f"Message {i} contains suspicious Unicode characters (possible Zalgo text)",
                         error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
-                    
+
             elif isinstance(msg.content, list):
                 # 多模态内容
                 total_length = sum(
@@ -504,7 +534,7 @@ class Pipeline:
                         f"(max: {_MAX_CONTENT_LENGTH})",
                         error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
-                
+
                 # 检查嵌套深度
                 if len(msg.content) > _MAX_NESTING_LEVEL:
                     raise ValidationError(
@@ -512,7 +542,7 @@ class Pipeline:
                         f"(max: {_MAX_NESTING_LEVEL})",
                         error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                     )
-                
+
                 # 检查每个文本块的 Unicode 炸弹
                 for block_idx, block in enumerate(msg.content):
                     if block.type == "text" and block.text and _detect_unicode_bomb(block.text):
@@ -520,7 +550,7 @@ class Pipeline:
                             f"Message {i} block {block_idx} contains suspicious Unicode characters",
                             error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
                         )
-        
+
         # 验证工具调用的嵌套深度
         if context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
             raise ValidationError(
@@ -559,11 +589,10 @@ class Pipeline:
         self, coro: Awaitable[_T], mw: BaseMiddleware | None = None
     ) -> _T: ...
 
-    async def _call_middleware(
-        self, coro: Awaitable[_T], mw: BaseMiddleware | None = None
-    ) -> _T:
-        timeout = (mw.timeout if mw is not None and mw.timeout is not None
-                   else self._middleware_timeout)
+    async def _call_middleware(self, coro: Awaitable[_T], mw: BaseMiddleware | None = None) -> _T:
+        timeout = (
+            mw.timeout if mw is not None and mw.timeout is not None else self._middleware_timeout
+        )
         if timeout is not None:
             return await asyncio.wait_for(coro, timeout=timeout)
         return await coro
@@ -581,7 +610,11 @@ class Pipeline:
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.process_request raised %s: %s",
-                    context.request_id, self.name, mw.name, type(exc).__name__, exc,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    type(exc).__name__,
+                    exc,
                 )
                 await self._notify_error(context, exc)
                 # 链路拦截类异常（安全/限流）或强制性中间件失败必须传播，其余隔离继续
@@ -589,7 +622,9 @@ class Pipeline:
                     raise
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.process_request isolated, continuing chain",
-                    context.request_id, self.name, mw.name,
+                    context.request_id,
+                    self.name,
+                    mw.name,
                 )
         return context
 
@@ -600,14 +635,20 @@ class Pipeline:
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.process_response raised %s: %s",
-                    context.request_id, self.name, mw.name, type(exc).__name__, exc,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    type(exc).__name__,
+                    exc,
                 )
                 await self._notify_error(context, exc)
                 if self._retry_policy.is_chain_breaking(exc) or mw.is_mandatory:
                     raise
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.process_response isolated, continuing chain",
-                    context.request_id, self.name, mw.name,
+                    context.request_id,
+                    self.name,
+                    mw.name,
                 )
         return response
 
@@ -618,14 +659,20 @@ class Pipeline:
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.process_stream_chunk raised %s: %s",
-                    context.request_id, self.name, mw.name, type(exc).__name__, exc,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    type(exc).__name__,
+                    exc,
                 )
                 await self._notify_error(context, exc)
                 if self._retry_policy.is_chain_breaking(exc) or mw.is_mandatory:
                     raise
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.process_stream_chunk isolated, continuing chain",
-                    context.request_id, self.name, mw.name,
+                    context.request_id,
+                    self.name,
+                    mw.name,
                 )
         return chunk
 
@@ -636,14 +683,20 @@ class Pipeline:
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.on_tool_call blocked '%s': %s",
-                    context.request_id, self.name, mw.name, tool_call.name, exc,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    tool_call.name,
+                    exc,
                 )
                 await self._notify_error(context, exc)
                 if self._retry_policy.is_chain_breaking(exc) or mw.is_mandatory:
                     raise
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.on_tool_call isolated, continuing chain",
-                    context.request_id, self.name, mw.name,
+                    context.request_id,
+                    self.name,
+                    mw.name,
                 )
         return tool_call
 
@@ -654,14 +707,20 @@ class Pipeline:
             except Exception as exc:
                 logger.error(
                     "[%s][pipeline=%s] '%s'.on_tool_result raised %s: %s",
-                    context.request_id, self.name, mw.name, type(exc).__name__, exc,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    type(exc).__name__,
+                    exc,
                 )
                 await self._notify_error(context, exc)
                 if self._retry_policy.is_chain_breaking(exc) or mw.is_mandatory:
                     raise
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.on_tool_result isolated, continuing chain",
-                    context.request_id, self.name, mw.name,
+                    context.request_id,
+                    self.name,
+                    mw.name,
                 )
         return result
 
@@ -672,7 +731,10 @@ class Pipeline:
             except Exception as inner:
                 logger.warning(
                     "[%s][pipeline=%s] '%s'.on_error itself raised: %s",
-                    context.request_id, self.name, mw.name, inner,
+                    context.request_id,
+                    self.name,
+                    mw.name,
+                    inner,
                 )
 
     @classmethod
@@ -706,16 +768,20 @@ class Pipeline:
         )
 
         p.add_middleware(ObservabilityMiddleware())
-        p.add_middleware(SafetyGuardrailMiddleware(
-            blocked_keywords=config.safety.blocked_keywords or None,
-            blocked_tools=config.safety.blocked_tools or None,
-            enable_builtin_pii=config.safety.enable_pii_masking,
-        ))
-        p.add_middleware(ContextWindowMiddleware(
-            max_tokens=config.context_window.max_tokens,
-            keep_rounds=config.context_window.keep_rounds,
-            encoding_name=config.context_window.encoding_name,
-        ))
+        p.add_middleware(
+            SafetyGuardrailMiddleware(
+                blocked_keywords=config.safety.blocked_keywords or None,
+                blocked_tools=config.safety.blocked_tools or None,
+                enable_builtin_pii=config.safety.enable_pii_masking,
+            )
+        )
+        p.add_middleware(
+            ContextWindowMiddleware(
+                max_tokens=config.context_window.max_tokens,
+                keep_rounds=config.context_window.keep_rounds,
+                encoding_name=config.context_window.encoding_name,
+            )
+        )
         return p
 
     # ------------------------------------------------------------------
@@ -725,35 +791,22 @@ class Pipeline:
     def _run_async_in_sync(self, coro: Awaitable[_T]) -> _T:
         """
         在同步环境中安全运行异步协程。
-        
+
         自动检测事件循环状态，避免 RuntimeError。
         使用统一的事件循环管理策略，减少代码重复。
         """
         try:
-            # 尝试获取当前事件循环
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
-            # 没有运行中的事件循环，直接使用 asyncio.run()
             return asyncio.run(coro)  # type: ignore[arg-type]
-        
-        # 已有运行中的事件循环
+
         import concurrent.futures
-        import threading
-        
-        if threading.current_thread() is threading.main_thread():
-            # 在主线程中，尝试使用 run_until_complete
-            try:
-                return loop.run_until_complete(coro)
-            except RuntimeError:
-                # Loop is already running, use thread pool
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future: concurrent.futures.Future[_T] = executor.submit(
-                        asyncio.run, coro  # type: ignore[arg-type]
-                    )
-                    return future.result()
-        else:
-            # 在子线程中，可以直接使用 asyncio.run()
-            return asyncio.run(coro)  # type: ignore[arg-type]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future: concurrent.futures.Future[_T] = executor.submit(
+                lambda: asyncio.run(coro),  # type: ignore[arg-type]
+            )
+            return future.result()
 
     def run_sync(self, context: AgentContext) -> LLMResponse:
         """
@@ -780,20 +833,20 @@ class Pipeline:
                     print(chunk.delta, end="", flush=True)
         """
         import concurrent.futures
-        
+
         # 创建新的事件循环用于流式传输
         loop = asyncio.new_event_loop()
-        
+
         async def _stream_gen() -> AsyncIterator[StreamChunk]:
             async for chunk in self.stream(context):
                 yield chunk
-        
+
         gen = _stream_gen()
-        
+
         try:
-            while True:
-                # 在线程池中执行异步 next()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                while True:
+                    # 在线程池中执行异步 next()
                     future: concurrent.futures.Future[StreamChunk] = executor.submit(
                         lambda: loop.run_until_complete(gen.__anext__())
                     )
@@ -806,15 +859,11 @@ class Pipeline:
             # 清理资源
             loop.close()
 
-    def execute_tool_call_sync(
-        self, context: AgentContext, tool_call: ToolCall
-    ) -> ToolCall:
+    def execute_tool_call_sync(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         """同步版本的 execute_tool_call()。"""
         return self._run_async_in_sync(self.execute_tool_call(context, tool_call))
 
-    def execute_tool_result_sync(
-        self, context: AgentContext, result: ToolResult
-    ) -> ToolResult:
+    def execute_tool_result_sync(self, context: AgentContext, result: ToolResult) -> ToolResult:
         """同步版本的 execute_tool_result()。"""
         return self._run_async_in_sync(self.execute_tool_result(context, result))
 
@@ -878,10 +927,17 @@ class Pipeline:
                 if id(p) == provider_id:
                     base_name = type(p).__name__
                     # 如果有多个同名 provider，添加索引
-                    if sum(1 for pid in self._circuit_breakers if any(
-                        type(pp).__name__ == base_name and id(pp) == pid
-                        for pp in all_providers
-                    )) > 1:
+                    if (
+                        sum(
+                            1
+                            for pid in self._circuit_breakers
+                            if any(
+                                type(pp).__name__ == base_name and id(pp) == pid
+                                for pp in all_providers
+                            )
+                        )
+                        > 1
+                    ):
                         provider_name = f"{base_name}#{idx}"
                     else:
                         provider_name = base_name

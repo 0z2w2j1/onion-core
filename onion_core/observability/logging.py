@@ -22,6 +22,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from ..middlewares.observability import TraceIdFilter
+
 
 class JsonFormatter(logging.Formatter):
     """
@@ -38,13 +40,31 @@ class JsonFormatter(logging.Formatter):
     """
 
     # 标准 LogRecord 字段，不放入 extra
-    _SKIP_ATTRS = frozenset({
-        "args", "created", "exc_info", "exc_text", "filename",
-        "funcName", "levelname", "levelno", "lineno", "message",
-        "module", "msecs", "msg", "name", "pathname", "process",
-        "processName", "relativeCreated", "stack_info", "thread",
-        "threadName",
-    })
+    _SKIP_ATTRS = frozenset(
+        {
+            "args",
+            "created",
+            "exc_info",
+            "exc_text",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "message",
+            "module",
+            "msecs",
+            "msg",
+            "name",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "thread",
+            "threadName",
+        }
+    )
 
     def format(self, record: logging.LogRecord) -> str:
         record.message = record.getMessage()
@@ -68,7 +88,8 @@ class JsonFormatter(logging.Formatter):
 
         # 额外字段
         extra = {
-            k: v for k, v in record.__dict__.items()
+            k: v
+            for k, v in record.__dict__.items()
             if k not in self._SKIP_ATTRS and not k.startswith("_")
         }
         if extra:
@@ -98,12 +119,13 @@ def configure_logging(
 
     if not logger.handlers:
         handler = logging.StreamHandler()
+        handler.addFilter(TraceIdFilter())
         if json_format:
             handler.setFormatter(JsonFormatter())
         else:
-            handler.setFormatter(logging.Formatter(
-                "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
-            ))
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+            )
         logger.addHandler(handler)
 
     return logger

@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Registered TraceIdFilter in configure_logging()**: The `TraceIdFilter` was defined but never attached to any logging handler, breaking trace_id propagation in structured JSON logs. Now registered in `configure_logging()` via `handler.addFilter(TraceIdFilter())`.
+- **Moved ThreadPoolExecutor outside stream_sync() loop**: `stream_sync()` previously created a new `ThreadPoolExecutor` for every stream chunk, causing excessive thread creation overhead. Now the executor is created once and reused for the entire stream iteration.
+- **Simplified `_run_async_in_sync()` event loop handling**: Removed the broken `loop.run_until_complete(coro)` path on the main thread (which always raised `RuntimeError` when an event loop was running). All live-loop cases now uniformly delegate to `executor.submit(lambda: asyncio.run(coro))`.
+
 - **P0 Critical Issues Resolution**
   - Fixed stream timeout control: Now uses absolute deadline instead of per-chunk timeout to prevent request hanging
   - Fixed RateLimitMiddleware memory leak: Added `_MAX_TIMESTAMPS_PER_SESSION` limit (1000) to prevent unbounded deque growth

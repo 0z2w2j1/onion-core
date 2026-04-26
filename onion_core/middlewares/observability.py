@@ -40,7 +40,10 @@ class ObservabilityMiddleware(BaseMiddleware):
         context.metadata["start_time"] = time.perf_counter()
         logger.info(
             "[%s] Request started | trace=%s | session=%s | messages=%d",
-            context.request_id, context.trace_id, context.session_id, len(context.messages),
+            context.request_id,
+            context.trace_id,
+            context.session_id,
+            len(context.messages),
         )
         return context
 
@@ -53,8 +56,12 @@ class ObservabilityMiddleware(BaseMiddleware):
             usage_info = f" | tokens={u.total_tokens} (prompt={u.prompt_tokens}, completion={u.completion_tokens})"
         logger.info(
             "[%s] Processed in %.4fs | trace=%s | model=%s | finish=%s%s",
-            context.request_id, duration, context.trace_id,
-            response.model or "unknown", response.finish_reason, usage_info,
+            context.request_id,
+            duration,
+            context.trace_id,
+            response.model or "unknown",
+            response.finish_reason,
+            usage_info,
         )
         return response
 
@@ -64,19 +71,26 @@ class ObservabilityMiddleware(BaseMiddleware):
             context.metadata["duration_s"] = round(duration, 4)
             logger.info(
                 "[%s] Stream finished in %.4fs | trace=%s | finish=%s",
-                context.request_id, duration, context.trace_id, chunk.finish_reason,
+                context.request_id,
+                duration,
+                context.trace_id,
+                chunk.finish_reason,
             )
         return chunk
 
     async def on_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         context.metadata.setdefault("tool_calls", []).append(tool_call.name)
-        logger.info("[%s] Tool call: %s | args=%s", context.request_id, tool_call.name, tool_call.arguments)
+        logger.info(
+            "[%s] Tool call: %s | args=%s", context.request_id, tool_call.name, tool_call.arguments
+        )
         return tool_call
 
     async def on_tool_result(self, context: AgentContext, result: ToolResult) -> ToolResult:
         logger.info(
             "[%s] Tool result: %s | status=%s",
-            context.request_id, result.name, "ERROR" if result.is_error else "OK",
+            context.request_id,
+            result.name,
+            "ERROR" if result.is_error else "OK",
         )
         return result
 
@@ -84,6 +98,10 @@ class ObservabilityMiddleware(BaseMiddleware):
         duration = time.perf_counter() - context.metadata.get("start_time", 0.0)
         logger.error(
             "[%s] Error after %.4fs | trace=%s — %s: %s",
-            context.request_id, duration, context.trace_id, type(error).__name__, error,
+            context.request_id,
+            duration,
+            context.trace_id,
+            type(error).__name__,
+            error,
             exc_info=True,
         )
