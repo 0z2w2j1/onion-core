@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import signal
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
@@ -97,15 +98,30 @@ class AgentLoop:
         self._memory = memory
 
     async def run(self, context: AgentContext) -> LLMResponse:
+        """
+        执行 Agent 循环。
+        
+        注意：当使用 SlidingWindowMemory 时，每轮循环都会重新裁剪 messages，
+        因此需要确保在裁剪后继续追加新的消息到 context.messages。
+        """
         last_response: LLMResponse | None = None
         dedup_policy = self._get_tool_call_dedup_policy(context)
         progress_window = self._get_progress_window(context)
         recent_state_hashes: deque[str] = deque(maxlen=progress_window)
 
         for turn in range(self._max_turns):
+            # 1. 内存裁剪（可能修改 context.messages）
             if self._memory is not None:
-                context.messages = self._memory.trim(context.messages)
+                trimmed_messages = self._memory.trim(context.messages)
+                # 【关键】如果 trim 返回了新列表，更新 context.messages
+                if trimmed_messages is not context.messages:
+                    logger.info(
+                        "[%s] Turn %d: Memory trimmed messages from %d to %d",
+                        context.request_id, turn + 1, len(context.messages), len(trimmed_messages),
+                    )
+                    context.messages = trimmed_messages
 
+            # 2. Pipeline 执行（中间件可能再次修改 context.messages）
             response = await self._pipeline.run(context)
             last_response = response
 
@@ -119,6 +135,7 @@ class AgentLoop:
             turn_seen_signatures: set[str] = set()
             turn_result_summaries: list[str] = []
 
+            # 3. 执行工具调用并追加结果到 context.messages
             for tool_call in response.tool_calls:
                 call_signature = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
                 if self._is_duplicate_tool_call(
@@ -146,8 +163,10 @@ class AgentLoop:
                     name=processed.name,
                 ))
 
+            # 4. 追加助手回复到 context.messages
             context.messages.append(response.to_assistant_message())
 
+            # 5. 检查状态进展
             turn_state_hash = self._build_turn_state_hash(response, turn_result_summaries)
             recent_state_hashes.append(turn_state_hash)
             if (
@@ -606,6 +625,7 @@ class _RequestContext:
 
 class AgentRuntime:
     _model_limits_applied: bool = False
+    _config_lock = threading.Lock()  # 保护类级别配置调整的线程安全
 
     def __init__(
         self,
@@ -631,6 +651,7 @@ class AgentRuntime:
         self._state: AgentState | None = None
         self._fsm: StateMachine | None = None
         self._cancelled = False
+        self._cancel_lock = threading.Lock()  # 保护 _cancelled 的线程安全
         self._active_count: int = 0
         self._active_lock = asyncio.Lock()
         self._step_hooks: list[Callable[[StepRecord], None]] = []
@@ -638,21 +659,23 @@ class AgentRuntime:
 
     @classmethod
     def _auto_tune_config(cls, config: AgentConfig) -> None:
-        if cls._model_limits_applied:
-            return
-        limits = lookup_model_limits(config.model)
-        if limits is None:
-            return
-        if config.memory_max_tokens == 4000 and config.max_tokens == 4096:
-            sane_max_output = min(limits.max_output, 16384)
-            sane_memory = limits.max_context // 4
-            config.max_tokens = sane_max_output
-            config.memory_max_tokens = sane_memory
-            logger.info(
-                "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
-                config.model, sane_max_output, sane_memory,
-            )
-        cls._model_limits_applied = True
+        """自动调整模型配置，线程安全。"""
+        with cls._config_lock:
+            if cls._model_limits_applied:
+                return
+            limits = lookup_model_limits(config.model)
+            if limits is None:
+                return
+            if config.memory_max_tokens == 4000 and config.max_tokens == 4096:
+                sane_max_output = min(limits.max_output, 16384)
+                sane_memory = limits.max_context // 4
+                config.max_tokens = sane_max_output
+                config.memory_max_tokens = sane_memory
+                logger.info(
+                    "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
+                    config.model, sane_max_output, sane_memory,
+                )
+            cls._model_limits_applied = True
 
     @property
     def state(self) -> AgentState:
@@ -677,7 +700,9 @@ class AgentRuntime:
         self._error_hooks.append(callback)
 
     def cancel(self) -> None:
-        self._cancelled = True
+        """取消正在运行的 Agent。线程安全。"""
+        with self._cancel_lock:
+            self._cancelled = True
         if self._state:
             with contextlib.suppress(Exception):
                 self._state.set_status(AgentStatus.CANCELLED)
@@ -698,7 +723,9 @@ class AgentRuntime:
         async with self._active_lock:
             self._active_count += 1
         try:
-            self._cancelled = False
+            # 使用锁保护 _cancelled 重置，避免与 cancel() 竞态
+            with self._cancel_lock:
+                self._cancelled = False
             self._state = state if state is not None else AgentState()
             self._fsm = StateMachine(self._state)
 
@@ -716,7 +743,10 @@ class AgentRuntime:
                 try:
                     self._fsm.transition_to(AgentStatus.THINKING)
 
-                    while self._state.steps < self._config.max_steps and not self._cancelled:
+                    # 检查取消状态时使用锁
+                    with self._cancel_lock:
+                        is_cancelled = self._cancelled
+                    while self._state.steps < self._config.max_steps and not is_cancelled:
                         self._state.increment_step()
                         step_index = self._state.steps
                         trace_id_str = f"{self._state.run_id}.{step_index}"
@@ -724,6 +754,12 @@ class AgentRuntime:
                         self._state.compact(self._config)
 
                         logger.info("Step %d starting: trace_id=%s status=%s", step_index, trace_id_str, self._state.status.value)
+
+                        # 在循环内部再次检查取消状态
+                        with self._cancel_lock:
+                            is_cancelled = self._cancelled
+                        if is_cancelled:
+                            break
 
                         try:
                             decision = await self._run_think_phase(trace_id_str, step_index, on_chunk=on_chunk)
@@ -756,7 +792,10 @@ class AgentRuntime:
                             self._fsm.transition_to(AgentStatus.ERROR)
                             break
 
-                    if self._cancelled:
+                    # 最终检查取消状态
+                    with self._cancel_lock:
+                        is_cancelled = self._cancelled
+                    if is_cancelled:
                         self._state.set_status(AgentStatus.CANCELLED)
                         logger.info("Agent cancelled at step %d", self._state.steps)
 
@@ -940,10 +979,19 @@ class AgentRuntime:
             yield step
 
     async def run_streaming_text(self, user_message: str, state: AgentState | None = None) -> AsyncIterator[StreamChunk]:
-        chunk_queue: asyncio.Queue[StreamChunk] = asyncio.Queue()
+        """
+        流式输出文本响应。
+        
+        使用有界队列防止 OOM：当消费者处理缓慢时，生产者会阻塞等待，
+        而不是无限累积 chunks 在内存中。
+        """
+        # 设置合理的队列大小限制（基于典型流式响应的 chunk 数量）
+        MAX_QUEUE_SIZE = 100
+        chunk_queue: asyncio.Queue[StreamChunk] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
         _SENTINEL: StreamChunk = StreamChunk()  # sentinel marker
 
         async def _collect(chunk: StreamChunk) -> None:
+            # put 会在队列满时阻塞，防止 OOM
             await chunk_queue.put(chunk)
 
         async def _run() -> None:

@@ -1,0 +1,28 @@
+Fix 5 critical security and stability issues
+
+- Fix Unicode confusion detection false positives for Chinese text
+  * Changed _detect_unicode_confusion to only flag mixed ASCII/non-ASCII letters
+  * Pure non-ASCII text (Chinese, Japanese) no longer blocked
+  * Prevents homograph attacks while allowing legitimate multilingual input
+
+- Fix race condition in AgentRuntime.cancel()
+  * Added threading.Lock (_cancel_lock) to protect _cancelled flag
+  * Ensures thread-safe cancellation from signal handlers
+  * Prevents lost cancel signals in high-concurrency scenarios
+
+- Fix thread safety in _auto_tune_config class method
+  * Protected class-level _model_limits_applied with threading.Lock
+  * Prevents config corruption during concurrent AgentRuntime initialization
+  * Ensures atomic check-and-set operation
+
+- Fix unbounded queue OOM risk in run_streaming_text()
+  * Changed asyncio.Queue to bounded queue with maxsize=100
+  * Producer blocks when queue full instead of accumulating infinite chunks
+  * Prevents memory exhaustion on long streaming responses (10k+ tokens)
+
+- Fix message state divergence in AgentLoop.run()
+  * Properly updates context.messages reference after SlidingWindowMemory trim
+  * Adds logging to track message count changes during trimming
+  * Ensures consistency between memory management and message appending
+
+All changes pass ruff, mypy --strict, and pytest (87 tests)

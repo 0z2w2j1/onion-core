@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.1] - 2026-04-26
+
+### Critical Security & Stability Fixes (P0)
+
+- **Fixed Unicode Confusion Detection False Positives for Chinese** — `SafetyGuardrailMiddleware._detect_unicode_confusion()` previously flagged all Chinese text as "Unicode confusion attack" because Chinese characters satisfy `not c.isascii() and c.isalpha()`. Now only detects actual homograph attacks where ASCII and non-ASCII letters are mixed (e.g., Cyrillic 'а' in 'paypal'). Pure non-ASCII text (Chinese, Japanese, etc.) is no longer blocked. This was a critical usability issue making the framework unusable for Chinese developers.
+
+- **Fixed Race Condition in AgentRuntime.cancel()** — `cancel()` and `_run_loop()` had a data race on `_cancelled` flag: `cancel()` set it to True without lock, while `_run_loop()` reset it to False at startup. In high-concurrency scenarios, gRPC shutdown signals could be silently lost. Now uses `threading.Lock` (`_cancel_lock`) to protect all accesses to `_cancelled`, ensuring thread-safe cancellation.
+
+- **Fixed Thread Safety in AgentRuntime._auto_tune_config()** — The class-level `_model_limits_applied` flag check-and-set was not atomic, causing potential config corruption when multiple AgentRuntime instances were created concurrently. Now protected by `threading.Lock` (`_config_lock`) to ensure only one thread performs auto-tuning.
+
+- **Fixed Unbounded Queue OOM Risk in run_streaming_text()** — `asyncio.Queue()` without maxsize could grow unbounded when producer (LLM streaming) outpaced consumer (downstream processing), leading to OOM on long responses (10k+ tokens). Now uses bounded queue with `maxsize=100`, causing producer to block when queue is full instead of accumulating infinite chunks.
+
+- **Fixed Message State Divergence in AgentLoop.run()** — When using `SlidingWindowMemory`, `context.messages` was trimmed each turn but subsequent tool results and assistant messages were appended without synchronization. Unlike `AgentRuntime` which has explicit sync-back logic, `AgentLoop` lacked equivalent mechanism. Now properly updates `context.messages` reference after trim and adds detailed logging to track message state changes.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 87 existing tests pass ✓
+- No breaking changes to public API
+- Added comprehensive inline documentation for all fixes
+
+---
+
 ## [0.9.0] - 2026-04-26
 
 ### Production-Grade Enhancements (New)

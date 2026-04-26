@@ -247,9 +247,23 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         """
         检测是否存在 Unicode 混淆攻击。
         
-        检查非 ASCII 字母的比例，如果超过 30% 则认为是可疑的。
-        """
-        non_ascii_alpha = sum(1 for c in text if not c.isascii() and c.isalpha())
-        total_alpha = sum(1 for c in text if c.isalpha())
+        策略：仅检测 ASCII 字母与非 ASCII 字母的混合使用（homograph attack），
+        而非单纯的非 ASCII 字符比例。这样可以避免误报纯中文/日文等合法文本。
         
-        return total_alpha > 0 and non_ascii_alpha / total_alpha > 0.3
+        真正的混淆攻击通常表现为：在英文单词中混入形似的非 ASCII 字符，
+        例如：'раураӏ'（西里尔字母）伪装成 'paypal'。
+        
+        因此我们检查：
+        1. 是否同时包含 ASCII 字母和非 ASCII 字母
+        2. 非 ASCII 字母占比超过阈值
+        """
+        ascii_alpha = sum(1 for c in text if c.isascii() and c.isalpha())
+        non_ascii_alpha = sum(1 for c in text if not c.isascii() and c.isalpha())
+        total_alpha = ascii_alpha + non_ascii_alpha
+        
+        # 如果只有非 ASCII 字母（如纯中文），不视为混淆攻击
+        if ascii_alpha == 0 or non_ascii_alpha == 0:
+            return False
+        
+        # 当 ASCII 和非 ASCII 字母混合时，检查非 ASCII 比例
+        return non_ascii_alpha / total_alpha > 0.3
