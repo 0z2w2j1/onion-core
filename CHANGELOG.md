@@ -2,6 +2,14 @@
 
 ## [0.9.0] - 2026-04-26
 
+### Production-Grade Enhancements (New)
+
+- **Distributed Circuit Breaker** — New `DistributedCircuitBreakerMiddleware` with Redis backend for multi-instance circuit breaker state sharing. Uses Lua scripts for atomic state transitions. Supports monitoring multiple providers independently. State machine: CLOSED → OPEN → HALF_OPEN → CLOSED. Example: `DistributedCircuitBreakerMiddleware(redis_url="redis://prod:6379", failure_threshold=5, recovery_timeout=30.0)`.
+
+- **Token Cost Tracking** — Added `onion_token_cost_usd` Prometheus counter metric that tracks LLM API costs in real-time. Built-in pricing table for 10+ models (GPT-4o, GPT-4o-mini, Claude 3 Opus/Sonnet/Haiku, etc.). Automatically calculates cost based on prompt and completion tokens. Enables budget monitoring and cost optimization alerts.
+
+- **P95/P99 Latency Monitoring** — Added `onion_request_latency_seconds` Prometheus Summary metric for percentile-based latency monitoring. Provides P95 and P99 latency values alongside existing Histogram metrics. Essential for SLA compliance and performance optimization.
+
 ### Distributed Capabilities (New)
 
 - **Layered Distributed Rate Limiting** — `DistributedRateLimitMiddleware` now supports independent rate limits for regular requests vs tool calls. New parameters: `max_tool_calls`, `tool_call_window`. Automatically detects tool call results by checking recent message roles and applies the appropriate limit. Prevents tool call storms from exhausting quota meant for regular conversations. Example: `DistributedRateLimitMiddleware(redis_url="redis://prod:6379", max_requests=100, max_tool_calls=30, tool_call_window=60.0)`.
