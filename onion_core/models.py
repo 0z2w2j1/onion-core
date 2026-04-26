@@ -321,6 +321,7 @@ class AgentConfig(BaseModel):
     system_prompt: str = ""
     tool_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
     tool_max_retries: int = Field(default=2, ge=0, le=10)
+    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)
     memory_max_tokens: int = Field(default=4000, ge=256, le=128000)
     state_max_messages: int = Field(default=200, ge=10, le=10000)
     state_max_history_steps: int = Field(default=100, ge=5, le=5000)

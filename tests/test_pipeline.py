@@ -449,3 +449,32 @@ def test_all_exports_importable():
     import onion_core
     for name in onion_core.__all__:
         assert hasattr(onion_core, name), f"Missing export: {name}"
+
+
+# ── Tool call depth tracking ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_tool_calls_depth_validation():
+    """测试工具调用深度超过限制时抛出 ValidationError。"""
+    from onion_core.models import FinishReason
+    
+    class DeepToolProvider(EchoProvider):
+        async def complete(self, context):
+            # 模拟返回带有工具调用的响应
+            return LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="t1", name="test_tool", arguments={})],
+                finish_reason=FinishReason.TOOL_CALLS,
+            )
+    
+    p = Pipeline(provider=DeepToolProvider())
+    await p.startup()
+    try:
+        ctx = make_context()
+        # 手动设置深度为 10（超过限制的阈值）
+        ctx.metadata["tool_calls_depth"] = 11
+        
+        with pytest.raises(ValidationError, match="Tool call nesting depth exceeded"):
+            await p.run(ctx)
+    finally:
+        await p.shutdown()

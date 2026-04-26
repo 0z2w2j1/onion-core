@@ -280,6 +280,16 @@ class ToolRegistry:
             # 统一转为 str 以满足 Pydantic Union[str, Dict, List] 类型约束
             if not isinstance(result, (str, dict, list)):
                 result = str(result)
+            
+            # 截断过大的工具结果
+            max_chars = context.config.get("tool_result_max_chars", 50000) if context else 50000
+            if isinstance(result, str) and len(result) > max_chars:
+                logger.warning(
+                    "Tool '%s' result truncated: %d > %d chars",
+                    tool_call.name, len(result), max_chars,
+                )
+                result = result[:max_chars] + "...[truncated]"
+            
             tool_result = ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.9.5] - 2026-04-26
+
+### Agent Loop & Tool Execution Enhancements
+
+- **Tool Calls Depth Tracking** — Implemented `tool_calls_depth` metadata tracking in both `AgentLoop.run()` and `AgentRuntime._run_act_phase()`. Depth is incremented before each tool execution (`context.metadata["tool_calls_depth"] = depth + 1`) and validated by `_validate_context()` in Pipeline (line 576). Prevents infinite tool call loops by enforcing maximum depth of 10, which raises `ValidationError` when exceeded. Added comprehensive test: `test_tool_calls_depth_validation`.
+
+- **Tool Result Output Size Limit** — Added `tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)` to `AgentConfig`. Both `ToolExecutor.execute()` (agent.py:417) and `ToolRegistry.execute()` (tools.py:281) now truncate oversized tool results with `...[truncated]` suffix and log a warning. Protects against malicious tools returning GB-scale data that could cause memory explosion in `context.messages`. Default limit: 50KB per tool result.
+
+### Token Counting Consistency
+
+- **Unified ContextWindowMiddleware Token Counting** — Changed `process_request()` line 245 from synchronous `self.count_tokens()` to async `await self.count_tokens_async()` after truncation. Ensures consistent tiktoken-based estimation throughout the request lifecycle. All token counting now uses thread pool executor for long messages (>1000 chars), avoiding event loop blocking.
+
+### Trace ID Hierarchy Unification
+
+- **AgentLoop Per-Turn Trace IDs** — `AgentLoop.run()` now updates `context.trace_id` at the start of each turn: `turn_trace_id = f"{context.request_id}.t{turn+1}"`. Also sets `_agent_trace_id_var` ContextVar for consistency with `AgentRuntime`. Enables fine-grained observability where each agent turn has a unique trace identifier (e.g., `req_123.t1`, `req_123.t2`). Matches `AgentRuntime` pattern: `{run_id}.{step_index}`.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 27 agent tests pass ✓
+- No breaking changes to public API (except internal metadata additions)
+- Updated 4 test cases for async trim() method
+- Added 1 new test case: `test_tool_calls_depth_validation`
+
+---
+
 ## [0.9.4] - 2026-04-26
 
 ### Provider & Streaming Improvements

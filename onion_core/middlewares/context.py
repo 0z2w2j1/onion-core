@@ -242,7 +242,7 @@ class ContextWindowMiddleware(BaseMiddleware):
                 keep_rounds,
                 summary_strategy,
             )
-            post_tokens = self.count_tokens(context.messages, encoding)
+            post_tokens = await self.count_tokens_async(context.messages, encoding)
             context.metadata["token_count_after"] = post_tokens
             context.metadata["post_tokens"] = post_tokens
             context.metadata["context_truncated"] = True

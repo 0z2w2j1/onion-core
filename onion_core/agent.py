@@ -111,6 +111,11 @@ class AgentLoop:
         recent_state_hashes: deque[str] = deque(maxlen=progress_window)
 
         for turn in range(self._max_turns):
+            # 为每轮循环更新 trace_id
+            turn_trace_id = f"{context.request_id}.t{turn+1}"
+            context.trace_id = turn_trace_id
+            _agent_trace_id_var.set(turn_trace_id)
+            
             # 1. 内存裁剪（可能修改 context.messages）
             if self._memory is not None:
                 trimmed_messages = await self._memory.trim(context.messages)
@@ -148,6 +153,10 @@ class AgentLoop:
                         context.request_id, dedup_policy, tool_call.id, call_signature,
                     )
                     continue
+
+                # 递增工具调用深度跟踪
+                depth = context.metadata.get("tool_calls_depth", 0) + 1
+                context.metadata["tool_calls_depth"] = depth
 
                 intercepted = await self._pipeline.execute_tool_call(context, tool_call)
                 tool_result = await self._registry.execute(intercepted, context)
@@ -416,6 +425,16 @@ class ToolExecutor:
 
                 if not isinstance(result, (str, dict, list)):
                     result = str(result)
+                
+                # 截断过大的工具结果
+                max_chars = self._config.tool_result_max_chars
+                if isinstance(result, str) and len(result) > max_chars:
+                    logger.warning(
+                        "Tool '%s' result truncated: %d > %d chars",
+                        tool_call.name, len(result), max_chars,
+                    )
+                    result = result[:max_chars] + "...[truncated]"
+                
                 return ToolResult(
                     tool_call_id=tool_call.id, name=tool_call.name,
                     result=result,
@@ -995,6 +1014,11 @@ class AgentRuntime:
             trace_id=trace_id,
             messages=self._state.messages.copy(),
         )
+        
+        # 递增工具调用深度跟踪
+        depth = temp_context.metadata.get("tool_calls_depth", 0) + 1
+        temp_context.metadata["tool_calls_depth"] = depth
+        
         results = await self._executor.execute_all(tool_calls, context=temp_context)
 
         for r in results:
