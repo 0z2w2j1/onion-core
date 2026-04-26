@@ -10,6 +10,13 @@ from src.llm.base import (
 )
 from src.llm.openai import OpenAILLMClient
 from src.memory.buffer import MemorySummarizer, SlidingWindowMemory
+from src.observability.context import (
+    RequestContext,
+    current_request_id,
+    current_trace_id,
+    reset_context,
+    set_context,
+)
 from src.schema.models import (
     ActionType,
     AgentConfig,
@@ -60,4 +67,9 @@ __all__ = [
     "LLMAuthenticationError",
     "SlidingWindowMemory",
     "MemorySummarizer",
+    "RequestContext",
+    "set_context",
+    "reset_context",
+    "current_request_id",
+    "current_trace_id",
 ]

@@ -34,7 +34,7 @@ class ToolExecutor:
     def __init__(self, registry: ToolRegistry, config: AgentConfig) -> None:
         self._registry = registry
         self._config = config
-        self._semaphore = asyncio.Semaphore(5)
+        self._semaphore = asyncio.Semaphore(config.max_concurrent_tools)
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         start = time.monotonic()

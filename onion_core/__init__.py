@@ -14,6 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .agent import AgentLoop, AgentLoopError
 from .base import BaseMiddleware
 from .config import (
+    ConcurrencyConfig,
     ContextWindowConfig,
     ObservabilityConfig,
     OnionConfig,
@@ -98,6 +99,7 @@ __all__ = [
     # 配置
     "OnionConfig",
     "PipelineConfig",
+    "ConcurrencyConfig",
     "SafetyConfig",
     "ContextWindowConfig",
     "ObservabilityConfig",

@@ -63,8 +63,8 @@ class BaseLLMClient(ABC):
                 pool=10.0,
             ),
             limits=httpx.Limits(
-                max_keepalive_connections=20,
-                max_connections=100,
+                max_keepalive_connections=self._config.llm_max_keepalive,
+                max_connections=self._config.llm_max_connections,
                 keepalive_expiry=30.0,
             ),
             headers=self._default_headers(),

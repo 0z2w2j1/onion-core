@@ -54,6 +54,15 @@ class PipelineConfig(BaseModel):
     agent_progress_window: int = 3  # 最近 N 轮状态无变化时提前停止
 
 
+class ConcurrencyConfig(BaseModel):
+    tool_concurrency: int = Field(default=5, ge=1, le=500)
+    llm_max_connections: int = Field(default=100, ge=1, le=1000)
+    llm_max_keepalive: int = Field(default=20, ge=1, le=200)
+    retry_max_attempts: int = Field(default=3, ge=0, le=10)
+    retry_min_wait: float = Field(default=1.0, ge=0.1, le=60.0)
+    retry_max_wait: float = Field(default=30.0, ge=1.0, le=300.0)
+
+
 class OnionConfig(BaseSettings):
     """
     Onion Core 全局配置。
@@ -72,6 +81,7 @@ class OnionConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod

@@ -1,11 +1,12 @@
 """Onion Core observability package."""
 
-from .logging import JsonFormatter, configure_logging
+from .logging import JsonFormatter, StructuredLogAdapter, configure_logging
 from .metrics import MetricsMiddleware
 from .tracing import TracingMiddleware
 
 __all__ = [
     "JsonFormatter",
+    "StructuredLogAdapter",
     "configure_logging",
     "MetricsMiddleware",
     "TracingMiddleware",

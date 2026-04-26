@@ -1,13 +1,32 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.7.4 | Date: 2026-04-26
+> Version: 0.7.5 | Date: 2026-04-26
 
-## Changelog (v0.7.4)
+## Changelog (v0.7.5)
 
-### Performance Optimizations
-- **Cache Short-Circuit**: `ResponseCacheMiddleware` now throws `CacheHitException` on cache hit, allowing Pipeline to skip provider call entirely. This eliminates wasted LLM API calls when cache hits occur.
-- **Stream Sync Memory Fix**: `stream_sync()` now uses generator bridge pattern with thread pool instead of collecting all chunks into memory. Prevents OOM on large streaming responses.
-- **DoS Protection**: Added `max_stream_chunks` configuration (default: 10000) to limit maximum chunks in streaming responses, preventing memory exhaustion attacks.
+### State Compression
+- **Bounded memory growth**: `AgentState` now supports `compress()` and `archive_history()` to limit `messages` and `steps_history` growth across multi-turn conversations
+- **Configurable limits**: `state_max_messages` (default: 200) and `state_max_history_steps` (default: 100) in `AgentConfig`
+- **Layered storage**: Old step records are automatically archived to `archived_summaries` preserving traceability
+- **Auto-compaction**: `AgentRuntime.run()` calls `compact()` on each step to prevent OOM in long-running sessions
+
+### LLM Client Ownership
+- **External lifecycle management**: `AgentRuntime` now accepts `owns_client=False` to skip client cleanup (for singleton/shared clients)
+- **Pipeline provider ownership**: `Pipeline` now accepts `owns_provider=False` for externally managed provider lifecycles
+- **Thread safety**: Singleton `OpenAILLMClient` instances are no longer prematurely closed by runtime instances
+
+### Standardized Observability
+- **Full trace context**: `JsonFormatter` now includes `trace_id`, `span_id`, `error_code`, and `request_id` in structured JSON logs
+- **StructuredLogAdapter**: Convenience wrapper for injecting context fields into any logger
+- **RequestContext**: `ContextVar`-based request/trace/span propagation for the `src/` library
+- **End-to-end traceability**: request_id → trace_id → span_id → error_code chain throughout all modules
+
+### Unified Concurrency Configuration
+- **ConcurrencyConfig**: Centralized `tool_concurrency`, `llm_max_connections`, `llm_max_keepalive`, `retry_max_attempts`, `retry_min_wait`, `retry_max_wait`
+- **AgentConfig extensions**: `max_concurrent_tools`, `llm_max_connections`, `llm_max_keepalive`, `retry_max_attempts`, `retry_min_wait`, `retry_max_wait`
+- **Configurable semaphore**: `ToolExecutor` semaphore size is now driven by `config.max_concurrent_tools`
+- **Configurable HTTP pool**: `BaseLLMClient` HTTP connection pool uses config values for limits
+- **Configurable retry budget**: All retry decorators now accept parameterized attempt counts and wait ranges
 
 ## 1. Overview
 
@@ -145,12 +164,25 @@ async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]
 config = OnionConfig(
     pipeline=PipelineConfig(max_retries=3, provider_timeout=30.0),
     safety=SafetyConfig(enable_pii_masking=True),
+    concurrency=ConcurrencyConfig(tool_concurrency=10, llm_max_connections=200),
 )
 # Or from file:
 config = OnionConfig.from_file("onion.json")
 # Or from env:
 config = OnionConfig.from_env()  # reads ONION__*
+# e.g., ONION__CONCURRENCY__TOOL_CONCURRENCY=10
 ```
+
+#### ConcurrencyConfig
+
+| Field | Default | Range | Description |
+|-------|---------|-------|-------------|
+| `tool_concurrency` | 5 | 1-500 | Max concurrent tool executions |
+| `llm_max_connections` | 100 | 1-1000 | HTTP connection pool max connections |
+| `llm_max_keepalive` | 20 | 1-200 | HTTP keep-alive connections |
+| `retry_max_attempts` | 3 | 0-10 | Max LLM retry attempts |
+| `retry_min_wait` | 1.0s | 0.1-60s | Retry exponential backoff min |
+| `retry_max_wait` | 30.0s | 1-300s | Retry exponential backoff max |
 
 ---
 
@@ -217,6 +249,43 @@ AgentLoop.run(context)
         ├─ has_tool_calls → execute each tool → append results → continue
         └─ is_complete → return response
 ```
+
+### 3.8 Agent Runtime (`src/core/`) — State Compression
+
+`AgentRuntime` (the newer `src/` agent runtime) manages `AgentState` across multi-turn sessions. To prevent unbounded memory growth:
+
+- **`AgentState.compress(config)`** — truncates `messages` list to `state_max_messages` (default: 200), preserving system messages
+- **`AgentState.archive_history(config)`** — moves old `StepRecord` entries to `archived_summaries` list, keeping `state_max_history_steps` (default: 100)
+- **`AgentState.compact(config)`** — runs both compress and archive in one call
+- **`AgentState.diagnose()`** — returns dict with `message_count`, `history_count`, `archive_count`, `total_chars`
+
+The `AgentRuntime.run()` loop calls `compact()` at the start of each step, ensuring memory stays within bounds even in 1000+ turn sessions.
+
+```
+AgentState (in-memory)
+  ├── messages (capped at state_max_messages)
+  ├── steps_history (capped at state_max_history_steps)
+  ├── archived_summaries (unbounded archive of old step descriptions)
+  └── cumulative_usage (running token total)
+```
+
+### 3.9 Agent Runtime (`src/core/`) — LLM Client Ownership
+
+`AgentRuntime` accepts an `owns_client` flag (default: `True`) to control LLM client lifecycle:
+
+```python
+# Shared client (e.g., singleton OpenAILLMClient)
+shared_client = OpenAILLMClient.get_instance(config)
+runtime1 = AgentRuntime(config, shared_client, registry, owns_client=False)
+runtime2 = AgentRuntime(config, shared_client, registry, owns_client=False)
+# shared_client is NOT closed when runtime1/2 finish
+
+# Owned client (runtime creates and destroys its own)
+runtime3 = AgentRuntime(config, dedicated_client, registry, owns_client=True)
+# dedicated_client IS closed in runtime3.run() finally block
+```
+
+Similarly, `Pipeline` accepts `owns_provider` (default: `True`). When `False`, `shutdown()` skips provider cleanup, leaving lifecycle management to the caller.
 
 ---
 

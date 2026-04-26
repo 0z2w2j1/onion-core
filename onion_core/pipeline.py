@@ -111,6 +111,7 @@ class Pipeline:
         circuit_failure_threshold: int = 5,
         circuit_recovery_timeout: float = 30.0,
         max_stream_chunks: int = 10000,
+        owns_provider: bool = True,
     ) -> None:
         """
         Args:
@@ -126,6 +127,7 @@ class Pipeline:
             circuit_failure_threshold: 熔断触发阈值（连续失败次数）
             circuit_recovery_timeout: 熔断恢复超时（秒）
             max_stream_chunks: 流式响应最大 chunk 数，防止 DoS 攻击（默认 10000）
+            owns_provider: 是否由 Pipeline 管理 Provider 生命周期（调用 cleanup）
         """
         self.name = name
         self._provider = provider
@@ -136,6 +138,7 @@ class Pipeline:
         self._retry_base_delay = retry_base_delay
         self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
         self._max_stream_chunks = max_stream_chunks
+        self._owns_provider = owns_provider
 
         # 熔断器配置
         self._enable_circuit_breaker = enable_circuit_breaker
@@ -246,17 +249,18 @@ class Pipeline:
                     errors.append((mw.name, exc))
 
             # 释放 Provider 资源（HTTP 连接等）
-            for p in [self._provider] + self._fallback_providers:
-                try:
-                    cleanup_fn = getattr(p, "cleanup", None)
-                    if cleanup_fn is not None and asyncio.iscoroutinefunction(cleanup_fn):
-                        await cleanup_fn()
-                        logger.debug("Provider '%s' cleaned up.", type(p).__name__)
-                    else:
-                        logger.debug("Provider '%s' has no async cleanup.", type(p).__name__)
-                except Exception as exc:
-                    logger.error("Provider '%s' cleanup failed: %s", type(p).__name__, exc)
-                    errors.append((type(p).__name__, exc))
+            if self._owns_provider:
+                for p in [self._provider] + self._fallback_providers:
+                    try:
+                        cleanup_fn = getattr(p, "cleanup", None)
+                        if cleanup_fn is not None and asyncio.iscoroutinefunction(cleanup_fn):
+                            await cleanup_fn()
+                            logger.debug("Provider '%s' cleaned up.", type(p).__name__)
+                        else:
+                            logger.debug("Provider '%s' has no async cleanup.", type(p).__name__)
+                    except Exception as exc:
+                        logger.error("Provider '%s' cleanup failed: %s", type(p).__name__, exc)
+                        errors.append((type(p).__name__, exc))
 
             self._started = False
             logger.info("Pipeline '%s' stopped.", self.name)

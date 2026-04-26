@@ -378,9 +378,35 @@ configure_logging(
 
 **Key log fields**:
 - `request_id`: Unique identifier for request tracing
+- `trace_id`: Distributed trace identifier (OpenTelemetry compatible)
+- `span_id`: Individual span within a trace
+- `error_code`: Error code from `ErrorCode` enum (e.g., `ONI-P400`)
 - `pipeline_name`: Pipeline instance name
-- `middleware`: Middleware that generated the log
 - `duration_ms`: Operation duration
+
+**StructuredLogAdapter**: Inject context into any logger:
+
+```python
+from onion_core.observability.logging import StructuredLogAdapter
+
+logger = StructuredLogAdapter(
+    logging.getLogger("my_module"),
+    request_id="req-abc123",
+    trace_id="trace-xyz",
+)
+logger.info("Processing started", extra={"span_id": "span-1"})
+# JSON output includes: request_id, trace_id, span_id automatically
+```
+
+**RequestContext (src/ library)**: Propagate request context via `ContextVar`:
+
+```python
+from src.observability import RequestContext, current_request_id
+
+with RequestContext(request_id="req-1", trace_id="trace-1"):
+    print(current_request_id())  # "req-1"
+    # All nested async calls share the same context
+```
 
 ---
 

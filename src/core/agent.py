@@ -10,6 +10,7 @@ from src.core.planner import BasePlanner, DefaultPlanner, PlannerDecision
 from src.core.state import AgentState, StateMachine
 from src.llm.base import BaseLLMClient, LLMError
 from src.memory.buffer import SlidingWindowMemory
+from src.observability.context import RequestContext
 from src.schema.models import (
     ActionType,
     AgentConfig,
@@ -36,6 +37,7 @@ class AgentRuntime:
         tool_registry: ToolRegistry,
         planner: BasePlanner | None = None,
         memory: SlidingWindowMemory | None = None,
+        owns_client: bool = True,
     ) -> None:
         if not llm_client:
             raise AgentRuntimeError("llm_client is required")
@@ -51,6 +53,7 @@ class AgentRuntime:
         self._state: AgentState | None = None
         self._fsm: StateMachine | None = None
         self._cancelled = False
+        self._owns_client = owns_client
         self._step_hooks: list[Callable[[StepRecord], None]] = []
         self._error_hooks: list[Callable[[str, Exception], None]] = []
 
@@ -97,78 +100,85 @@ class AgentRuntime:
 
         self._state.add_message(Message(role=MessageRole.USER, content=user_message))
 
-        logger.info(
-            "AgentRuntime starting: run_id=%s session_id=%s max_steps=%d",
-            self._state.run_id,
-            self._state.session_id,
-            self._config.max_steps,
-        )
+        with RequestContext(
+            request_id=self._state.run_id,
+            trace_id=self._state.session_id,
+        ):
+            logger.info(
+                "AgentRuntime starting: run_id=%s session_id=%s max_steps=%d",
+                self._state.run_id,
+                self._state.session_id,
+                self._config.max_steps,
+            )
 
-        try:
-            self._fsm.transition_to(AgentStatus.THINKING)
+            try:
+                self._fsm.transition_to(AgentStatus.THINKING)
 
-            while self._state.steps < self._config.max_steps and not self._cancelled:
-                self._state.increment_step()
-                step_index = self._state.steps
-                trace_id = f"{self._state.run_id}.{step_index}"
+                while self._state.steps < self._config.max_steps and not self._cancelled:
+                    self._state.increment_step()
+                    step_index = self._state.steps
+                    trace_id_str = f"{self._state.run_id}.{step_index}"
 
-                logger.info(
-                    "Step %d starting: trace_id=%s status=%s",
-                    step_index,
-                    trace_id,
-                    self._state.status.value,
-                )
+                    self._state.compact(self._config)
 
-                try:
-                    decision = await self._run_think_phase(trace_id, step_index)
-                except LLMError as e:
-                    logger.error("LLM error at step %d: %s", step_index, e, exc_info=True)
-                    self._handle_error(trace_id, str(e), e)
-                    self._fsm.transition_to(AgentStatus.ERROR)
-                    break
+                    logger.info(
+                        "Step %d starting: trace_id=%s status=%s",
+                        step_index,
+                        trace_id_str,
+                        self._state.status.value,
+                    )
 
-                if decision is None:
-                    logger.warning("Step %d produced no decision, breaking", step_index)
-                    self._fsm.transition_to(AgentStatus.FINISHED)
-                    break
+                    try:
+                        decision = await self._run_think_phase(trace_id_str, step_index)
+                    except LLMError as e:
+                        logger.error("LLM error at step %d: %s", step_index, e, exc_info=True)
+                        self._handle_error(trace_id_str, str(e), e)
+                        self._fsm.transition_to(AgentStatus.ERROR)
+                        break
 
-                if decision.action_type == ActionType.FINISH:
-                    self._fsm.transition_to(AgentStatus.FINISHED)
-                    logger.info("Agent finished at step %d: %s", step_index, decision.reasoning)
-                    break
+                    if decision is None:
+                        logger.warning("Step %d produced no decision, breaking", step_index)
+                        self._fsm.transition_to(AgentStatus.FINISHED)
+                        break
 
-                if decision.action_type == ActionType.ACT:
-                    await self._run_act_phase(trace_id, step_index)
-                elif decision.action_type == ActionType.ERROR:
-                    self._fsm.transition_to(AgentStatus.ERROR)
-                    break
+                    if decision.action_type == ActionType.FINISH:
+                        self._fsm.transition_to(AgentStatus.FINISHED)
+                        logger.info("Agent finished at step %d: %s", step_index, decision.reasoning)
+                        break
 
-            if self._cancelled:
-                self._state.set_status(AgentStatus.CANCELLED)
-                logger.info("Agent cancelled at step %d", self._state.steps)
+                    if decision.action_type == ActionType.ACT:
+                        await self._run_act_phase(trace_id_str, step_index)
+                    elif decision.action_type == ActionType.ERROR:
+                        self._fsm.transition_to(AgentStatus.ERROR)
+                        break
 
-            if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
-                self._state.set_status(AgentStatus.FINISHED)
-                logger.warning(
-                    "Agent reached max_steps (%d), forced finish",
-                    self._config.max_steps,
-                )
+                if self._cancelled:
+                    self._state.set_status(AgentStatus.CANCELLED)
+                    logger.info("Agent cancelled at step %d", self._state.steps)
 
-        except Exception as e:
-            logger.exception("AgentRuntime fatal error: %s", e)
-            assert self._state is not None
-            self._state.set_status(AgentStatus.ERROR)
-            last_step = self._state.last_step
-            if last_step:
-                last_step.error = str(e)
-            for hook in self._error_hooks:
-                with contextlib.suppress(Exception):
-                    hook(self._state.run_id, e)
+                if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
+                    self._state.set_status(AgentStatus.FINISHED)
+                    logger.warning(
+                        "Agent reached max_steps (%d), forced finish",
+                        self._config.max_steps,
+                    )
 
-        finally:
-            await self._llm_client.close()
+            except Exception as e:
+                logger.exception("AgentRuntime fatal error: %s", e)
+                assert self._state is not None
+                self._state.set_status(AgentStatus.ERROR)
+                last_step = self._state.last_step
+                if last_step:
+                    last_step.error = str(e)
+                for hook in self._error_hooks:
+                    with contextlib.suppress(Exception):
+                        hook(self._state.run_id, e)
 
-        return self._state
+            finally:
+                if self._owns_client:
+                    await self._llm_client.close()
+
+            return self._state
 
     async def _run_think_phase(self, trace_id: str, step_index: int) -> PlannerDecision | None:
         assert self._state is not None

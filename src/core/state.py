@@ -10,12 +10,16 @@ from pydantic import BaseModel, Field
 
 from src.schema.models import (
     ActionType,
+    AgentConfig,
     AgentStatus,
     Message,
     MessageRole,
     StepRecord,
     UsageStats,
 )
+
+_DEFAULT_MAX_MESSAGES = 200
+_DEFAULT_MAX_HISTORY_STEPS = 100
 
 
 class AgentState(BaseModel):
@@ -25,6 +29,7 @@ class AgentState(BaseModel):
     steps: int = Field(default=0, ge=0)
     messages: list[Message] = Field(default_factory=list)
     steps_history: list[StepRecord] = Field(default_factory=list)
+    archived_summaries: list[str] = Field(default_factory=list)
     cumulative_usage: UsageStats = Field(default_factory=UsageStats)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -78,6 +83,51 @@ class AgentState(BaseModel):
 
     def to_user_message(self, content: str) -> Message:
         return Message(role=MessageRole.USER, content=content)
+
+    def compress(self, config: AgentConfig) -> int:
+        max_messages = getattr(config, "state_max_messages", _DEFAULT_MAX_MESSAGES)
+        removed = 0
+        if len(self.messages) > max_messages:
+            overflow = len(self.messages) - max_messages
+            system_msgs = [m for m in self.messages if m.role == MessageRole.SYSTEM]
+            non_system = [m for m in self.messages if m.role != MessageRole.SYSTEM]
+            recent = non_system[max(overflow, len(non_system) - max_messages + len(system_msgs)):]
+            self.messages = system_msgs + recent
+            removed = len(non_system) - len(recent)
+        if removed > 0:
+            self.updated_at = datetime.now(UTC)
+        return removed
+
+    def archive_history(self, config: AgentConfig) -> int:
+        max_steps = getattr(config, "state_max_history_steps", _DEFAULT_MAX_HISTORY_STEPS)
+        archived = 0
+        if len(self.steps_history) > max_steps:
+            overflow = len(self.steps_history) - max_steps
+            old = self.steps_history[:overflow]
+            for sr in old:
+                self.archived_summaries.append(
+                    f"[step {sr.step_index}] {sr.action_type.value}: {sr.duration_ms:.0f}ms"
+                )
+            self.steps_history = self.steps_history[overflow:]
+            archived = len(old)
+        if archived > 0:
+            self.updated_at = datetime.now(UTC)
+        return archived
+
+    def compact(self, config: AgentConfig) -> dict[str, int]:
+        return {
+            "messages_removed": self.compress(config),
+            "history_archived": self.archive_history(config),
+        }
+
+    def diagnose(self) -> dict[str, int]:
+        total_chars = sum(len(m.content or "") for m in self.messages)
+        return {
+            "message_count": len(self.messages),
+            "history_count": len(self.steps_history),
+            "archive_count": len(self.archived_summaries),
+            "total_chars": total_chars,
+        }
 
     def clone(self) -> AgentState:
         return self.model_copy(deep=True)

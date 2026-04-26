@@ -236,6 +236,52 @@ class OpenAILLMClient(BaseLLMClient):
             f"OpenAI client error ({response.status_code}): {error_msg}"
         )
 
+    async def _make_request_with_retry_configurable(
+        self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        retry_decorator = retry(
+            stop=stop_after_attempt(self._config.retry_max_attempts),
+            wait=wait_exponential(
+                multiplier=1,
+                min=self._config.retry_min_wait,
+                max=self._config.retry_max_wait,
+            ),
+            retry=retry_if_exception_type((LLMRateLimitError, LLMTimeoutError)),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+
+        @retry_decorator
+        async def _do_request() -> dict[str, Any]:
+            try:
+                response = await client.post(url, json=payload)
+            except httpx.TimeoutException as e:
+                raise LLMTimeoutError(f"OpenAI request timed out: {e}") from e
+
+            if response.status_code == 200:
+                result: dict[str, Any] = response.json()
+                return result
+
+            error_msg = self._extract_api_error(response)
+
+            if response.status_code in (401, 403):
+                raise LLMAuthenticationError(
+                    f"OpenAI auth error ({response.status_code}): {error_msg}"
+                )
+            if response.status_code == 429:
+                raise LLMRateLimitError(
+                    f"OpenAI rate limit ({response.status_code}): {error_msg}"
+                )
+            if response.status_code >= 500:
+                raise LLMTimeoutError(
+                    f"OpenAI server error ({response.status_code}): {error_msg}"
+                )
+            raise LLMError(
+                f"OpenAI client error ({response.status_code}): {error_msg}"
+            )
+
+        return await _do_request()
+
     @staticmethod
     def _extract_api_error_from_bytes(data: bytes) -> str:
         try:
