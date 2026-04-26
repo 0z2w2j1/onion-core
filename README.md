@@ -4,7 +4,7 @@
 
 **Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
 
-[![Version](https://img.shields.io/badge/version-0.7.4-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -253,7 +253,7 @@ Or from file (`onion.json` / `onion.yaml`):
 
 | Item | Status |
 |------|--------|
-| Version | 0.7.4 (Beta) |
+| Version | 0.8.0 (Beta) |
 | Python Support | 3.11, 3.12 |
 | Test Coverage | 372+ tests, **92%** coverage |
 | Type Check | mypy -- strict ✓ |
@@ -286,6 +286,7 @@ Or from file (`onion.json` / `onion.yaml`):
 - [x] Enhanced input validation - Unicode bomb detection & nesting depth (v0.7.4)
 - [x] Health check HTTP server for Kubernetes probes (v0.7.4)
 - [x] Comprehensive monitoring guide with Grafana dashboard JSON (v0.7.4)
+- [x] **Architecture consolidation: removed `src/`, unified models and runtime into `onion_core/` (v0.8.0)**
 
 ### 📋 Roadmap
 
@@ -555,7 +556,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 0.7.4（Beta） |
+| 版本 | 0.8.0（Beta） |
 | Python 支持 | 3.11、3.12 |
 | 测试覆盖 | 372+ 个测试，**92%** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
@@ -588,6 +589,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [x] 增强输入验证 - Unicode 炸弹检测和嵌套深度（v0.7.4）
 - [x] Kubernetes 探针健康检查 HTTP 服务器（v0.7.4）
 - [x] 包含 Grafana Dashboard JSON 的完整监控指南（v0.7.4）
+- [x] **架构统一：移除 `src/`，模型和运行时合并到 `onion_core/`（v0.8.0）**
 
 ### 📋 路线图
 

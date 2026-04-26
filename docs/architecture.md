@@ -443,6 +443,10 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - **Structured log filter**: `StructuredLogFilter` in `src/observability/context.py` injects `request_id`/`trace_id`/`span_id`/`error_code` into all log records
 - **Summary-based memory compression**: `_run_think_phase` now uses `trim_with_summary()` for higher-quality context compression
 
+### Recent Improvements (v0.8.0)
+
+- **Architecture consolidation**: Removed `src/` package, unified all models and runtime logic into `onion_core/`. `AgentRuntime`, `StateMachine`, `Planner`, `ToolExecutor`, and `SlidingWindowMemory` now live in `onion_core.agent`. `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` moved to `onion_core.models`.
+
 ### Recent Improvements (v0.7.4)
 
 - **Stream timeout control**: Fixed to use absolute deadline instead of per-chunk timeout
@@ -575,7 +579,7 @@ with Pipeline(provider=MyProvider()) as p:
 
 # Onion Core - 架构设计文档
 
-> 版本：0.7.4 | 日期：2026-04-26
+> 版本：0.8.0 | 日期：2026-04-26
 
 ## 1. 概述
 
@@ -930,6 +934,10 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - **流式 API 实现**：`AgentRuntime.run_streaming()` 现在是一个可用的 `AsyncIterator[StepRecord]`
 - **结构化日志过滤器**：`StructuredLogFilter` 将 `request_id`/`trace_id`/`span_id`/`error_code` 注入所有日志记录
 - **基于摘要的内存压缩**：`_run_think_phase` 使用 `trim_with_summary()` 实现更高质量的上下文压缩
+
+### 近期改进 (v0.8.0)
+
+- **架构统一**：移除 `src/` 包，将所有模型和运行时逻辑合并到 `onion_core/`。`AgentRuntime`、`StateMachine`、`Planner`、`ToolExecutor`、`SlidingWindowMemory` 移至 `onion_core.agent`。`AgentStatus`、`ActionType`、`StepRecord`、`AgentConfig`、`AgentState` 移至 `onion_core.models`。
 
 ### 近期改进 (v0.7.4)
 

@@ -11,7 +11,20 @@ Onion Core — Agent 中间件框架
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .agent import AgentLoop, AgentLoopError
+from .agent import (
+    AgentLoop,
+    AgentLoopError,
+    AgentRuntime,
+    AgentRuntimeError,
+    BasePlanner,
+    DefaultPlanner,
+    MemorySummarizer,
+    PlannerDecision,
+    SlidingWindowMemory,
+    StateMachine,
+    StateTransitionError,
+    ToolExecutor,
+)
 from .base import BaseMiddleware
 from .config import (
     ConcurrencyConfig,
@@ -32,20 +45,24 @@ from .error_codes import (
 )
 from .health_server import HealthServer, start_health_server
 from .models import (
+    ActionType,
+    AgentConfig,
     AgentContext,
+    AgentState,
+    AgentStatus,
     CacheHitException,
     FinishReason,
     LLMResponse,
     Message,
     MessageRole,
     MiddlewareEvent,
-    # 异常基类与 RetryPolicy
     OnionError,
     ProviderError,
     RateLimitExceeded,
     RetryOutcome,
     RetryPolicy,
     SecurityException,
+    StepRecord,
     StreamChunk,
     ToolCall,
     ToolResult,
@@ -58,7 +75,7 @@ from .provider import EchoProvider, LLMProvider
 try:
     __version__ = version("onion-core")
 except PackageNotFoundError:
-    __version__ = "0.7.4"
+    __version__ = "0.8.0"
 
 __all__ = [
     # 核心
@@ -70,6 +87,11 @@ __all__ = [
     "EchoProvider",
     # 模型
     "AgentContext",
+    "AgentConfig",
+    "AgentState",
+    "AgentStatus",
+    "ActionType",
+    "StepRecord",
     "Message",
     "MessageRole",
     "LLMResponse",
@@ -79,6 +101,19 @@ __all__ = [
     "UsageStats",
     "MiddlewareEvent",
     "FinishReason",
+    # Agent Runtime
+    "AgentRuntime",
+    "AgentRuntimeError",
+    "AgentLoop",
+    "AgentLoopError",
+    "StateMachine",
+    "StateTransitionError",
+    "BasePlanner",
+    "DefaultPlanner",
+    "PlannerDecision",
+    "ToolExecutor",
+    "SlidingWindowMemory",
+    "MemorySummarizer",
     # 异常与重试策略
     "OnionError",
     "SecurityException",
@@ -88,7 +123,7 @@ __all__ = [
     "CacheHitException",
     "RetryPolicy",
     "RetryOutcome",
-    # 错误码（新增）
+    # 错误码
     "ErrorCode",
     "OnionErrorWithCode",
     "ERROR_MESSAGES",
@@ -103,9 +138,7 @@ __all__ = [
     "SafetyConfig",
     "ContextWindowConfig",
     "ObservabilityConfig",
-    "AgentLoop",
-    "AgentLoopError",
-    # 健康检查服务器
+    # 健康检查
     "HealthServer",
     "start_health_server",
     # 版本

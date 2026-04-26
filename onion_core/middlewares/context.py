@@ -9,7 +9,15 @@ from typing import Protocol
 import tiktoken
 
 from ..base import BaseMiddleware
-from ..models import AgentContext, LLMResponse, Message, StreamChunk, ToolCall, ToolResult
+from ..models import (
+    AgentContext,
+    LLMResponse,
+    Message,
+    MessageRole,
+    StreamChunk,
+    ToolCall,
+    ToolResult,
+)
 
 logger = logging.getLogger("onion_core.context")
 
@@ -144,7 +152,7 @@ class ContextWindowMiddleware(BaseMiddleware):
                 return None, False
 
             summary_msg = Message(
-                role="system",
+                role=MessageRole.SYSTEM,
                 content=f"[Summary: Conversation history truncated]\n{summary_text}",
             )
             return summary_msg, True

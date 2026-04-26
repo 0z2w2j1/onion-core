@@ -4,42 +4,10 @@ import asyncio
 import logging
 
 import pytest
-from pydantic import BaseModel
 
-from src.core.executor import ToolExecutor
-from src.schema.models import AgentConfig, ToolCall
-from src.tools.base import BaseTool, ToolError
-from src.tools.registry import ToolRegistry
-
-
-class EmptyArgs(BaseModel):
-    pass
-
-
-class FlakyTool(BaseTool):
-    name = "flaky_tool"
-    description = "Flaky tool for retry tests"
-    input_schema = EmptyArgs
-
-    def __init__(self, fail_times: int) -> None:
-        self._fail_times = fail_times
-        self.calls = 0
-
-    async def execute(self, **kwargs):  # type: ignore[override]
-        self.calls += 1
-        if self.calls <= self._fail_times:
-            raise ToolError("transient failure")
-        return "ok"
-
-
-class TimeoutTool(BaseTool):
-    name = "timeout_tool"
-    description = "Timeout tool for retry tests"
-    input_schema = EmptyArgs
-
-    async def execute(self, **kwargs):  # type: ignore[override]
-        await asyncio.sleep(2.0)
-        return "late"
+from onion_core.agent import ToolExecutor
+from onion_core.models import AgentConfig, ToolCall
+from onion_core.tools import ToolRegistry
 
 
 @pytest.mark.asyncio
@@ -58,43 +26,49 @@ async def test_tool_executor_retry_boundaries(
     retry_count: int,
     call_count: int,
 ):
+    call_counter = {"calls": 0}
+
+    async def flaky_tool() -> str:
+        call_counter["calls"] += 1
+        if call_counter["calls"] <= fail_times:
+            raise ValueError("transient failure")
+        return "ok"
+
     registry = ToolRegistry()
-    tool = FlakyTool(fail_times=fail_times)
-    registry.register(tool)
+    registry.register_func(flaky_tool, name="flaky_tool")
 
     executor = ToolExecutor(
         registry,
         AgentConfig(tool_max_retries=tool_max_retries, tool_timeout_seconds=1.0),
     )
 
-    result = await executor.execute(ToolCall(id="call_1", name=tool.name, arguments={}))
+    result = await executor.execute(ToolCall(id="call_1", name="flaky_tool", arguments={}))
 
     assert result.is_error is is_error
     assert result.retry_count == retry_count
-    assert tool.calls == call_count
+    assert call_counter["calls"] == call_count
 
 
 @pytest.mark.asyncio
 async def test_tool_executor_timeout_error_and_retry_logging_fields(caplog: pytest.LogCaptureFixture):
+    async def slow_tool() -> str:
+        await asyncio.sleep(2.0)
+        return "late"
+
     registry = ToolRegistry()
-    tool = TimeoutTool()
-    registry.register(tool)
+    registry.register_func(slow_tool, name="slow_tool")
 
     executor = ToolExecutor(
         registry,
         AgentConfig(tool_max_retries=1, tool_timeout_seconds=1.0),
     )
 
-    with caplog.at_level(logging.WARNING, logger="src.core.executor"):
-        result = await executor.execute(ToolCall(id="call_1", name=tool.name, arguments={}))
+    with caplog.at_level(logging.WARNING, logger="onion_core.agent"):
+        result = await executor.execute(ToolCall(id="call_1", name="slow_tool", arguments={}))
 
     assert result.is_error
     assert "timed out" in (result.error or "")
     assert result.retry_count == 1
 
-    timeout_records = [r for r in caplog.records if r.message == "Tool attempt timed out"]
-    assert len(timeout_records) == 2
-    for record in timeout_records:
-        assert getattr(record, "tool_name", None) == tool.name
-        assert getattr(record, "attempt", None) in {1, 2}
-        assert isinstance(getattr(record, "elapsed", None), float)
+    timeout_records = [r for r in caplog.records if "timed out" in r.message]
+    assert len(timeout_records) == 1

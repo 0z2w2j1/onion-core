@@ -92,10 +92,14 @@ class AnthropicProvider(LLMProvider):
                 })
             else:
                 role = "user" if msg.role == "user" else "assistant"
-                content = msg.content if isinstance(msg.content, str) else [
-                    {"type": b.type, **({"text": b.text} if b.text else {})}
-                    for b in msg.content
-                ]
+                content: str | list[dict[str, str]] = ""
+                if isinstance(msg.content, str):
+                    content = msg.content
+                elif isinstance(msg.content, list):
+                    content = [
+                        {"type": b.type, **({"text": b.text} if b.text else {})}
+                        for b in msg.content
+                    ]
                 messages.append({"role": role, "content": content})
         return "\n\n".join(system_parts), messages
 

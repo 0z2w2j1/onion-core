@@ -1,25 +1,64 @@
 """
 Onion Core - 核心数据模型定义
+
+包含 Agent Runtime、Pipeline、Middleware 所需的所有数据类型。
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
     from .error_codes import ErrorCode
 
-MessageRole = Literal["system", "user", "assistant", "tool"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Agent 状态与动作枚举
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AgentStatus(StrEnum):
+    IDLE = "idle"
+    THINKING = "thinking"
+    ACTING = "acting"
+    FINISHED = "finished"
+    ERROR = "error"
+    CANCELLED = "cancelled"
 
 
-# ── 异常基类（统一定义，避免字符串名称判断的脆弱性）────────────────────────────
+class ActionType(StrEnum):
+    REASON = "reason"
+    ACT = "act"
+    FINISH = "finish"
+    ERROR = "error"
+
+
+class MessageRole(StrEnum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class FinishReason(StrEnum):
+    STOP = "stop"
+    LENGTH = "length"
+    TOOL_CALLS = "tool_calls"
+    CONTENT_FILTER = "content_filter"
+    MAX_STEPS = "max_steps"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 异常基类
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class OnionError(Exception):
-    """Onion Core 所有异常的基类。"""
     is_fatal: bool = True
     error_code: ErrorCode | None = None
 
@@ -34,7 +73,6 @@ class OnionError(Exception):
 
 
 class SecurityException(OnionError):
-    """安全策略拦截异常（链路中断，不可重试）。"""
     is_fatal: bool = True
 
     def __init__(
@@ -47,7 +85,6 @@ class SecurityException(OnionError):
 
 
 class RateLimitExceeded(OnionError):
-    """限流异常（链路中断，不可重试）。"""
     is_fatal: bool = True
 
     def __init__(
@@ -60,7 +97,6 @@ class RateLimitExceeded(OnionError):
 
 
 class ProviderError(OnionError):
-    """Provider 调用失败（可重试）。"""
     is_fatal: bool = False
 
     def __init__(
@@ -73,12 +109,10 @@ class ProviderError(OnionError):
 
 
 class CircuitBreakerError(OnionError):
-    """熔断器异常：当 Provider 处于熔断状态时抛出。"""
     is_fatal: bool = False
 
 
 class ValidationError(OnionError):
-    """输入验证失败异常（不可重试）。"""
     is_fatal: bool = True
 
     def __init__(
@@ -91,67 +125,35 @@ class ValidationError(OnionError):
 
 
 class CacheHitException(OnionError):
-    """
-    缓存命中异常：用于在 request 阶段中断 Provider 调用。
-    
-    当 ResponseCacheMiddleware 检测到缓存命中时抛出此异常，
-    Pipeline 捕获后直接返回缓存的响应，避免无效的 LLM 调用。
-    """
     def __init__(self, cached_response: LLMResponse) -> None:
         self.cached_response = cached_response
         super().__init__("Cache hit - returning cached response")
 
 
-# ── 带错误码的异常（向后兼容扩展）────────────────────────────────────────────
-#  原有 OnionError 子类保持不变，新增 OnionErrorWithCode 供新代码使用。
-#  Pipeline 中通过 RetryPolicy.classify() 统一判断重试策略。
-#  注意：error_codes 模块通过 TYPE_CHECKING 避免循环导入，此处不主动导入。
-
-# ── CircuitBreaker 状态 ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# CircuitBreaker & RetryPolicy
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class CircuitState(StrEnum):
-    """熔断器状态枚举。"""
-    CLOSED = "closed"        # 正常：请求通过
-    OPEN = "open"            # 熔断：请求直接拒绝
-    HALF_OPEN = "half_open"  # 半开：允许少量请求测试恢复情况
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
 
-
-# ── RetryPolicy ──────────────────────────────────────────────────────────────
 
 class RetryOutcome(StrEnum):
-    """重试决策结果。"""
-    RETRY = "retry"          # 可重试（网络/超时类）
-    FALLBACK = "fallback"    # 不可重试但可 Fallback（限流/服务不可用）
-    FATAL = "fatal"          # 彻底失败，立即抛出（业务逻辑/安全拦截）
+    RETRY = "retry"
+    FALLBACK = "fallback"
+    FATAL = "fatal"
 
 
 class RetryPolicy:
-    """
-    重试决策器：明确区分三种异常处置策略。
-
-    - FATAL:    OnionError.is_fatal=True，或 ValueError/TypeError 等编程错误
-                → 立即抛出，不重试，不 Fallback
-    - FALLBACK: RateLimitExceeded 等服务层错误
-                → 跳过当前 provider，尝试 Fallback
-    - RETRY:    网络超时、连接错误等瞬时故障
-                → 指数退避重试当前 provider
-
-    用法：
-        policy = RetryPolicy()
-        outcome = policy.classify(exc)
-    """
-
-    # 直接判 FATAL 的内建异常类型（不依赖字符串名称）
     _FATAL_TYPES = (
         ValueError, TypeError, NotImplementedError,
         AttributeError, KeyError, IndexError,
     )
-
-    # 直接判 FALLBACK 的 OnionError 子类
     _FALLBACK_TYPES = (RateLimitExceeded,)
 
     def classify(self, exc: Exception) -> RetryOutcome:
-        """对异常进行三分类。"""
         if isinstance(exc, OnionError):
             retry_outcome: RetryOutcome | None = getattr(exc, "retry_outcome", None)
             if retry_outcome is not None:
@@ -161,12 +163,8 @@ class RetryPolicy:
             if isinstance(exc, self._FALLBACK_TYPES):
                 return RetryOutcome.FALLBACK
             return RetryOutcome.RETRY
-
-        # 内建编程错误：直接 FATAL
         if isinstance(exc, self._FATAL_TYPES):
             return RetryOutcome.FATAL
-
-        # asyncio 超时、连接错误等：RETRY
         return RetryOutcome.RETRY
 
     def is_retryable(self, exc: Exception) -> bool:
@@ -176,7 +174,6 @@ class RetryPolicy:
         return self.classify(exc) == RetryOutcome.FATAL
 
     def is_chain_breaking(self, exc: Exception) -> bool:
-        """链路中断：FATAL 或 OnionError 子类标记为 fatal（安全/限流拦截）。"""
         if isinstance(exc, OnionError):
             retry_outcome: RetryOutcome | None = getattr(exc, "retry_outcome", None)
             if retry_outcome is not None:
@@ -185,96 +182,99 @@ class RetryPolicy:
         return self.classify(exc) == RetryOutcome.FATAL
 
 
-class FinishReason(StrEnum):
-    """LLM 响应结束原因枚举。"""
-    STOP = "stop"
-    LENGTH = "length"
-    TOOL_CALLS = "tool_calls"
-    CONTENT_FILTER = "content_filter"
-    ERROR = "error"
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# 消息 & 内容模型
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class ImageUrl(BaseModel):
-    """图片 URL 内容块（OpenAI vision 格式）。"""
     url: str
     detail: Literal["auto", "low", "high"] = "auto"
 
 
 class ContentBlock(BaseModel):
-    """多模态内容块，支持文本和图片。"""
     type: Literal["text", "image_url", "image"]
     text: str | None = None
     image_url: ImageUrl | None = None
-    # Anthropic base64 图片
     source: dict[str, Any] | None = None
 
 
 class Message(BaseModel):
-    """
-    单条对话消息。
-
-    content 支持纯文本（str）或多模态内容块列表（List[ContentBlock]），
-    兼容 OpenAI vision 和 Anthropic multimodal API。
-    """
     role: MessageRole
-    content: str | list[ContentBlock]
+    content: str | list[ContentBlock] | None = None
     name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
     @property
     def text_content(self) -> str:
-        """提取纯文本内容，用于关键词检测等文本处理场景。"""
         if isinstance(self.content, str):
             return self.content
-        return " ".join(
-            block.text for block in self.content
-            if block.type == "text" and block.text
-        )
+        if isinstance(self.content, list):
+            return " ".join(
+                block.text for block in self.content
+                if block.type == "text" and block.text
+            )
+        return ""
 
 
-class AgentContext(BaseModel):
-    """贯穿整个中间件生命周期的上下文对象。"""
-    request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    session_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
-    trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    messages: list[Message] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    config: dict[str, Any] = Field(default_factory=dict)
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# 工具调用
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class ToolCall(BaseModel):
-    """LLM 发起的工具调用请求。"""
-    id: str
+    id: str = Field(default_factory=lambda: f"call_{uuid.uuid4().hex[:12]}")
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("tool call name must not be empty")
+        return v.strip()
+
 
 class ToolResult(BaseModel):
-    """工具执行结果。"""
     tool_call_id: str
     name: str
-    result: str | dict[str, Any] | list[Any] | None = None
+    result: Any = None
     error: str | None = None
+    duration_ms: float = 0.0
+    retry_count: int = 0
 
     @property
     def is_error(self) -> bool:
         return self.error is not None
 
+    def to_message(self) -> Message:
+        content = self.error if self.is_error else str(self.result)
+        return Message(
+            role=MessageRole.TOOL,
+            content=content,
+            name=self.name,
+            tool_call_id=self.tool_call_id,
+        )
+
 
 class UsageStats(BaseModel):
-    """Token 用量统计。"""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_tokens: int = 0
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LLM 响应
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class LLMResponse(BaseModel):
-    """LLM 调用的标准化响应。"""
     content: str | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
     finish_reason: FinishReason | None = None
     usage: UsageStats | None = None
     model: str | None = None
     raw: Any | None = None
+    latency_ms: float = 0.0
 
     @property
     def has_tool_calls(self) -> bool:
@@ -284,9 +284,198 @@ class LLMResponse(BaseModel):
     def is_complete(self) -> bool:
         return self.finish_reason == FinishReason.STOP
 
+    @property
+    def is_finished(self) -> bool:
+        return self.finish_reason in (
+            FinishReason.STOP,
+            FinishReason.MAX_STEPS,
+            FinishReason.CANCELLED,
+        )
+
+    def to_assistant_message(self) -> Message:
+        return Message(
+            role=MessageRole.ASSISTANT,
+            content=self.content,
+            tool_calls=self.tool_calls if self.tool_calls else None,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Agent 配置与上下文
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AgentConfig(BaseModel):
+    model: str = "gpt-4"
+    max_steps: int = Field(default=10, ge=1, le=100)
+    max_tokens: int = Field(default=4096, ge=256, le=128000)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    system_prompt: str = ""
+    tool_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    tool_max_retries: int = Field(default=2, ge=0, le=10)
+    memory_max_tokens: int = Field(default=4000, ge=256, le=128000)
+    state_max_messages: int = Field(default=200, ge=10, le=10000)
+    state_max_history_steps: int = Field(default=100, ge=5, le=5000)
+    max_concurrent_tools: int = Field(default=5, ge=1, le=500)
+    llm_max_connections: int = Field(default=100, ge=1, le=1000)
+    llm_max_keepalive: int = Field(default=20, ge=1, le=200)
+    retry_max_attempts: int = Field(default=3, ge=0, le=10)
+    retry_min_wait: float = Field(default=1.0, ge=0.1, le=60.0)
+    retry_max_wait: float = Field(default=30.0, ge=1.0, le=300.0)
+    stop_sequences: list[str] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContext(BaseModel):
+    request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    session_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
+    trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    messages: list[Message] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Agent State — Runtime 内部状态
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_DEFAULT_MAX_MESSAGES = 200
+_DEFAULT_MAX_HISTORY_STEPS = 100
+
+
+class StepRecord(BaseModel):
+    step_index: int
+    trace_id: str
+    action_type: ActionType
+    status: AgentStatus
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    llm_response: LLMResponse | None = None
+    tool_results: list[ToolResult] = Field(default_factory=list)
+    error: str | None = None
+    duration_ms: float = 0.0
+    token_usage: UsageStats = Field(default_factory=UsageStats)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentState(BaseModel):
+    run_id: str = Field(default_factory=lambda: f"run_{uuid.uuid4().hex[:8]}")
+    session_id: str = Field(default_factory=lambda: f"sess_{uuid.uuid4().hex[:8]}")
+    status: AgentStatus = AgentStatus.IDLE
+    steps: int = Field(default=0, ge=0)
+    messages: list[Message] = Field(default_factory=list)
+    steps_history: list[StepRecord] = Field(default_factory=list)
+    archived_summaries: list[str] = Field(default_factory=list)
+    cumulative_usage: UsageStats = Field(default_factory=UsageStats)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in (
+            AgentStatus.FINISHED,
+            AgentStatus.ERROR,
+            AgentStatus.CANCELLED,
+        )
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in (AgentStatus.THINKING, AgentStatus.ACTING)
+
+    @property
+    def last_step(self) -> StepRecord | None:
+        return self.steps_history[-1] if self.steps_history else None
+
+    def add_message(self, message: Message) -> None:
+        self.messages.append(message)
+        self.updated_at = datetime.now(UTC)
+
+    def add_messages(self, messages: list[Message]) -> None:
+        self.messages.extend(messages)
+        self.updated_at = datetime.now(UTC)
+
+    def increment_step(self) -> int:
+        self.steps += 1
+        self.updated_at = datetime.now(UTC)
+        return self.steps
+
+    def record_step(self, step: StepRecord) -> None:
+        self.steps_history.append(step)
+        if step.token_usage:
+            self.cumulative_usage.prompt_tokens += step.token_usage.prompt_tokens
+            self.cumulative_usage.completion_tokens += step.token_usage.completion_tokens
+            self.cumulative_usage.total_tokens += step.token_usage.total_tokens
+        self.updated_at = datetime.now(UTC)
+
+    def set_status(self, status: AgentStatus) -> None:
+        self.status = status
+        self.updated_at = datetime.now(UTC)
+
+    def to_system_message(self, content: str) -> Message:
+        return Message(role=MessageRole.SYSTEM, content=content)
+
+    def to_user_message(self, content: str) -> Message:
+        return Message(role=MessageRole.USER, content=content)
+
+    def compress(self, config: AgentConfig) -> int:
+        max_messages = getattr(config, "state_max_messages", _DEFAULT_MAX_MESSAGES)
+        removed = 0
+        if len(self.messages) > max_messages:
+            overflow = len(self.messages) - max_messages
+            system_msgs = [m for m in self.messages if m.role == MessageRole.SYSTEM]
+            non_system = [m for m in self.messages if m.role != MessageRole.SYSTEM]
+            recent = non_system[max(overflow, len(non_system) - max_messages + len(system_msgs)):]
+            self.messages = system_msgs + recent
+            removed = len(non_system) - len(recent)
+        if removed > 0:
+            self.updated_at = datetime.now(UTC)
+        return removed
+
+    def archive_history(self, config: AgentConfig) -> int:
+        max_steps = getattr(config, "state_max_history_steps", _DEFAULT_MAX_HISTORY_STEPS)
+        archived = 0
+        if len(self.steps_history) > max_steps:
+            overflow = len(self.steps_history) - max_steps
+            old = self.steps_history[:overflow]
+            for sr in old:
+                self.archived_summaries.append(
+                    f"[step {sr.step_index}] {sr.action_type.value}: {sr.duration_ms:.0f}ms"
+                )
+            self.steps_history = self.steps_history[overflow:]
+            archived = len(old)
+        if archived > 0:
+            self.updated_at = datetime.now(UTC)
+        return archived
+
+    def compact(self, config: AgentConfig) -> dict[str, int]:
+        return {
+            "messages_removed": self.compress(config),
+            "history_archived": self.archive_history(config),
+        }
+
+    def diagnose(self) -> dict[str, int]:
+        total_chars = sum(len(m.content or "") for m in self.messages if isinstance(m.content, str))
+        return {
+            "message_count": len(self.messages),
+            "history_count": len(self.steps_history),
+            "archive_count": len(self.archived_summaries),
+            "total_chars": total_chars,
+        }
+
+    def clone(self) -> AgentState:
+        return self.model_copy(deep=True)
+
+    def snapshot(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 流式 & 事件
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class StreamChunk(BaseModel):
-    """流式响应的单个数据块。"""
     delta: str = ""
     tool_call_delta: dict[str, Any] | None = None
     finish_reason: FinishReason | None = None
@@ -294,7 +483,6 @@ class StreamChunk(BaseModel):
 
 
 class MiddlewareEvent(StrEnum):
-    """中间件生命周期事件类型。"""
     ON_REQUEST = "on_request"
     ON_RESPONSE = "on_response"
     ON_STREAM_CHUNK = "on_stream_chunk"

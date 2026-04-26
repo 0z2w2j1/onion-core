@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0] - 2026-04-26
+
+### Architecture Consolidation
+
+- **Removed `src/` package**: All models, runtime, and tooling now live exclusively in `onion_core/`. Eliminates the dual-architecture problem where two independent implementations coexisted.
+- **Unified models**: `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` moved to `onion_core.models`. `MessageRole` changed from `Literal` to `StrEnum` for type safety. `ToolResult`, `LLMResponse`, `UsageStats`, `FinishReason` extended with fields from the `src/` API.
+- **Unified agent runtime**: `AgentRuntime`, `StateMachine`, `BasePlanner`/`DefaultPlanner`, `ToolExecutor`, `SlidingWindowMemory`, `MemorySummarizer` moved to `onion_core.agent`. `AgentRuntime` now accepts `LLMProvider` instead of `BaseLLMClient`.
+- **Updated `ToolResult`**: Added `retry_count`, `duration_ms` fields and `to_message()` method.
+- **Updated `LLMResponse`**: Added `latency_ms` field, `to_assistant_message()`, `is_finished` properties.
+- **Updated `ToolCall`**: Added `id` default factory and `name_not_empty` validator.
+- **Updated `Message`**: Added `tool_call_id`, `tool_calls` optional fields; `content` now accepts `None`.
+- **Clean lint/type**: Full `ruff` and `mypy --strict` compliance with zero errors.
+
 ## [Unreleased]
 
 ### Fixed

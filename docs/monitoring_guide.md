@@ -1,6 +1,6 @@
 # Onion Core - Monitoring & Alerting Guide
 
-> Version: 0.7.4 | Updated: 2026-04-26
+> Version: 0.8.0 | Updated: 2026-04-26
 
 This guide provides comprehensive instructions for monitoring Onion Core in production environments, including Prometheus metrics, Grafana dashboards, and Alertmanager rules.
 

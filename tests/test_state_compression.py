@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from src.core.state import AgentState
-from src.schema.models import (
+from onion_core.models import (
     ActionType,
     AgentConfig,
+    AgentState,
     AgentStatus,
     Message,
     MessageRole,

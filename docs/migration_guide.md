@@ -1,6 +1,47 @@
-# Migration Guide - Onion Core v0.6.0 to v0.7.0
+# Migration Guide
 
-> Version: 0.7.4 | Updated: 2026-04-26
+> Version: 0.8.0 | Updated: 2026-04-26
+
+---
+
+## Migrating from v0.7.x to v0.8.0
+
+### Architecture Consolidation: `src/` Removed
+
+The `src/` package has been removed. All functionality has been consolidated into `onion_core/`.
+
+**What changed:**
+- All imports from `src.xxx` must be changed to `onion_core.xxx`
+- `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` → `onion_core.models`
+- `AgentRuntime`, `StateMachine`, `BasePlanner`, `DefaultPlanner`, `PlannerDecision`, `ToolExecutor`, `SlidingWindowMemory`, `MemorySummarizer` → `onion_core.agent`
+
+**Migration:**
+```python
+# Old (v0.7.x)
+from src.core.agent import AgentRuntime
+from src.schema.models import AgentConfig, AgentStatus
+
+# New (v0.8.0)
+from onion_core import AgentRuntime, AgentConfig, AgentStatus
+from onion_core.agent import SlidingWindowMemory
+```
+
+**Note:** `AgentRuntime` now accepts `LLMProvider` instead of `BaseLLMClient`:
+```python
+from onion_core import AgentRuntime, AgentConfig
+from onion_core.providers.openai import OpenAIProvider
+
+runtime = AgentRuntime(
+    config=AgentConfig(model="gpt-4"),
+    llm_provider=OpenAIProvider(api_key="sk-..."),
+    tool_registry=registry,
+)
+await runtime.run("Hello")
+```
+
+---
+
+## Migrating from v0.6.0 to v0.7.0
 
 This guide helps you migrate from Onion Core v0.6.0 to v0.7.0, covering new features, breaking changes, and best practices.
 

@@ -1,6 +1,6 @@
 # Onion Core - API Reference
 
-> Version: 0.7.4 | Updated: 2026-04-26
+> Version: 0.8.0 | Updated: 2026-04-26
 
 This document describes every public class, function, and configuration option in the `onion_core` package.
 
@@ -837,7 +837,7 @@ ERROR_RETRY_POLICY() -> Dict[ErrorCode, RetryOutcome]  # Lazy-loaded retry polic
 
 # Onion Core - API 参考
 
-> 版本：0.7.4 | 更新日期：2026-04-26
+> 版本：0.8.0 | 更新日期：2026-04-26
 
 本文档描述 `onion_core` 包中的所有公共类、函数和配置选项。
 
