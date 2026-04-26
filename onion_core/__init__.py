@@ -51,6 +51,7 @@ from .models import (
     AgentState,
     AgentStatus,
     CacheHitException,
+    CircuitBreakerError,
     FinishReason,
     LLMResponse,
     Message,
@@ -121,6 +122,7 @@ __all__ = [
     "ProviderError",
     "ValidationError",
     "CacheHitException",
+    "CircuitBreakerError",
     "RetryPolicy",
     "RetryOutcome",
     # 错误码

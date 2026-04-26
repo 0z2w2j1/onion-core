@@ -14,11 +14,14 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 logger = logging.getLogger("onion_core.providers.openai")
 
@@ -43,6 +46,7 @@ class OpenAIProvider(LLMProvider):
         default_headers: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         temperature: float = 1.0,
+        client: AsyncOpenAI | None = None,
     ) -> None:
         try:
             from openai import AsyncOpenAI
@@ -54,12 +58,16 @@ class OpenAIProvider(LLMProvider):
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
-        self._client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            organization=organization,
-            default_headers=default_headers or {},
-        )
+        self._owns_client = client is None
+        if client is not None:
+            self._client = client
+        else:
+            self._client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                organization=organization,
+                default_headers=default_headers or {},
+            )
 
     @property
     def name(self) -> str:
@@ -174,4 +182,5 @@ class OpenAIProvider(LLMProvider):
             ) from exc
 
     async def cleanup(self) -> None:
-        await self._client.close()
+        if self._owns_client:
+            await self._client.close()

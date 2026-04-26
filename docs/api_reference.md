@@ -473,7 +473,9 @@ class OpenAIProvider(LLMProvider):
         default_headers: Optional[dict] = None,
         max_tokens: Optional[int] = None,
         temperature: float = 1.0,
+        client: Optional[AsyncOpenAI] = None,
     ) -> None: ...
+# Pass `client` to share an existing AsyncOpenAI instance (connection pool) across providers.
 ```
 
 ### `AnthropicProvider`
@@ -486,7 +488,9 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         base_url: Optional[str] = None,
+        client: Optional[AsyncAnthropic] = None,
     ) -> None: ...
+# Pass `client` to share an existing AsyncAnthropic instance across providers.
 ```
 
 ### `DeepSeekProvider` (extends `OpenAIProvider`)
@@ -1253,7 +1257,9 @@ class OpenAIProvider(LLMProvider):
         default_headers: Optional[dict] = None,
         max_tokens: Optional[int] = None,
         temperature: float = 1.0,
+        client: Optional[AsyncOpenAI] = None,
     ) -> None: ...
+# 传入 `client` 可共享已有的 AsyncOpenAI 实例（连接池），避免重复创建。
 ```
 
 ### `AnthropicProvider`
@@ -1266,7 +1272,9 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         base_url: Optional[str] = None,
+        client: Optional[AsyncAnthropic] = None,
     ) -> None: ...
+# 传入 `client` 可共享已有的 AsyncAnthropic 实例，避免重复创建连接池。
 ```
 
 ### `DeepSeekProvider` (继承自 `OpenAIProvider`)

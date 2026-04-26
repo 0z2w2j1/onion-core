@@ -24,6 +24,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
+import tiktoken
+
 from .models import (
     ActionType,
     AgentConfig,
@@ -132,10 +134,7 @@ class AgentLoop:
                     name=processed.name,
                 ))
 
-            if response.content:
-                context.messages.append(
-                    Message(role=MessageRole.ASSISTANT, content=response.content)
-                )
+            context.messages.append(response.to_assistant_message())
 
             turn_state_hash = self._build_turn_state_hash(response, turn_result_summaries)
             recent_state_hashes.append(turn_state_hash)
@@ -421,7 +420,29 @@ class MemorySummarizer(ABC):
 class _TokenEstimator:
     AVERAGE_CHARS_PER_TOKEN = 4.0
 
+    def __init__(self, encoding_name: str = "cl100k_base") -> None:
+        self._encoding = None
+        with contextlib.suppress(Exception):
+            self._encoding = tiktoken.get_encoding(encoding_name)
+
     def estimate_tokens(self, messages: list[Message]) -> int:
+        if self._encoding is not None:
+            return self._estimate_tiktoken(messages)
+        return self._estimate_fallback(messages)
+
+    def _estimate_tiktoken(self, messages: list[Message]) -> int:
+        total = 0
+        enc = self._encoding
+        assert enc is not None
+        for m in messages:
+            total += 4
+            if m.name:
+                total += 1
+            content = m.content if isinstance(m.content, str) else ""
+            total += len(enc.encode(content))
+        return max(1, total)
+
+    def _estimate_fallback(self, messages: list[Message]) -> int:
         total = 0.0
         for m in messages:
             total += 4
@@ -605,7 +626,9 @@ class AgentRuntime:
             with contextlib.suppress(Exception):
                 self._state.set_status(AgentStatus.CANCELLED)
 
-    async def run(self, user_message: str, state: AgentState | None = None) -> AgentState:
+    async def _run_loop(
+        self, user_message: str, state: AgentState | None,
+    ) -> AsyncIterator[StepRecord]:
         self._cancelled = False
         self._state = state if state is not None else AgentState()
         self._fsm = StateMachine(self._state)
@@ -646,6 +669,10 @@ class AgentRuntime:
                         self._fsm.transition_to(AgentStatus.FINISHED)
                         break
 
+                    last = self._state.last_step
+                    if last is not None:
+                        yield last
+
                     if decision.action_type == ActionType.FINISH:
                         self._fsm.transition_to(AgentStatus.FINISHED)
                         logger.info("Agent finished at step %d: %s", step_index, decision.reasoning)
@@ -653,6 +680,9 @@ class AgentRuntime:
 
                     if decision.action_type == ActionType.ACT:
                         await self._run_act_phase(trace_id_str, step_index)
+                        last = self._state.last_step
+                        if last is not None:
+                            yield last
                     elif decision.action_type == ActionType.ERROR:
                         self._fsm.transition_to(AgentStatus.ERROR)
                         break
@@ -675,7 +705,11 @@ class AgentRuntime:
                     with contextlib.suppress(Exception):
                         hook(self._state.run_id, e)
 
-            return self._state
+    async def run(self, user_message: str, state: AgentState | None = None) -> AgentState:
+        async for _ in self._run_loop(user_message, state):
+            pass
+        assert self._state is not None
+        return self._state
 
     async def _run_think_phase(self, trace_id: str, step_index: int) -> PlannerDecision | None:
         assert self._state is not None
@@ -757,68 +791,5 @@ class AgentRuntime:
                 hook(message, exc)
 
     async def run_streaming(self, user_message: str, state: AgentState | None = None) -> AsyncIterator[StepRecord]:
-        self._cancelled = False
-        self._state = state if state is not None else AgentState()
-        self._fsm = StateMachine(self._state)
-
-        if self._config.system_prompt:
-            self._state.add_message(Message(role=MessageRole.SYSTEM, content=self._config.system_prompt))
-
-        self._state.add_message(Message(role=MessageRole.USER, content=user_message))
-
-        with _RequestContext(request_id=self._state.run_id, trace_id=self._state.session_id):
-            logger.info("AgentRuntime streaming: run_id=%s session_id=%s max_steps=%d", self._state.run_id, self._state.session_id, self._config.max_steps)
-
-            try:
-                self._fsm.transition_to(AgentStatus.THINKING)
-
-                while self._state.steps < self._config.max_steps and not self._cancelled:
-                    self._state.increment_step()
-                    step_index = self._state.steps
-                    trace_id_str = f"{self._state.run_id}.{step_index}"
-
-                    self._state.compact(self._config)
-
-                    try:
-                        decision = await self._run_think_phase(trace_id_str, step_index)
-                    except Exception as e:
-                        logger.error("LLM error at step %d: %s", step_index, e, exc_info=True)
-                        self._handle_error(trace_id_str, str(e), e)
-                        self._fsm.transition_to(AgentStatus.ERROR)
-                        break
-
-                    if decision is None:
-                        self._fsm.transition_to(AgentStatus.FINISHED)
-                        break
-
-                    last = self._state.last_step
-                    if last is not None:
-                        yield last
-
-                    if decision.action_type == ActionType.FINISH:
-                        self._fsm.transition_to(AgentStatus.FINISHED)
-                        break
-
-                    if decision.action_type == ActionType.ACT:
-                        await self._run_act_phase(trace_id_str, step_index)
-                        last = self._state.last_step
-                        if last is not None:
-                            yield last
-                    elif decision.action_type == ActionType.ERROR:
-                        self._fsm.transition_to(AgentStatus.ERROR)
-                        break
-
-                if self._cancelled:
-                    self._state.set_status(AgentStatus.CANCELLED)
-                if self._state.steps >= self._config.max_steps and self._state.status == AgentStatus.THINKING:
-                    self._state.set_status(AgentStatus.FINISHED)
-
-            except Exception as e:
-                logger.exception("AgentRuntime streaming fatal error: %s", e)
-                self._state.set_status(AgentStatus.ERROR)
-                last_step = self._state.last_step
-                if last_step:
-                    last_step.error = str(e)
-                for hook in self._error_hooks:
-                    with contextlib.suppress(Exception):
-                        hook(self._state.run_id, e)
+        async for step in self._run_loop(user_message, state):
+            yield step

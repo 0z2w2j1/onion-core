@@ -279,7 +279,10 @@ class Pipeline:
         exc_val: BaseException | None,
         exc_tb: types.TracebackType | None,
     ) -> None:
-        await self.shutdown()
+        try:
+            await self.shutdown()
+        except Exception as exc:
+            logger.exception("Pipeline shutdown error during __aexit__: %s", exc)
 
     # ------------------------------------------------------------------
     # 公开调用入口

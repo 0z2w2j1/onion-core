@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..error_codes import ErrorCode
 from ..models import AgentContext, LLMResponse, ProviderError, StreamChunk, ToolCall, UsageStats
 from ..provider import LLMProvider
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
 
 logger = logging.getLogger("onion_core.providers.anthropic")
 
@@ -43,6 +46,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = _DEFAULT_MAX_TOKENS,
         temperature: float = 1.0,
         base_url: str | None = None,
+        client: AsyncAnthropic | None = None,
     ) -> None:
         try:
             import anthropic as _anthropic
@@ -54,10 +58,14 @@ class AnthropicProvider(LLMProvider):
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
-        client_kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        self._client = _anthropic.AsyncAnthropic(**client_kwargs)
+        self._owns_client = client is None
+        if client is not None:
+            self._client = client
+        else:
+            client_kwargs: dict[str, Any] = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            self._client = _anthropic.AsyncAnthropic(**client_kwargs)
 
     @property
     def name(self) -> str:
@@ -211,4 +219,5 @@ class AnthropicProvider(LLMProvider):
             ) from exc
 
     async def cleanup(self) -> None:
-        await self._client.close()
+        if self._owns_client:
+            await self._client.close()

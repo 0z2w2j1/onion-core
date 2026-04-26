@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- **P0: AgentLoop Assistant Message Duplication** — `AgentLoop.run()` appended `response.content` as a standalone assistant message after already appending `response.to_assistant_message()` via the pipeline. This caused duplicate assistant entries in conversation history, polluting LLM context. Now uses `response.to_assistant_message()` which correctly includes both content and tool_calls.
+
+- **P0: AgentRuntime run/run_streaming Code Duplication** — `run()` and `run_streaming()` shared 60+ lines of identical loop logic. Extracted into a private `_run_loop()` async generator. Both methods are now thin wrappers: `run()` silently consumes `_run_loop()`, `run_streaming()` re-yields each `StepRecord`.
+
 - **P0: Sync API Thread Safety Fix**
   - Removed dangerous thread pool nesting in `_run_async_in_sync()` that could cause deadlocks
   - Now raises clear `RuntimeError` when sync methods are called from async contexts
@@ -40,18 +44,23 @@
   - Replaced `asyncio.TimeoutError` with builtin `TimeoutError` (UP041)
   - Simplified boolean return in `_detect_unicode_confusion()` (SIM103)
 
+### Changed
+
+- **P1: Unified Token Counting** — `SlidingWindowMemory._TokenEstimator` now uses `tiktoken` for accurate token counting instead of the crude 4-char-per-token heuristic, aligning with `ContextWindowMiddleware`. Falls back to heuristic if tiktoken is unavailable.
+- **Pipeline.shutdown() No Longer Raises in `__aexit__`** — `__aexit__` now catches `shutdown()` exceptions and logs them instead of propagating, which could mask the original exception from the `async with` block.
+- **Removed `tenacity` Dependency** — Listed in `pyproject.toml` but never used anywhere in the codebase (all retry logic is hand-rolled with exponential backoff).
+- **Optional Client Injection for Providers** — `OpenAIProvider` and `AnthropicProvider` now accept an optional `client` parameter, allowing connection pool sharing across multiple provider instances. `cleanup()` only closes the client if owned.
+- **Exported `CircuitBreakerError`** — Added to `__init__.py` exports for users who need to catch this exception type explicitly.
+- **Improved Redis async method handling with runtime type detection**
+- **Enhanced type safety for distributed rate limiter and cache middleware**
+- **Cleaner test code with removed unused imports and variables**
+
 ### Code Quality
 
 - All changes pass Ruff linting ✓
 - All changes pass MyPy strict mode ✓
-- Test suite: 372 tests passed, 92% coverage maintained
+- Test suite: 393 passed, 1 skipped, 79% coverage
 - No breaking changes to public API
-
-### Changed
-
-- Improved Redis async method handling with runtime type detection
-- Enhanced type safety for distributed rate limiter and cache middleware
-- Cleaner test code with removed unused imports and variables
 
 ---
 
