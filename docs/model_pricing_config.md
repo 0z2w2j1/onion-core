@@ -372,7 +372,7 @@ curl http://localhost:8000/metrics | grep onion_token_cost_usd
 
 - [Prometheus 指标文档](monitoring_guide.md)
 - [分布式能力使用指南](distributed_usage.md)
-- [成本优化最佳实践](cost_optimization.md)
+- [成本优化最佳实践](explanation/benchmark-interpretation.md)
 
 ---
 

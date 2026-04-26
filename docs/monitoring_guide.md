@@ -412,10 +412,10 @@ with RequestContext(request_id="req-1", trace_id="trace-1"):
 
 ## Additional Resources
 
-- [Architecture Design](../docs/architecture.md)
-- [API Reference](../docs/api_reference.md)
-- [Error Code Usage](../docs/error_code_usage.md)
-- [Degradation Strategy](../docs/degradation_strategy.md)
+- [Architecture Design](architecture.md)
+- [API Reference](api_reference.md)
+- [Error Code Usage](error_code_usage.md)
+- [Degradation Strategy](degradation_strategy.md)
 
 ---
 

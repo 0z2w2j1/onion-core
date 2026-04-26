@@ -1,0 +1,208 @@
+site_name: Onion Core Documentation
+site_description: Agent middleware framework — onion-model pipeline for LLM applications
+site_author: Onion Core Team
+repo_url: https://github.com/0z2w2j1/onion-core
+repo_name: 0z2w2j1/onion-core
+
+# 文档目录结构
+nav:
+  - Home: index.md
+  - Tutorials:
+    - Overview: tutorials/README.md
+    - '01. Quick Start': tutorials/01-quick-start.md
+    - '02. Secure Agent': tutorials/02-secure-agent.md
+    - '03. Fallback Providers': tutorials/03-fallback-providers.md
+    - '04. Streaming & Sync API': tutorials/04-streaming-sync.md
+  - How-to Guides:
+    - Overview: how-to-guides/README.md
+    - 'Install and Configure': how-to-guides/install-and-configure.md
+    - 'Load Config from File': how-to-guides/load-config-from-file.md
+    - 'Configure OpenAI Provider': how-to-guides/configure-openai-provider.md
+    - 'Configure Domestic AI': how-to-guides/configure-domestic-ai.md
+    - 'Configure Local Models': how-to-guides/configure-local-models.md
+    - 'Custom Blocked Keywords': how-to-guides/custom-blocked-keywords.md
+    - 'Enable Response Cache': how-to-guides/enable-response-cache.md
+    - 'Configure Distributed Rate Limiting': how-to-guides/configure-distributed-ratelimit.md
+    - 'Customize PII Rules': how-to-guides/custom-pii-rules.md
+    - 'Setup Fallback Providers': how-to-guides/setup-fallback-providers.md
+    - 'Use Sync API in Web Frameworks': how-to-guides/use-sync-api-in-web-frameworks.md
+    - 'Troubleshoot Timeouts': how-to-guides/troubleshoot-timeouts.md
+  - Reference:
+    - Overview: reference/README.md
+    - Pipeline: reference/pipeline.md
+    - Middlewares: reference/middlewares.md
+    - API Reference (Auto-generated):
+      - Core:
+        - Pipeline: api/pipeline.md
+        - Models: api/models.md
+        - Config: api/config.md
+        - Error Codes: api/error_codes.md
+      - Middlewares:
+        - Base: api/base.md
+        - Safety: api/middlewares/safety.md
+        - Context: api/middlewares/context.md
+        - Observability: api/middlewares/observability.md
+        - Rate Limit: api/middlewares/ratelimit.md
+        - Cache: api/middlewares/cache.md
+        - Circuit Breaker: api/middlewares/circuit_breaker.md
+      - Providers:
+        - Base Provider: api/provider.md
+        - OpenAI: api/providers/openai.md
+        - Anthropic: api/providers/anthropic.md
+        - Domestic: api/providers/domestic.md
+        - Local: api/providers/local.md
+      - Agent:
+        - Agent Runtime: api/agent.md
+        - Tools: api/tools.md
+      - Observability:
+        - Logging: api/observability/logging.md
+        - Metrics: api/observability/metrics.md
+        - Tracing: api/observability/tracing.md
+  - Explanation:
+    - Overview: explanation/README.md
+    - 'Onion Model Philosophy': explanation/onion-model-philosophy.md
+    - 'Pipeline Scheduling': explanation/pipeline-scheduling.md
+    - 'Error Code System': explanation/error-code-system.md
+    - 'Distributed Consistency': explanation/distributed-consistency.md
+    - 'Distributed Architecture': explanation/distributed-architecture.md
+    - 'Degradation Strategy': explanation/degradation-strategy.md
+    - 'Agent State Machine': explanation/agent-state-machine.md
+    - 'Context Management Tradeoffs': explanation/context-management-tradeoffs.md
+    - 'Async Programming Model': explanation/async-programming-model.md
+    - 'Circuit Breaker Transitions': explanation/circuit-breaker-transitions.md
+    - 'Streaming PII Algorithm': explanation/streaming-pii-algorithm.md
+    - 'Benchmark Interpretation': explanation/benchmark-interpretation.md
+    - 'Memory Management': explanation/memory-management.md
+    - 'Threadpool Tuning': explanation/threadpool-tuning.md
+
+# 主题配置
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# 插件配置
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]  # 搜索路径
+          options:
+            # 文档生成选项
+            show_source: true  # 显示源代码链接
+            show_root_heading: true  # 显示根标题
+            show_root_full_path: false  # 不显示完整路径
+            show_object_full_path: false
+            show_category_heading: false
+            show_bases: true  # 显示基类
+            show_signature: true  # 显示函数签名
+            show_signature_annotations: true  # 显示类型注解
+            separate_signature: true  # 单独显示签名
+            line_length: 80  # 签名行长度
+            merge_init_into_class: true  # 将 __init__ 合并到类中
+            show_docstring_examples: true  # 显示示例
+            
+            # 继承和成员选项
+            inherited_members: true  # 显示继承的成员
+            members_order: source  # 按源代码顺序显示成员
+            group_by_category: true  # 按类别分组
+            
+            # 摘要选项
+            summary:
+              attributes: true
+              functions: true
+              classes: true
+              modules: true
+            
+            # 文档字符串选项
+            docstring_style: google  # Google 风格
+            docstring_section_style: table  # 表格样式
+            show_if_no_docstring: false  # 没有文档字符串时不显示
+            
+            # 交叉引用
+            enable_inventory: true  # 启用 inventory 文件
+            
+            # 过滤选项
+            filters:
+              - "!^_"  # 排除私有成员（除了特殊方法）
+              - "^__init__$"  # 但包含 __init__
+
+# Markdown 扩展
+markdown_extensions:
+  - admonition  # 提示框
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      normalize_issue_symbols: true
+      repo_url_shorthand: true
+      user: 0z2w2j1
+      repo: onion-core
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - includes/mkdocs.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# 额外配置
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/0z2w2j1/onion-core
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/onion-core/
+
+# 版权信息
+copyright: Copyright &copy; 2026 Onion Core Team

@@ -239,16 +239,31 @@ Or from file (`onion.json` / `onion.yaml`):
 
 ---
 
-### Documentation
+### Documentation (Diátaxis Framework)
 
-| Document | Description |
-|----------|-------------|
-| [API Reference](docs/api_reference.md) | Complete API signatures for all classes and functions |
-| [Architecture Design](docs/architecture.md) | System design, data flow, extensibility guide |
-| [Error Code Usage](docs/error_code_usage.md) | How to use `ErrorCode` and `OnionErrorWithCode` |
-| [Degradation Strategy](docs/degradation_strategy.md) | Retry, circuit breaker, fallback provider chain |
-| [Monitoring & Alerting](docs/monitoring_guide.md) | **NEW**: Prometheus metrics, Grafana dashboard setup, Alertmanager rules, SLO/SLI definitions, health check endpoints |
-| [Examples](examples/) | Usage examples for OpenAI, Anthropic, LM Studio, Ollama, etc. |
+We organize our documentation following the [Diátaxis framework](https://diataxis.fr/):
+
+#### 🎓 [Tutorials](docs/tutorials/) - Learning-oriented
+- [5-Minute Quick Start](docs/tutorials/01-quick-start.md) - Install and run your first Pipeline
+- [Build a Secure Agent](docs/tutorials/02-secure-agent.md) - Add PII masking, injection detection, and context management
+
+#### 🔧 [How-to Guides](docs/how-to-guides/) - Problem-oriented
+- [Configure Redis Distributed Rate Limiting](docs/how-to-guides/configure-distributed-ratelimit.md)
+- [Customize PII Rules](docs/how-to-guides/custom-pii-rules.md)
+- [Setup Fallback Providers](docs/how-to-guides/setup-fallback-providers.md)
+- [Use Sync API in Flask/Django](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
+
+#### 📚 [Reference](docs/reference/) - Information-oriented
+- [API Reference](docs/reference/api-reference.md) - Complete API signatures
+- [Error Codes](docs/reference/error-codes.md) - All error codes and retry policies
+- [Configuration Options](docs/reference/configuration.md) - All config fields explained
+
+#### 💡 [Explanation](docs/explanation/) - Understanding-oriented
+- [Onion Model Philosophy](docs/explanation/onion-model-philosophy.md) - Why onion architecture?
+- [Pipeline Scheduling](docs/explanation/pipeline-scheduling.md) - How requests flow through middleware
+- [Distributed Consistency](docs/explanation/distributed-consistency.md) - TOCTOU and eventual consistency
+
+> **Legacy docs**: Old documentation has been migrated to the new structure. See [docs/architecture.md](docs/architecture.md) for detailed system design.
 
 ---
 
@@ -568,16 +583,31 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 ---
 
-### 文档
+### 文档（Diátaxis 框架）
 
-| 文档 | 说明 |
-|------|------|
-| [API 参考手册](docs/api_reference.md) | 所有类和函数的完整签名 |
-| [架构设计文档](docs/architecture.md) | 系统设计、数据流、扩展指南 |
-| [错误码使用指南](docs/error_code_usage.md) | 如何使用 `ErrorCode` 和 `OnionErrorWithCode` |
-| [降级策略文档](docs/degradation_strategy.md) | 重试、熔断、Fallback Provider 链路 |
-| [监控与告警指南](docs/monitoring_guide.md) | **新增**: Prometheus 指标、Grafana 仪表板配置、Alertmanager 规则、SLO/SLI 定义、健康检查端点 |
-| [示例代码](examples/) | OpenAI、Anthropic、LM Studio、Ollama 等使用示例 |
+我们按照 [Diátaxis 框架](https://diataxis.fr/) 组织文档：
+
+#### 🎓 [教程](docs/tutorials/) - 学习导向
+- [5分钟快速入门](docs/tutorials/01-quick-start.md) - 安装并运行第一个 Pipeline
+- [构建安全 Agent](docs/tutorials/02-secure-agent.md) - 添加 PII 脱敏、注入检测和上下文管理
+
+#### 🔧 [操作指南](docs/how-to-guides/) - 问题导向
+- [配置 Redis 分布式限流](docs/how-to-guides/configure-distributed-ratelimit.md)
+- [自定义 PII 规则](docs/how-to-guides/custom-pii-rules.md)
+- [设置 Fallback Providers](docs/how-to-guides/setup-fallback-providers.md)
+- [在 Flask/Django 中使用同步 API](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
+
+#### 📚 [参考手册](docs/reference/) - 信息导向
+- [API 参考](docs/reference/api-reference.md) - 完整的 API 签名
+- [错误码](docs/reference/error-codes.md) - 所有错误码和重试策略
+- [配置选项](docs/reference/configuration.md) - 所有配置字段说明
+
+#### 💡 [背景解释](docs/explanation/) - 理解导向
+- [洋葱模型设计哲学](docs/explanation/onion-model-philosophy.md) - 为什么选择洋葱架构？
+- [Pipeline 调度引擎](docs/explanation/pipeline-scheduling.md) - 请求如何在中间件间流转
+- [分布式一致性](docs/explanation/distributed-consistency.md) - TOCTOU 与最终一致性
+
+> **旧文档**：原有文档已迁移到新结构。查看 [docs/architecture.md](docs/architecture.md) 了解详细系统设计。
 
 ---
 

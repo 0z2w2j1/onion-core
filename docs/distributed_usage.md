@@ -524,7 +524,7 @@ redis-cli MONITOR
 ## 下一步
 
 - 📖 [架构设计文档](architecture.md)
-- 🔧 [配置管理指南](config_usage.py)
+- 🔧 [配置管理指南](how-to-guides/load-config-from-file.md)
 - 📊 [监控指南](monitoring_guide.md)
 
 ---
