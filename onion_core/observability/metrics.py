@@ -1,7 +1,7 @@
 """
 Onion Core - Prometheus 指标
 
-为 Pipeline 提供延迟直方图、请求计数器、Token 用量统计。
+为 Pipeline 提供延迟直方图、请求计数器、Token 用量统计、成本追踪。
 
 依赖（可选）：
     pip install prometheus-client
@@ -14,6 +14,10 @@ Onion Core - Prometheus 指标
 
     # 暴露 /metrics 端点（需自行集成 HTTP server）
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    
+增强功能（v0.9.0）：
+    - Token 成本追踪（onion_token_cost_usd）
+    - P95/P99 延迟百分位监控（Summary 指标）
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResul
 logger = logging.getLogger("onion_core.metrics")
 
 try:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Histogram, Summary
     _PROM_AVAILABLE = True
 except ImportError:
     _PROM_AVAILABLE = False
@@ -53,6 +57,50 @@ class _NoOpMetric:
     def observe(self, *a: Any) -> None: pass
     def set(self, *a: Any) -> None: pass
     def dec(self, *a: Any) -> None: pass
+
+
+# ── 模型定价表（USD per 1K tokens）─────────────────────────────────────────────
+# 来源：https://openai.com/api/pricing/ (2024-12)
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # OpenAI
+    "gpt-4o": (0.005, 0.015),      # prompt, completion
+    "gpt-4o-mini": (0.00015, 0.0006),
+    "gpt-4-turbo": (0.01, 0.03),
+    "gpt-3.5-turbo": (0.0005, 0.0015),
+    # Anthropic
+    "claude-3-opus": (0.015, 0.075),
+    "claude-3-sonnet": (0.003, 0.015),
+    "claude-3-haiku": (0.00025, 0.00125),
+    # 默认值（未知模型）
+    "default": (0.01, 0.03),
+}
+
+
+def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """
+    计算 LLM 调用成本（USD）。
+    
+    Args:
+        model: 模型名称
+        prompt_tokens: 输入 token 数
+        completion_tokens: 输出 token 数
+    
+    Returns:
+        成本（美元）
+    """
+    # 尝试匹配模型前缀
+    pricing = MODEL_PRICING.get("default")
+    for key, value in MODEL_PRICING.items():
+        if model.startswith(key):
+            pricing = value
+            break
+    
+    if pricing is None:
+        return 0.0
+    
+    prompt_cost = (prompt_tokens / 1000.0) * pricing[0]
+    completion_cost = (completion_tokens / 1000.0) * pricing[1]
+    return prompt_cost + completion_cost
 
 
 # ── 全局指标（模块级单例，避免重复注册）────────────────────────────────────────
@@ -92,6 +140,24 @@ if _PROM_AVAILABLE:
         ["pipeline_name"],
     )
 
+# P95/P99 延迟百分位监控（Summary 指标）
+_REQUEST_LATENCY_SUMMARY: Any = _NoOpMetric()
+if _PROM_AVAILABLE:
+    _REQUEST_LATENCY_SUMMARY = Summary(
+        "onion_request_latency_seconds",
+        "Pipeline request latency summary (P95/P99)",
+        ["pipeline_name", "model"],
+    )
+
+# Token 成本追踪
+_TOKEN_COST_USD: Any = _NoOpMetric()
+if _PROM_AVAILABLE:
+    _TOKEN_COST_USD = Counter(
+        "onion_token_cost_usd",
+        "Total token cost in USD",
+        ["pipeline_name", "model", "provider"],
+    )
+
 
 class MetricsMiddleware(BaseMiddleware):
     """
@@ -101,10 +167,16 @@ class MetricsMiddleware(BaseMiddleware):
 
     指标：
       onion_requests_total{pipeline_name, model, finish_reason, status}
-      onion_request_duration_seconds{pipeline_name, model}
+      onion_request_duration_seconds{pipeline_name, model} (Histogram)
+      onion_request_latency_seconds{pipeline_name, model} (Summary, P95/P99)
       onion_tokens_total{pipeline_name, model, type}
+      onion_token_cost_usd{pipeline_name, model, provider}
       onion_tool_calls_total{pipeline_name, tool_name, status}
       onion_active_requests{pipeline_name}
+    
+    增强功能（v0.9.0）：
+      - Summary 指标提供 P95/P99 延迟百分位监控
+      - Token 成本追踪（基于模型定价表）
     """
 
     priority: int = 90
@@ -133,11 +205,24 @@ class MetricsMiddleware(BaseMiddleware):
     async def process_response(
         self, context: AgentContext, response: LLMResponse
     ) -> LLMResponse:
-        self._record_completion(context, response.model or "unknown", response.finish_reason or "unknown", "ok")
+        model = response.model or "unknown"
+        provider = context.metadata.get("provider_name", "unknown")
+        
+        self._record_completion(context, model, response.finish_reason or "unknown", "ok")
+        
         if response.usage:
-            model = response.model or "unknown"
+            # Token 用量统计
             _TOKEN_USAGE.labels(pipeline_name=self._pipeline_name, model=model, type="prompt").inc(response.usage.prompt_tokens)
             _TOKEN_USAGE.labels(pipeline_name=self._pipeline_name, model=model, type="completion").inc(response.usage.completion_tokens)
+            
+            # Token 成本追踪
+            cost = calculate_cost(model, response.usage.prompt_tokens, response.usage.completion_tokens)
+            _TOKEN_COST_USD.labels(
+                pipeline_name=self._pipeline_name,
+                model=model,
+                provider=provider
+            ).inc(cost)
+        
         return response
 
     async def process_stream_chunk(
@@ -174,7 +259,10 @@ class MetricsMiddleware(BaseMiddleware):
         start = context.metadata.pop("_metrics_start", None)
         if start is not None:
             duration = time.perf_counter() - start
+            # Histogram 指标（用于平均值和分布）
             _REQUEST_LATENCY.labels(pipeline_name=self._pipeline_name, model=model).observe(duration)
+            # Summary 指标（用于 P95/P99 百分位）
+            _REQUEST_LATENCY_SUMMARY.labels(pipeline_name=self._pipeline_name, model=model).observe(duration)
         _REQUEST_TOTAL.labels(
             pipeline_name=self._pipeline_name,
             model=model,

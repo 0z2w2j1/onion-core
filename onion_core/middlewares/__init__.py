@@ -4,6 +4,7 @@ from ..models import RateLimitExceeded, SecurityException
 from .cache import ResponseCacheMiddleware
 from .context import ContextWindowMiddleware
 from .distributed_cache import DistributedCacheMiddleware
+from .distributed_circuit_breaker import DistributedCircuitBreakerMiddleware
 from .distributed_ratelimit import DistributedRateLimitMiddleware
 from .observability import ObservabilityMiddleware
 from .ratelimit import RateLimitMiddleware
@@ -21,4 +22,5 @@ __all__ = [
     "RateLimitExceeded",
     "ResponseCacheMiddleware",
     "DistributedCacheMiddleware",
+    "DistributedCircuitBreakerMiddleware",
 ]
