@@ -76,6 +76,7 @@ The **central orchestrator**. Manages middleware chain execution, provider calls
 - Circuit breaker integration (per-provider state machine)
 - Fallback provider chaining (primary → fallback1 → fallback2 → ...)
 - Error notification broadcast to all middlewares
+- Provider resource cleanup (HTTP client connections) on shutdown
 
 **State Machine (Retry + Fallback):**
 ```
@@ -341,6 +342,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - `RateLimitMiddleware` uses `asyncio.Lock()` + `OrderedDict` (LRU) for session windows
 - All provider calls support `asyncio.wait_for()` timeouts
 - `ContextVar` is used for trace_id propagation (safe across concurrent coroutines)
+- OpenTelemetry tracing uses `opentelemetry.context.attach()` / `.detach()` for span context propagation across async boundaries; tool call spans are correctly nested under the parent request span
 
 ---
 
@@ -361,6 +363,8 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - **Enhanced security**: Added regex pattern matching and Unicode confusion detection for prompt injection
 - **CircuitBreaker reliability**: State transitions now atomic within lock scope
 - **AgentLoop protection**: Duplicate tool call detection prevents infinite loops
+- **OpenTelemetry span propagation**: Fixed — spans are now attached to OpenTelemetry context via `trace.set_span_in_context()` + `context.attach()`, ensuring tool call sub-spans correctly inherit the parent request span
+- **Provider resource cleanup**: `LLMProvider.cleanup()` added; `OpenAIProvider` and `AnthropicProvider` now close HTTP client sessions in Pipeline shutdown, preventing connection pool leaks
 
 ---
 
@@ -817,6 +821,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - `RateLimitMiddleware` 使用 `asyncio.Lock()` + `OrderedDict`（LRU）管理会话窗口
 - 所有 Provider 调用支持 `asyncio.wait_for()` 超时
 - `ContextVar` 用于 trace_id 传播（协程间安全）
+- OpenTelemetry 追踪使用 `opentelemetry.context.attach()` / `.detach()` 实现跨 async 边界的 span 上下文传播；工具调用 span 正确嵌套在父请求 span 下
 
 ---
 
@@ -837,6 +842,8 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 - **增强安全性**：添加正则模式匹配和 Unicode 混淆检测以应对提示词注入
 - **熔断器可靠性**：状态转换现在在锁范围内原子执行
 - **AgentLoop 保护**：重复工具调用检测防止无限循环
+- **OpenTelemetry span 传播修复**：现在通过 `trace.set_span_in_context()` + `context.attach()` 将 span 附加到 OpenTelemetry 上下文，确保工具调用子 span 正确继承父请求 span
+- **Provider 资源清理**：新增 `LLMProvider.cleanup()` 方法；`OpenAIProvider` 和 `AnthropicProvider` 现在会在 Pipeline 关闭时释放 HTTP 客户端连接，防止连接池泄漏
 
 ---
 

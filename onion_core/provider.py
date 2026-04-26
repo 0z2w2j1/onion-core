@@ -4,10 +4,13 @@ Onion Core - LLM Provider 抽象层
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from .models import AgentContext, FinishReason, LLMResponse, StreamChunk
+
+logger = logging.getLogger("onion_core.provider")
 
 
 class LLMProvider(ABC):
@@ -22,6 +25,10 @@ class LLMProvider(ABC):
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用，逐块产出 StreamChunk。"""
         yield StreamChunk()  # pragma: no cover
+
+    async def cleanup(self) -> None:
+        """释放 Provider 占用的资源（HTTP 连接等）。Pipeline shutdown 时自动调用。"""
+        logger.debug("Provider '%s' cleanup skipped (no resources).", self.name)
 
     @property
     def name(self) -> str:

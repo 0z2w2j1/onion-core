@@ -233,6 +233,19 @@ class Pipeline:
                     logger.error("Middleware '%s' failed during shutdown: %s", mw.name, exc)
                     errors.append((mw.name, exc))
 
+            # 释放 Provider 资源（HTTP 连接等）
+            for p in [self._provider] + self._fallback_providers:
+                try:
+                    cleanup_fn = getattr(p, "cleanup", None)
+                    if cleanup_fn is not None and asyncio.iscoroutinefunction(cleanup_fn):
+                        await cleanup_fn()
+                        logger.debug("Provider '%s' cleaned up.", type(p).__name__)
+                    else:
+                        logger.debug("Provider '%s' has no async cleanup.", type(p).__name__)
+                except Exception as exc:
+                    logger.error("Provider '%s' cleanup failed: %s", type(p).__name__, exc)
+                    errors.append((type(p).__name__, exc))
+
             self._started = False
             logger.info("Pipeline '%s' stopped.", self.name)
 

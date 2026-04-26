@@ -198,3 +198,6 @@ class AnthropicProvider(LLMProvider):
                 )
         except Exception as exc:
             raise ProviderError(f"Anthropic streaming error: {exc}") from exc
+
+    async def cleanup(self) -> None:
+        await self._client.close()

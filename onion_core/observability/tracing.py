@@ -25,7 +25,7 @@ request_id 作为 trace attribute 传播，工具调用创建子 span。
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..base import BaseMiddleware
 from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResult
@@ -77,16 +77,22 @@ class TracingMiddleware(BaseMiddleware):
         self._service_name = service_name
         self._pipeline_name = pipeline_name
         self._tracer: TracersType = None
+        self._otel_context_api: Any = None
+        self._otel_trace_api: Any = None
+        self._otel_status_code: Any = None
         self._otel_available = False
 
     async def startup(self) -> None:
         try:
+            from opentelemetry import context as otel_context
             from opentelemetry import trace as otel_trace
             from opentelemetry.trace import StatusCode
             tracer = otel_trace.get_tracer(self._service_name)
             # Note: type ignore required in CI where opentelemetry is installed.
             # OpenTelemetry's Tracer type is compatible with our TracerLike protocol at runtime.
             self._tracer = tracer  # type: ignore[assignment]
+            self._otel_context_api = otel_context
+            self._otel_trace_api = otel_trace
             self._otel_status_code = StatusCode
             self._otel_available = True
             logger.info("TracingMiddleware started (OpenTelemetry available) | pipeline=%s.",
@@ -111,13 +117,20 @@ class TracingMiddleware(BaseMiddleware):
         span.set_attribute("onion.session_id", context.session_id)
         span.set_attribute("onion.message_count", len(context.messages))
 
+        # Make this span the current span so child spans (tool calls) inherit it
+        ctx = self._otel_trace_api.set_span_in_context(span)
+        token = self._otel_context_api.attach(ctx)
         context.metadata["_otel_span"] = span
+        context.metadata["_otel_token"] = token
         return context
 
     async def process_response(
         self, context: AgentContext, response: LLMResponse
     ) -> LLMResponse:
         span: SpanLike | None = context.metadata.pop("_otel_span", None)
+        token = context.metadata.pop("_otel_token", None)
+        if token is not None:
+            self._otel_context_api.detach(token)
         if span is None:
             return response
 
@@ -139,6 +152,9 @@ class TracingMiddleware(BaseMiddleware):
     ) -> StreamChunk:
         if chunk.finish_reason:
             span: SpanLike | None = context.metadata.pop("_otel_span", None)
+            token = context.metadata.pop("_otel_token", None)
+            if token is not None:
+                self._otel_context_api.detach(token)
             if span is not None:
                 span.set_attribute("onion.finish_reason", chunk.finish_reason)
                 span.set_status(self._otel_status_code.OK)
@@ -173,6 +189,9 @@ class TracingMiddleware(BaseMiddleware):
 
     async def on_error(self, context: AgentContext, error: Exception) -> None:
         span: SpanLike | None = context.metadata.pop("_otel_span", None)
+        token = context.metadata.pop("_otel_token", None)
+        if token is not None:
+            self._otel_context_api.detach(token)
         if span is not None:
             span.record_exception(error)
             span.set_status(self._otel_status_code.ERROR, str(error))

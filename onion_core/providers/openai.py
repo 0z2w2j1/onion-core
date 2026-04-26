@@ -162,3 +162,6 @@ class OpenAIProvider(LLMProvider):
                 index += 1
         except Exception as exc:
             raise ProviderError(f"OpenAI streaming error: {exc}") from exc
+
+    async def cleanup(self) -> None:
+        await self._client.close()
