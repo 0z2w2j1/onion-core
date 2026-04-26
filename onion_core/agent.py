@@ -270,6 +270,13 @@ class StateMachine:
     def transition_to(self, target: AgentStatus) -> AgentState:
         if target == self._state.status:
             return self._state
+        # 如果当前已经是终端状态（FINISHED/ERROR/CANCELLED），不允许再转换
+        if self._state.status in (AgentStatus.FINISHED, AgentStatus.ERROR, AgentStatus.CANCELLED):
+            logger.warning(
+                "Ignoring state transition from terminal state %s to %s",
+                self._state.status.value, target.value
+            )
+            return self._state
         if target not in self.ALLOWED_TRANSITIONS.get(self._state.status, set()):
             raise StateTransitionError(
                 f"Invalid transition: {self._state.status.value} -> {target.value}"

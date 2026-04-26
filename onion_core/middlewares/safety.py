@@ -228,6 +228,11 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         return result
 
     async def on_error(self, context: AgentContext, error: Exception) -> None:
+        # 清理流式 PII 缓冲区
+        buf_key = f"_safety_buf_{context.request_id}"
+        timestamp_key = f"_safety_buf_ts_{context.request_id}"
+        context.metadata.pop(buf_key, None)
+        context.metadata.pop(timestamp_key, None)
         logger.error("[%s] Safety middleware error: %s", context.request_id, error)
 
     @staticmethod

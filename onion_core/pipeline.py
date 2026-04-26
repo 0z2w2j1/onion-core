@@ -331,26 +331,35 @@ class Pipeline:
         """流式调用：request → provider.stream → 逐 chunk 过中间件。"""
         self._validate_context(context)
         
-        if self._total_timeout is not None:
-            # 使用 deadline 机制实现总超时
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                raise RuntimeError(
-                    "stream() must be called from within an async context. "
-                    "Use stream_sync() for synchronous usage."
-                ) from None
-            deadline = loop.time() + self._total_timeout
-            
-            async for chunk in self._stream_with_deadline(context, deadline):
-                yield chunk
-        else:
-            async for chunk in self._stream_without_deadline(context):
-                yield chunk
+        buf_key = f"_safety_buf_{context.request_id}"
+        timestamp_key = f"_safety_buf_ts_{context.request_id}"
+        
+        try:
+            if self._total_timeout is not None:
+                # 使用 deadline 机制实现总超时
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    raise RuntimeError(
+                        "stream() must be called from within an async context. "
+                        "Use stream_sync() for synchronous usage."
+                    ) from None
+                deadline = loop.time() + self._total_timeout
+                
+                async for chunk in self._stream_with_deadline(context, deadline):
+                    yield chunk
+            else:
+                async for chunk in self._stream_without_deadline(context):
+                    yield chunk
+        finally:
+            # 确保在任何情况下（包括异常）都清理缓冲区
+            context.metadata.pop(buf_key, None)
+            context.metadata.pop(timestamp_key, None)
     
     async def _stream_with_deadline(self, context: AgentContext, deadline: float) -> AsyncIterator[StreamChunk]:
         """内部方法：带总超时的流式调用。"""
         buf_key = f"_safety_buf_{context.request_id}"
+        timestamp_key = f"_safety_buf_ts_{context.request_id}"
         chunk_count = 0
         try:
             context = await self._run_request(context)
@@ -391,11 +400,14 @@ class Pipeline:
             chunk = await self._run_stream_chunk(context, raw_chunk)
             yield chunk
         
+        # 正常结束时清理缓冲区
         context.metadata.pop(buf_key, None)
+        context.metadata.pop(timestamp_key, None)
     
     async def _stream_without_deadline(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """内部方法：无总超时的流式调用（原有逻辑）。"""
         buf_key = f"_safety_buf_{context.request_id}"
+        timestamp_key = f"_safety_buf_ts_{context.request_id}"
         chunk_count = 0
         try:
             context = await self._run_request(context)
@@ -456,62 +468,10 @@ class Pipeline:
 
                 chunk = await self._run_stream_chunk(context, raw_chunk)
                 yield chunk
-        buf_key = f"_safety_buf_{context.request_id}"
-        chunk_count = 0
-        try:
-
-            async def _provider_gen() -> AsyncIterator[StreamChunk]:
-                async for chunk in self._provider.stream(context):
-                    yield chunk
-
-            if self._provider_timeout is not None:
-                # 计算绝对截止时间，确保总超时而非每 chunk 超时
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    raise RuntimeError(
-                        "stream() must be called from within an async context. "
-                        "Use stream_sync() for synchronous usage."
-                    ) from None
-                deadline = loop.time() + self._provider_timeout
-
-                gen = _provider_gen()
-                while True:
-                    try:
-                        # 计算剩余时间
-                        remaining = deadline - loop.time()
-                        if remaining <= 0:
-                            raise TimeoutError(
-                                f"Stream timeout exceeded ({self._provider_timeout}s)"
-                            )
-
-                        raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
-                    except StopAsyncIteration:
-                        break
-
-                    # 检查 chunk 数量防止 DoS
-                    chunk_count += 1
-                    if chunk_count > self._max_stream_chunks:
-                        raise ValidationError(
-                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
-                        )
-
-                    chunk = await self._run_stream_chunk(context, raw_chunk)
-                    yield chunk
-            else:
-                async for raw_chunk in self._provider.stream(context):
-                    # 检查 chunk 数量防止 DoS
-                    chunk_count += 1
-                    if chunk_count > self._max_stream_chunks:
-                        raise ValidationError(
-                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
-                        )
-
-                    chunk = await self._run_stream_chunk(context, raw_chunk)
-                    yield chunk
-        except Exception:
-            context.metadata.pop(buf_key, None)
-            raise
+        
+        # 正常结束时清理缓冲区
+        context.metadata.pop(buf_key, None)
+        context.metadata.pop(timestamp_key, None)
 
     async def execute_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         return await self._run_tool_call(context, tool_call)

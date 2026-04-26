@@ -129,8 +129,13 @@ async def test_pipeline_error_isolation():
         priority = 50
         
         async def process_request(self, context):
-            # This middleware always fails
-            raise ValueError("Intentional failure")
+            # This middleware always fails with a non-fatal exception
+            # Use RuntimeError instead of ValueError (which is classified as FATAL)
+            raise RuntimeError("Intentional failure")
+        
+        async def process_response(self, context, response):
+            # Must implement this abstract method
+            return response
     
     provider = EchoProvider()
     p = Pipeline(provider=provider, name="error_test")

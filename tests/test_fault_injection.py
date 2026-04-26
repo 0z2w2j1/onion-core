@@ -9,6 +9,7 @@ Tests various failure scenarios:
 """
 
 import asyncio
+import threading
 
 import pytest
 
@@ -273,12 +274,15 @@ async def test_concurrent_pipeline_runs():
     class CountingProvider(LLMProvider):
         def __init__(self):
             self.call_count = 0
+            self.lock = threading.Lock()
         
         async def complete(self, context):
-            self.call_count += 1
+            with self.lock:
+                self.call_count += 1
+                count_val = self.call_count
             await asyncio.sleep(0.01)  # Small delay
             return LLMResponse(
-                content=f"Response {self.call_count}",
+                content=f"Response {count_val}",
                 finish_reason=FinishReason.STOP,
                 usage=UsageStats(),
             )
