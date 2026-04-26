@@ -143,10 +143,14 @@ class Pipeline:
         # 熔断器配置
         self._enable_circuit_breaker = enable_circuit_breaker
         self._circuit_breakers: dict[int, CircuitBreaker] = {}
+        # 为每个 provider 分配稳定索引，避免使用 id() 作为字典键
+        self._provider_indices: dict[int, int] = {}
         if enable_circuit_breaker:
-            for p in [self._provider] + self._fallback_providers:
-                p_name = f"{type(p).__name__}_{id(p)}"
-                self._circuit_breakers[id(p)] = CircuitBreaker(
+            all_providers = [self._provider] + self._fallback_providers
+            for idx, p in enumerate(all_providers):
+                p_name = f"{type(p).__name__}#{idx}"
+                self._provider_indices[id(p)] = idx
+                self._circuit_breakers[idx] = CircuitBreaker(
                     name=p_name,
                     failure_threshold=circuit_failure_threshold,
                     recovery_timeout=circuit_recovery_timeout,
@@ -393,7 +397,8 @@ class Pipeline:
 
         for provider_idx, provider in enumerate(all_providers):
             is_fallback = provider_idx > 0
-            cb = self._circuit_breakers.get(id(provider))
+            cb_idx = self._provider_indices.get(id(provider), provider_idx)
+            cb = self._circuit_breakers.get(cb_idx)
             provider_name = f"{type(provider).__name__}#{provider_idx}"
 
             if is_fallback:
@@ -876,18 +881,21 @@ class Pipeline:
         def _put_with_stop(item: object) -> bool:
             while not stop_event.is_set():
                 try:
-                    stream_queue.put(item, timeout=0.1)
+                    stream_queue.put(item, timeout=0.05)
                     return True
                 except queue.Full:
                     continue
             return False
 
         async def _producer() -> None:
-            async for chunk in self.stream(context):
-                if stop_event.is_set():
-                    break
-                if not _put_with_stop(chunk):
-                    return
+            try:
+                async for chunk in self.stream(context):
+                    if stop_event.is_set():
+                        break
+                    if not _put_with_stop(chunk):
+                        return
+            except GeneratorExit:
+                pass
 
         def _producer_runner() -> None:
             nonlocal producer_task
@@ -896,7 +904,8 @@ class Pipeline:
                 producer_task = loop.create_task(_producer())
                 loop.run_until_complete(producer_task)
             except Exception as exc:
-                _put_with_stop((error_sentinel, exc))
+                if not stop_event.is_set():
+                    _put_with_stop((error_sentinel, exc))
             finally:
                 _put_with_stop(sentinel)
                 with contextlib.suppress(Exception):
@@ -979,32 +988,20 @@ class Pipeline:
         """
         from .models import CircuitState
 
-        cb_states = {}
+        cb_states: dict[str, str] = {}
         degraded = False
 
-        for idx, (provider_id, cb) in enumerate(self._circuit_breakers.items()):
-            # 找到对应的 provider 名称，添加索引以区分同名 provider
-            provider_name = "unknown"
-            all_providers = [self._provider] + self._fallback_providers
-            for p in all_providers:
-                if id(p) == provider_id:
-                    base_name = type(p).__name__
-                    # 如果有多个同名 provider，添加索引
-                    if (
-                        sum(
-                            1
-                            for pid in self._circuit_breakers
-                            if any(
-                                type(pp).__name__ == base_name and id(pp) == pid
-                                for pp in all_providers
-                            )
-                        )
-                        > 1
-                    ):
-                        provider_name = f"{base_name}#{idx}"
-                    else:
-                        provider_name = base_name
-                    break
+        all_providers = [self._provider] + self._fallback_providers
+        for cb_idx, cb in self._circuit_breakers.items():
+            base_name = type(all_providers[cb_idx]).__name__ if cb_idx < len(all_providers) else "unknown"
+            dup_count = sum(
+                1
+                for other_idx in self._circuit_breakers
+                if other_idx != cb_idx
+                and other_idx < len(all_providers)
+                and type(all_providers[other_idx]).__name__ == base_name
+            )
+            provider_name = f"{base_name}#{cb_idx}" if dup_count > 0 else base_name
 
             state = cb.state
             cb_states[provider_name] = state.value

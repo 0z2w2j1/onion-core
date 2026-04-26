@@ -750,9 +750,14 @@ class AgentLoop:
         registry: Optional[ToolRegistry] = None,
         max_turns: int = 10,
         raise_on_max_turns: bool = False,
+        memory: Optional[SlidingWindowMemory] = None,
     ) -> None: ...
 
     async def run(self, context: AgentContext) -> LLMResponse: ...
+
+Provides a simplified tool-calling loop on top of a Pipeline.
+When `memory` is set, the message list is trimmed by token count
+at the start of each turn to prevent unbounded memory growth.
 ```
 
 ---
@@ -1486,9 +1491,14 @@ class AgentLoop:
         registry: Optional[ToolRegistry] = None,
         max_turns: int = 10,
         raise_on_max_turns: bool = False,
+        memory: Optional[SlidingWindowMemory] = None,
     ) -> None: ...
 
     async def run(self, context: AgentContext) -> LLMResponse: ...
+
+在 Pipeline 之上提供简化的工具调用循环。
+当传入 `memory` 参数时，每轮循环开始时按 token 数裁剪消息列表，
+防止长时间运行的 Agent 出现内存泄漏。
 ```
 
 ---

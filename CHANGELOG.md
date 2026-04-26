@@ -42,6 +42,15 @@
 
 - **P0: AgentRuntime run/run_streaming Code Duplication** — `run()` and `run_streaming()` shared 60+ lines of identical loop logic. Extracted into a private `_run_loop()` async generator. Both methods are now thin wrappers: `run()` silently consumes `_run_loop()`, `run_streaming()` re-yields each `StepRecord`.
 
+- **P0: AgentLoop Memory Leak — Unbounded Context Growth** — `AgentLoop.run()` accumulated `Message` objects each turn with no trimming mechanism. Added `memory: SlidingWindowMemory | None` parameter; when provided, `context.messages` is trimmed by token count at the start of every turn.
+
+- **P0: ToolExecutor Undifferentiated Error Retry** — `ToolExecutor.execute()` retried all exceptions identically (including `ValueError`, `TypeError` etc.). Now integrates `RetryPolicy.classify()`: FATAL errors (e.g., `ValueError`, `KeyError`) are reported immediately without retry; only RETRY-classified transient errors use exponential backoff.
+
+- **P0: stream_sync() Thread Safety & Pipeline id() Fragility**
+  - Reduced busy-wait polling from 0.1s to 0.05s for faster shutdown
+  - Added `GeneratorExit` handling in the async producer to prevent silent hangs
+  - Replaced `id(provider)` dictionary keys with a stable counter-based index (`_provider_indices`) to avoid memory-address reuse risks
+
 - **P0: Sync API Thread Safety Fix**
   - Removed dangerous thread pool nesting in `_run_async_in_sync()` that could cause deadlocks
   - Now raises clear `RuntimeError` when sync methods are called from async contexts

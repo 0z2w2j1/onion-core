@@ -35,6 +35,8 @@ from .models import (
     LLMResponse,
     Message,
     MessageRole,
+    RetryOutcome,
+    RetryPolicy,
     StepRecord,
     ToolCall,
     ToolResult,
@@ -43,6 +45,8 @@ from .models import (
 from .pipeline import Pipeline
 from .provider import LLMProvider
 from .tools import ToolRegistry
+
+_DEFAULT_RETRY_POLICY = RetryPolicy()
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +85,13 @@ class AgentLoop:
         registry: ToolRegistry | None = None,
         max_turns: int = 10,
         raise_on_max_turns: bool = False,
+        memory: SlidingWindowMemory | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._registry = registry or ToolRegistry()
         self._max_turns = max_turns
         self._raise_on_max_turns = raise_on_max_turns
+        self._memory = memory
 
     async def run(self, context: AgentContext) -> LLMResponse:
         last_response: LLMResponse | None = None
@@ -94,6 +100,9 @@ class AgentLoop:
         recent_state_hashes: deque[str] = deque(maxlen=progress_window)
 
         for turn in range(self._max_turns):
+            if self._memory is not None:
+                context.messages = self._memory.trim(context.messages)
+
             response = await self._pipeline.run(context)
             last_response = response
 
@@ -236,8 +245,10 @@ class StateMachine:
         previous = self._state.status
         self._state.set_status(target)
         for listener in self._listeners:
-            with contextlib.suppress(Exception):
+            try:
                 listener(previous, target)
+            except Exception as exc:
+                logger.warning("StateMachine listener failed: %s", exc)
         return self._state
 
     def can_transition_to(self, target: AgentStatus) -> bool:
@@ -327,9 +338,15 @@ class DefaultPlanner(BasePlanner):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry, config: AgentConfig) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        config: AgentConfig,
+        retry_policy: RetryPolicy | None = None,
+    ) -> None:
         self._registry = registry
         self._config = config
+        self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
         self._semaphore = asyncio.Semaphore(config.max_concurrent_tools)
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
@@ -377,6 +394,14 @@ class ToolExecutor:
                     retry_count=attempt,
                 )
             except Exception as e:
+                outcome = self._retry_policy.classify(e)
+                if outcome == RetryOutcome.FATAL:
+                    return ToolResult(
+                        tool_call_id=tool_call.id, name=tool_call.name,
+                        error=f"{type(e).__name__}: {e}",
+                        duration_ms=(time.monotonic() - start) * 1000,
+                        retry_count=attempt,
+                    )
                 if attempt < self._config.tool_max_retries:
                     logger.warning("Tool '%s' attempt %d failed: %s, retrying...", tool_call.name, attempt + 1, e)
                     await asyncio.sleep(2 ** attempt)
@@ -702,8 +727,10 @@ class AgentRuntime:
                 if last_step:
                     last_step.error = str(e)
                 for hook in self._error_hooks:
-                    with contextlib.suppress(Exception):
+                    try:
                         hook(self._state.run_id, e)
+                    except Exception as hook_exc:
+                        logger.warning("Error hook failed during fatal handler: %s", hook_exc)
 
     async def run(self, user_message: str, state: AgentState | None = None) -> AgentState:
         async for _ in self._run_loop(user_message, state):
@@ -782,13 +809,17 @@ class AgentRuntime:
 
     def _emit_step(self, step: StepRecord) -> None:
         for hook in self._step_hooks:
-            with contextlib.suppress(Exception):
+            try:
                 hook(step)
+            except Exception as exc:
+                logger.warning("Step hook failed: %s", exc)
 
     def _handle_error(self, trace_id: str, message: str, exc: Exception) -> None:
         for hook in self._error_hooks:
-            with contextlib.suppress(Exception):
+            try:
                 hook(message, exc)
+            except Exception as hook_exc:
+                logger.warning("Error hook failed: %s", hook_exc)
 
     async def run_streaming(self, user_message: str, state: AgentState | None = None) -> AsyncIterator[StepRecord]:
         async for step in self._run_loop(user_message, state):
