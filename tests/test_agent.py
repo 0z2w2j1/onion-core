@@ -49,6 +49,22 @@ class InfiniteToolProvider(EchoProvider):
         )
 
 
+class SequenceToolProvider(EchoProvider):
+    """按预定义序列返回响应。"""
+
+    def __init__(self, responses: list[LLMResponse]):
+        super().__init__()
+        self._responses = responses
+        self._idx = 0
+
+    async def complete(self, context: AgentContext) -> LLMResponse:
+        if self._idx < len(self._responses):
+            resp = self._responses[self._idx]
+            self._idx += 1
+            return resp
+        return LLMResponse(content="done", finish_reason="stop")
+
+
 # ── 测试 ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -145,3 +161,102 @@ async def test_agent_loop_pipeline_middleware_applied():
     ctx = make_context()
     await loop.run(ctx)
     assert "duration_s" in ctx.metadata
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_allows_same_args_across_turns():
+    """同参数工具调用在不同轮次应可重复执行。"""
+    registry = ToolRegistry()
+    calls: list[str] = []
+
+    @registry.register
+    async def ping(city: str) -> str:
+        calls.append(city)
+        return f"pong:{city}"
+
+    provider = SequenceToolProvider(
+        responses=[
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="tc1", name="ping", arguments={"city": "shanghai"})],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="tc2", name="ping", arguments={"city": "shanghai"})],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="ok", finish_reason="stop"),
+        ]
+    )
+    loop = AgentLoop(pipeline=Pipeline(provider=provider), registry=registry)
+    ctx = make_context()
+    resp = await loop.run(ctx)
+
+    assert resp.finish_reason == "stop"
+    assert calls == ["shanghai", "shanghai"]
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_dedups_duplicate_tool_calls_within_same_response():
+    """同一响应内重复 tool_call（相同 id）只执行一次。"""
+    registry = ToolRegistry()
+    execution_count = 0
+
+    @registry.register
+    async def ping() -> str:
+        nonlocal execution_count
+        execution_count += 1
+        return "pong"
+
+    provider = SequenceToolProvider(
+        responses=[
+            LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(id="same-id", name="ping", arguments={}),
+                    ToolCall(id="same-id", name="ping", arguments={}),
+                ],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="ok", finish_reason="stop"),
+        ]
+    )
+    loop = AgentLoop(pipeline=Pipeline(provider=provider), registry=registry)
+    ctx = make_context()
+    await loop.run(ctx)
+
+    assert execution_count == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_dedup_policy_strict_from_context_config():
+    """strict 策略下，同一响应中同 name+args（不同 id）应去重。"""
+    registry = ToolRegistry()
+    execution_count = 0
+
+    @registry.register
+    async def ping(city: str) -> str:
+        nonlocal execution_count
+        execution_count += 1
+        return f"pong:{city}"
+
+    provider = SequenceToolProvider(
+        responses=[
+            LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(id="id-1", name="ping", arguments={"city": "bj"}),
+                    ToolCall(id="id-2", name="ping", arguments={"city": "bj"}),
+                ],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(content="ok", finish_reason="stop"),
+        ]
+    )
+    loop = AgentLoop(pipeline=Pipeline(provider=provider), registry=registry)
+    ctx = make_context()
+    ctx.config["tool_call_dedup_policy"] = "strict"
+    await loop.run(ctx)
+
+    assert execution_count == 1

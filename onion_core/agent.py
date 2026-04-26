@@ -14,10 +14,12 @@ Onion Core - AgentLoop
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+from collections import deque
 
-from .models import AgentContext, LLMResponse, Message
+from .models import AgentContext, LLMResponse, Message, ToolCall, ToolResult
 from .pipeline import Pipeline
 from .tools import ToolRegistry
 
@@ -63,9 +65,9 @@ class AgentLoop:
             最终的 LLMResponse（finish_reason="stop"）
         """
         last_response: LLMResponse | None = None
-        seen_tool_calls: set[str] = set()  # 记录已执行的工具调用签名
-        consecutive_same_results: int = 0  # 连续相同工具结果的计数
-        last_tool_result_hash: str | None = None  # 上一次工具结果的哈希
+        dedup_policy = self._get_tool_call_dedup_policy(context)
+        progress_window = self._get_progress_window(context)
+        recent_state_hashes: deque[str] = deque(maxlen=progress_window)
 
         for turn in range(self._max_turns):
             response = await self._pipeline.run(context)
@@ -77,19 +79,29 @@ class AgentLoop:
 
             logger.info("Turn %d: %d tool call(s).", turn + 1, len(response.tool_calls))
 
+            turn_seen_ids: set[str] = set()
+            turn_seen_signatures: set[str] = set()
+            turn_result_summaries: list[str] = []
+
             # 执行所有工具调用
             for tool_call in response.tool_calls:
-                # 检测重复调用
                 call_signature = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
-                if call_signature in seen_tool_calls:
+                if self._is_duplicate_tool_call(
+                    tool_call,
+                    call_signature,
+                    dedup_policy,
+                    turn_seen_ids,
+                    turn_seen_signatures,
+                ):
                     logger.warning(
-                        "[%s] Duplicate tool call detected: %s",
-                        context.request_id, call_signature
+                        "[%s] Duplicate tool call skipped by policy=%s: id=%s, signature=%s",
+                        context.request_id,
+                        dedup_policy,
+                        tool_call.id,
+                        call_signature,
                     )
-                    continue  # 跳过重复调用
-                
-                seen_tool_calls.add(call_signature)
-                
+                    continue
+
                 # 通过 pipeline 拦截（安全检查、审计）
                 intercepted = await self._pipeline.execute_tool_call(context, tool_call)
 
@@ -98,21 +110,7 @@ class AgentLoop:
 
                 # 通过 pipeline 处理结果（PII 脱敏等）
                 processed = await self._pipeline.execute_tool_result(context, tool_result)
-
-                # 检测连续相同结果（防止无限循环）
-                current_result_hash = f"{processed.name}:{processed.result}"
-                if current_result_hash == last_tool_result_hash:
-                    consecutive_same_results += 1
-                    if consecutive_same_results >= 3:
-                        logger.warning(
-                            "[%s] Detected %d consecutive identical tool results, stopping to prevent infinite loop",
-                            context.request_id, consecutive_same_results
-                        )
-                        # 返回当前结果而不是继续循环
-                        return last_response
-                else:
-                    consecutive_same_results = 0
-                last_tool_result_hash = current_result_hash
+                turn_result_summaries.append(self._summarize_tool_result(processed))
 
                 # 追加工具结果到对话历史
                 result_text = (
@@ -131,6 +129,20 @@ class AgentLoop:
                     Message(role="assistant", content=response.content)
                 )
 
+            turn_state_hash = self._build_turn_state_hash(response, turn_result_summaries)
+            recent_state_hashes.append(turn_state_hash)
+            if (
+                progress_window > 0
+                and len(recent_state_hashes) == progress_window
+                and len(set(recent_state_hashes)) == 1
+            ):
+                logger.warning(
+                    "[%s] No state progress detected for %d turns; stopping to prevent infinite loop.",
+                    context.request_id,
+                    progress_window,
+                )
+                return last_response
+
         # 达到最大轮次
         logger.warning("AgentLoop reached max_turns=%d without stop.", self._max_turns)
         if self._raise_on_max_turns:
@@ -138,3 +150,65 @@ class AgentLoop:
                 f"Agent loop exceeded max_turns={self._max_turns} without a final response."
             )
         return last_response  # type: ignore[return-value]
+
+    @staticmethod
+    def _get_tool_call_dedup_policy(context: AgentContext) -> str:
+        pipeline_cfg = context.config.get("onion", {}).get("pipeline", {})
+        policy = context.config.get("tool_call_dedup_policy", pipeline_cfg.get("tool_call_dedup_policy", "relaxed"))
+        if policy not in {"strict", "relaxed", "off"}:
+            return "relaxed"
+        return policy
+
+    @staticmethod
+    def _get_progress_window(context: AgentContext) -> int:
+        pipeline_cfg = context.config.get("onion", {}).get("pipeline", {})
+        window = context.config.get("agent_progress_window", pipeline_cfg.get("agent_progress_window", 3))
+        try:
+            parsed = int(window)
+        except (TypeError, ValueError):
+            return 3
+        return max(parsed, 0)
+
+    @staticmethod
+    def _is_duplicate_tool_call(
+        tool_call: ToolCall,
+        call_signature: str,
+        policy: str,
+        turn_seen_ids: set[str],
+        turn_seen_signatures: set[str],
+    ) -> bool:
+        if policy == "off":
+            return False
+
+        duplicate = tool_call.id in turn_seen_ids
+        if policy == "strict":
+            duplicate = duplicate or call_signature in turn_seen_signatures
+
+        turn_seen_ids.add(tool_call.id)
+        turn_seen_signatures.add(call_signature)
+        return duplicate
+
+    @staticmethod
+    def _summarize_tool_result(result: ToolResult) -> str:
+        payload = {
+            "id": result.tool_call_id,
+            "name": result.name,
+            "error": result.error,
+            "result": result.result,
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _build_turn_state_hash(response: LLMResponse, tool_result_summaries: list[str]) -> str:
+        payload = {
+            "finish_reason": response.finish_reason,
+            "content": response.content,
+            "tool_calls": [
+                {"id": c.id, "name": c.name, "arguments": c.arguments}
+                for c in response.tool_calls
+            ],
+            "tool_results": tool_result_summaries,
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()

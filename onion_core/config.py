@@ -49,6 +49,8 @@ class PipelineConfig(BaseModel):
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
     max_stream_chunks: int = 10000  # 防止 DoS：流式响应最大 chunk 数
+    tool_call_dedup_policy: str = "relaxed"  # strict/relaxed/off
+    agent_progress_window: int = 3  # 最近 N 轮状态无变化时提前停止
 
 
 class OnionConfig(BaseSettings):
