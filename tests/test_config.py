@@ -31,6 +31,7 @@ def test_onion_config_defaults():
     assert cfg.pipeline.provider_timeout is None
     assert cfg.safety.enable_pii_masking is True
     assert cfg.context_window.max_tokens == 4000
+    assert cfg.context_window.summary_strategy == "rule-based"
     assert cfg.observability.log_level == "INFO"
 
 
@@ -104,12 +105,14 @@ def test_onion_config_from_env(monkeypatch):
     monkeypatch.setenv("ONION__PIPELINE__MAX_RETRIES", "5")
     monkeypatch.setenv("ONION__PIPELINE__PROVIDER_TIMEOUT", "15.0")
     monkeypatch.setenv("ONION__CONTEXT_WINDOW__MAX_TOKENS", "2000")
+    monkeypatch.setenv("ONION__CONTEXT_WINDOW__SUMMARY_STRATEGY", "none")
     monkeypatch.setenv("ONION__SAFETY__ENABLE_PII_MASKING", "false")
 
     cfg = OnionConfig.from_env()
     assert cfg.pipeline.max_retries == 5
     assert cfg.pipeline.provider_timeout == 15.0
     assert cfg.context_window.max_tokens == 2000
+    assert cfg.context_window.summary_strategy == "none"
     assert cfg.safety.enable_pii_masking is False
 
 
@@ -164,11 +167,12 @@ async def test_pipeline_from_config_context_window():
     """from_config 传入的 max_tokens 应被 ContextWindowMiddleware 使用。"""
     from tests.conftest import make_long_context
 
-    cfg = OnionConfig(context_window=ContextWindowConfig(max_tokens=500, keep_rounds=1))
+    cfg = OnionConfig(context_window=ContextWindowConfig(max_tokens=500, keep_rounds=1, summary_strategy="none"))
     p = Pipeline.from_config(provider=EchoProvider(), config=cfg)
     ctx = make_long_context(n_rounds=20, words_per_msg=100)
     await p.run(ctx)
     assert ctx.metadata["context_truncated"] is True
+    assert ctx.metadata["summary_generated"] is False
 
 
 @pytest.mark.asyncio

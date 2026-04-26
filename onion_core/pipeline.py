@@ -789,6 +789,7 @@ class Pipeline:
                 max_tokens=config.context_window.max_tokens,
                 keep_rounds=config.context_window.keep_rounds,
                 encoding_name=config.context_window.encoding_name,
+                summary_strategy=config.context_window.summary_strategy,
             )
         )
         return p

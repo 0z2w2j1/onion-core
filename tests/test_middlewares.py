@@ -21,6 +21,11 @@ from onion_core.middlewares.safety import SecurityException
 
 from .conftest import make_context, make_long_context
 
+
+class DummySummarizer:
+    async def summarize(self, messages: list[Message]) -> str:
+        return "ENTITY: Project Onion owner is Alice."
+
 # ── SafetyGuardrailMiddleware ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -126,6 +131,55 @@ async def test_context_runtime_override():
     ctx.config["context_window"] = {"max_tokens": 500, "keep_rounds": 1}
     await p.run(ctx)
     assert ctx.metadata["context_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_summary_metadata_and_rule_based():
+    p = Pipeline(provider=EchoProvider()).add_middleware(ContextWindowMiddleware(max_tokens=500, keep_rounds=1))
+    ctx = make_long_context(n_rounds=12, words_per_msg=120)
+    await p.run(ctx)
+    assert ctx.metadata["truncated"] is True
+    assert ctx.metadata["summary_generated"] is True
+    assert ctx.metadata["pre_tokens"] > ctx.metadata["post_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_context_summary_strategy_none():
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        ContextWindowMiddleware(max_tokens=500, keep_rounds=1, summary_strategy="none")
+    )
+    ctx = make_long_context(n_rounds=12, words_per_msg=120)
+    await p.run(ctx)
+    assert ctx.metadata["truncated"] is True
+    assert ctx.metadata["summary_generated"] is False
+    assert all("Summary: Conversation history truncated" not in m.text_content for m in ctx.messages)
+
+
+@pytest.mark.asyncio
+async def test_context_summary_strategy_llm_preserves_entity_reference():
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        ContextWindowMiddleware(
+            max_tokens=500,
+            keep_rounds=1,
+            summary_strategy="llm-summary",
+            summarizer=DummySummarizer(),
+        )
+    )
+    messages = [Message(role="system", content="You are helpful.")]
+    for i in range(12):
+        if i == 0:
+            messages.append(Message(role="user", content="Remember this forever: Project Onion owner is Alice."))
+        else:
+            messages.append(Message(role="user", content=f"Round {i}: " + ("detail " * 120)))
+        messages.append(Message(role="assistant", content="Ack. " * 120))
+    messages.append(Message(role="user", content="Who owns Project Onion?"))
+    ctx = AgentContext(messages=messages)
+    await p.run(ctx)
+
+    assert ctx.metadata["summary_generated"] is True
+    summary_messages = [m for m in ctx.messages if m.role == "system" and "Summary: Conversation history truncated" in m.text_content]
+    assert summary_messages
+    assert "Alice" in summary_messages[0].text_content
 
 
 # ── ObservabilityMiddleware ───────────────────────────────────────────────────

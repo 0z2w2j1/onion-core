@@ -34,6 +34,7 @@ class ContextWindowConfig(BaseModel):
     max_tokens: int = 4000
     keep_rounds: int = 2
     encoding_name: str = "cl100k_base"
+    summary_strategy: str = "rule-based"
 
 
 class ObservabilityConfig(BaseModel):
