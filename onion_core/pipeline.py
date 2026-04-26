@@ -29,6 +29,7 @@ from .circuit_breaker import CircuitBreaker
 from .config import OnionConfig
 from .error_codes import ErrorCode
 from .models import (
+    _MAX_TOOL_CALL_DEPTH,
     AgentContext,
     CacheHitException,
     CircuitBreakerError,
@@ -47,7 +48,6 @@ logger = logging.getLogger("onion_core.pipeline")
 # 输入验证常量（防止 DoS）
 _MAX_MESSAGES = 1000  # 最多 1000 条消息，防止内存溢出
 _MAX_CONTENT_LENGTH = 1_000_000  # 单条消息最大 1MB，防止超大 payload
-_MAX_TOOL_CALL_DEPTH = 10  # 工具调用最大嵌套深度
 _MAX_NESTING_LEVEL = 5  # 消息内容最大嵌套层级
 _UNICODE_COMBINING_THRESHOLD = 0.3  # Unicode 组合字符阈值（30%）
 

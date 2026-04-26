@@ -119,13 +119,13 @@ class AgentLoop:
             # 1. 内存裁剪（可能修改 context.messages）
             if self._memory is not None:
                 trimmed_messages = await self._memory.trim(context.messages)
-                # 【关键】如果 trim 返回了新列表，更新 context.messages
                 if trimmed_messages is not context.messages:
                     logger.info(
                         "[%s] Turn %d: Memory trimmed messages from %d to %d",
                         context.request_id, turn + 1, len(context.messages), len(trimmed_messages),
                     )
                     context.messages = trimmed_messages
+                context.metadata["_memory_already_trimmed"] = True
 
             # 2. Pipeline 执行（中间件可能再次修改 context.messages）
             response = await self._pipeline.run(context)
@@ -270,13 +270,10 @@ class StateMachine:
     def transition_to(self, target: AgentStatus) -> AgentState:
         if target == self._state.status:
             return self._state
-        # 如果当前已经是终端状态（FINISHED/ERROR/CANCELLED），不允许再转换
         if self._state.status in (AgentStatus.FINISHED, AgentStatus.ERROR, AgentStatus.CANCELLED):
-            logger.warning(
-                "Ignoring state transition from terminal state %s to %s",
-                self._state.status.value, target.value
+            raise StateTransitionError(
+                f"Cannot transition from terminal state {self._state.status.value} to {target.value}"
             )
-            return self._state
         if target not in self.ALLOWED_TRANSITIONS.get(self._state.status, set()):
             raise StateTransitionError(
                 f"Invalid transition: {self._state.status.value} -> {target.value}"
@@ -521,26 +518,22 @@ class _TokenEstimator:
             self._encoding = tiktoken.get_encoding(encoding_name)
 
     async def estimate_tokens(self, messages: list[Message]) -> int:
-        """异步估算 token 数量，避免阻塞事件循环。"""
         if self._encoding is not None:
             return await self._estimate_tiktoken(messages)
         return self._estimate_fallback(messages)
 
     async def _estimate_tiktoken(self, messages: list[Message]) -> int:
-        """使用 tiktoken 在 executor 中异步执行，避免阻塞事件循环。"""
         loop = asyncio.get_running_loop()
         
-        # 将所有消息内容提取出来，在线程池中一次性编码
         contents = []
         base_tokens = 0
         for m in messages:
-            base_tokens += 4  # 每条消息的基础 token
+            base_tokens += 4
             if m.name:
                 base_tokens += 1
             content = m.content if isinstance(m.content, str) else ""
             contents.append(content)
         
-        # 在线程池中执行 tiktoken 编码（阻塞操作）
         def _encode_all() -> int:
             enc = self._encoding
             assert enc is not None
@@ -560,6 +553,28 @@ class _TokenEstimator:
             content = m.content if isinstance(m.content, str) else ""
             total += len(content) / self.AVERAGE_CHARS_PER_TOKEN
         return max(1, int(total))
+
+    async def estimate_tokens_batch(self, messages: list[Message]) -> list[int]:
+        if self._encoding is not None:
+            return await self._estimate_tiktoken_batch(messages)
+        return [self._estimate_fallback([m]) for m in messages]
+
+    async def _estimate_tiktoken_batch(self, messages: list[Message]) -> list[int]:
+        loop = asyncio.get_running_loop()
+
+        def _encode_all() -> list[int]:
+            enc = self._encoding
+            assert enc is not None
+            result = []
+            for m in messages:
+                base = 4
+                if m.name:
+                    base += 1
+                content = m.content if isinstance(m.content, str) else ""
+                result.append(base + len(enc.encode(content)))
+            return result
+
+        return await loop.run_in_executor(None, _encode_all)
 
 
 class SlidingWindowMemory:
@@ -583,11 +598,9 @@ class SlidingWindowMemory:
         self._max_tokens = value
 
     async def trim(self, messages: list[Message]) -> list[Message]:
-        """异步裁剪方法，使用 tiktoken 精确估算。"""
         if not messages:
             return []
 
-        # 使用异步 token 估算
         total = await self._token_counter.estimate_tokens(messages)
         if total <= self._max_tokens:
             return messages
@@ -603,10 +616,13 @@ class SlidingWindowMemory:
             logger.error("System messages alone (%d tokens) exceed memory limit (%d tokens)", system_reserve, self._max_tokens)
             return system_messages[:-max(1, len(system_messages) - 1)] + (non_system[-1:] if non_system else [])
 
+        non_system_reversed = list(reversed(non_system))
+        tokens_list = await self._token_counter.estimate_tokens_batch(non_system_reversed)
+
         kept = []
         running = 0
-        for m in reversed(non_system):
-            t = await self._token_counter.estimate_tokens([m])
+        for i, m in enumerate(non_system_reversed):
+            t = tokens_list[i]
             if running + t > available:
                 break
             kept.append(m)
@@ -872,7 +888,8 @@ class AgentRuntime:
 
                 except Exception as e:
                     logger.exception("AgentRuntime fatal error: %s", e)
-                    self._state.set_status(AgentStatus.ERROR)
+                    if not self._state.is_terminal:
+                        self._state.set_status(AgentStatus.ERROR)
                     last_step = self._state.last_step
                     if last_step:
                         last_step.error = str(e)
@@ -1066,8 +1083,8 @@ class AgentRuntime:
         """
         # 设置合理的队列大小限制（基于典型流式响应的 chunk 数量）
         MAX_QUEUE_SIZE = 100
-        chunk_queue: asyncio.Queue[StreamChunk] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
-        _SENTINEL: StreamChunk = StreamChunk()  # sentinel marker
+        chunk_queue: asyncio.Queue[StreamChunk | object] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+        _SENTINEL = object()
 
         async def _collect(chunk: StreamChunk) -> None:
             # put 会在队列满时阻塞，防止 OOM
@@ -1082,9 +1099,10 @@ class AgentRuntime:
         try:
             while True:
                 chunk = await chunk_queue.get()
-                if chunk is _SENTINEL:
+                if isinstance(chunk, StreamChunk):
+                    yield chunk
+                else:
                     break
-                yield chunk
         finally:
             if not runner.done():
                 runner.cancel()

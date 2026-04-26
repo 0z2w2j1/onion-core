@@ -490,8 +490,11 @@ class OpenAIProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         temperature: float = 1.0,
         client: Optional[AsyncOpenAI] = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None: ...
 # Pass `client` to share an existing AsyncOpenAI instance (connection pool) across providers.
+# `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
 ```
 
 ### `AnthropicProvider`
@@ -505,8 +508,11 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 1.0,
         base_url: Optional[str] = None,
         client: Optional[AsyncAnthropic] = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None: ...
 # Pass `client` to share an existing AsyncAnthropic instance across providers.
+# `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
 ```
 
 ### `DeepSeekProvider` (extends `OpenAIProvider`)
@@ -1399,8 +1405,11 @@ class OpenAIProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         temperature: float = 1.0,
         client: Optional[AsyncOpenAI] = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None: ...
 # 传入 `client` 可共享已有的 AsyncOpenAI 实例（连接池），避免重复创建。
+# `max_connections` / `max_keepalive_connections` 控制 httpx 连接池的并发限制。
 ```
 
 ### `AnthropicProvider`
@@ -1414,8 +1423,11 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 1.0,
         base_url: Optional[str] = None,
         client: Optional[AsyncAnthropic] = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None: ...
 # 传入 `client` 可共享已有的 AsyncAnthropic 实例，避免重复创建连接池。
+# `max_connections` / `max_keepalive_connections` 控制 httpx 连接池的并发限制。
 ```
 
 ### `DeepSeekProvider` (继承自 `OpenAIProvider`)

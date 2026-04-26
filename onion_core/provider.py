@@ -22,9 +22,8 @@ class LLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
+    def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用，逐块产出 StreamChunk。"""
-        yield StreamChunk()  # pragma: no cover
 
     async def cleanup(self) -> None:
         """释放 Provider 占用的资源（HTTP 连接等）。Pipeline shutdown 时自动调用。"""

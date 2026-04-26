@@ -47,6 +47,8 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int | None = None,
         temperature: float = 1.0,
         client: AsyncOpenAI | None = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None:
         try:
             from openai import AsyncOpenAI
@@ -62,11 +64,19 @@ class OpenAIProvider(LLMProvider):
         if client is not None:
             self._client = client
         else:
+            import httpx
+            http_client = httpx.AsyncClient(
+                limits=httpx.Limits(
+                    max_connections=max_connections,
+                    max_keepalive_connections=max_keepalive_connections,
+                )
+            )
             self._client = AsyncOpenAI(
                 api_key=api_key,
                 base_url=base_url,
                 organization=organization,
                 default_headers=default_headers or {},
+                http_client=http_client,
             )
 
     @property

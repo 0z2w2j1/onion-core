@@ -217,16 +217,25 @@ class ContextWindowMiddleware(BaseMiddleware):
         return truncated, summary_generated
 
     async def process_request(self, context: AgentContext) -> AgentContext:
+        # 如果 AgentLoop 或上游已通过 SlidingWindowMemory 完成裁剪，跳过重复操作
+        if context.metadata.get("_memory_already_trimmed"):
+            token_count = await self.count_tokens_async(context.messages, self._get_encoding(
+                context.config.get("context_window", {}).get("encoding_name", self._default_encoding_name)
+            ))
+            context.metadata["pre_tokens"] = token_count
+            context.metadata["context_truncated"] = False
+            context.metadata["truncated"] = False
+            context.metadata["summary_generated"] = False
+            return context
+
         rt_cfg = context.config.get("context_window", {})
         max_tokens = rt_cfg.get("max_tokens", self._max_tokens)
         keep_rounds = rt_cfg.get("keep_rounds", self._keep_rounds)
         summary_strategy = rt_cfg.get("summary_strategy", self._summary_strategy)
 
-        # 动态 encoding：优先从 context.config 读取，回退到构造时的默认值
         encoding_name = rt_cfg.get("encoding_name", self._default_encoding_name)
         encoding = self._get_encoding(encoding_name)
 
-        # 使用异步 Token 计数，避免阻塞事件循环
         token_count = await self.count_tokens_async(context.messages, encoding)
         context.metadata["token_count_before"] = token_count
         context.metadata["pre_tokens"] = token_count

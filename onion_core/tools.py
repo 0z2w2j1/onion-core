@@ -32,7 +32,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, TypedDict, Union
 
-from .models import AgentContext, ToolCall, ToolResult
+from .models import _MAX_TOOL_CALL_DEPTH, AgentContext, ToolCall, ToolResult
 
 logger = logging.getLogger("onion_core.tools")
 
@@ -245,6 +245,14 @@ class ToolRegistry:
             if cached is not None:
                 logger.info("Idempotency hit for key='%s', returning cached result", tool_call.idempotency_key)
                 return cached.model_copy(deep=True)
+
+        if context and context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
+            return ToolResult(
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                result=None,
+                error=f"Tool call nesting depth exceeded: {context.metadata.get('tool_calls_depth', 0)} > {_MAX_TOOL_CALL_DEPTH}",
+            )
 
         try:
             sig = inspect.signature(tool_def.func)

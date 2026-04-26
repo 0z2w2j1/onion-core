@@ -47,6 +47,8 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 1.0,
         base_url: str | None = None,
         client: AsyncAnthropic | None = None,
+        max_connections: int = 100,
+        max_keepalive_connections: int = 20,
     ) -> None:
         try:
             import anthropic as _anthropic
@@ -62,7 +64,14 @@ class AnthropicProvider(LLMProvider):
         if client is not None:
             self._client = client
         else:
-            client_kwargs: dict[str, Any] = {"api_key": api_key}
+            import httpx
+            http_client = httpx.AsyncClient(
+                limits=httpx.Limits(
+                    max_connections=max_connections,
+                    max_keepalive_connections=max_keepalive_connections,
+                )
+            )
+            client_kwargs: dict[str, Any] = {"api_key": api_key, "http_client": http_client}
             if base_url:
                 client_kwargs["base_url"] = base_url
             self._client = _anthropic.AsyncAnthropic(**client_kwargs)
