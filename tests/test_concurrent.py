@@ -94,21 +94,25 @@ async def test_concurrent_pipeline_runs_no_race():
 
 @pytest.mark.asyncio
 async def test_agent_runtime_immediate_cancel():
-    """Test cancelling agent immediately after start."""
+    """Test cancelling agent before it starts processing."""
     from onion_core.provider import LLMProvider
     
-    class SlowProvider(LLMProvider):
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    
+    class BarrierProvider(LLMProvider):
         async def complete(self, context):
-            await asyncio.sleep(1.0)  # Very slow
-            return LLMResponse(content="Too late", finish_reason=FinishReason.STOP)
+            started.set()
+            await cancelled.wait()  # Block until cancel is verified
+            return LLMResponse(content="done", finish_reason=FinishReason.STOP)
         
         async def stream(self, context):
-            raise NotImplementedError("Stream not supported")
-        
+            raise NotImplementedError
+    
         async def cleanup(self):
             pass
     
-    provider = SlowProvider()
+    provider = BarrierProvider()
     registry = ToolRegistry()
     config = AgentConfig(model="test", max_steps=10)
     
@@ -118,14 +122,14 @@ async def test_agent_runtime_immediate_cancel():
         tool_registry=registry,
     )
     
-    # Start and immediately cancel
     task = asyncio.create_task(agent.run(user_message="Test"))
+    await started.wait()
     agent.cancel()
+    cancelled.set()
     
-    # Should complete quickly due to cancellation
     state = await asyncio.wait_for(task, timeout=2.0)
     
-    assert state.status in [AgentStatus.CANCELLED, AgentStatus.FINISHED]
+    assert state.status == AgentStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -301,48 +305,36 @@ async def test_asyncio_lock_vs_threading_lock():
 async def test_concurrent_cancel_and_run():
     """Test cancel() called while run() is executing."""
     from onion_core.provider import LLMProvider
-    
+
+    llm_started = asyncio.Event()
+    proceed = asyncio.Event()
+
     class CancellableProvider(LLMProvider):
-        def __init__(self):
-            self.cancelled_during_call = False
-        
         async def complete(self, context):
-            # Check if cancelled during this call
-            await asyncio.sleep(0.1)
-            return LLMResponse(
-                content="Response",
-                finish_reason=FinishReason.STOP,
-                usage=UsageStats(),
-            )
-        
+            llm_started.set()
+            await proceed.wait()
+            return LLMResponse(content="Response", finish_reason=FinishReason.STOP, usage=UsageStats())
+
         async def stream(self, context):
-            raise NotImplementedError("Stream not supported")
-        
+            raise NotImplementedError
+
         async def cleanup(self):
             pass
-    
+
     provider = CancellableProvider()
     registry = ToolRegistry()
     config = AgentConfig(model="test", max_steps=5)
-    
-    agent = AgentRuntime(
-        config=config,
-        llm_provider=provider,
-        tool_registry=registry,
-    )
-    
-    # Start execution
+
+    agent = AgentRuntime(config=config, llm_provider=provider, tool_registry=registry)
+
     task = asyncio.create_task(agent.run(user_message="Test"))
-    
-    # Cancel after short delay
-    await asyncio.sleep(0.05)
+    await llm_started.wait()
     agent.cancel()
-    
-    # Wait for completion
-    state = await task
-    
-    # Should be cancelled or finished gracefully
-    assert state.status in [AgentStatus.CANCELLED, AgentStatus.FINISHED]
+    proceed.set()
+
+    state = await asyncio.wait_for(task, timeout=2.0)
+
+    assert state.status == AgentStatus.CANCELLED
 
 
 @pytest.mark.asyncio

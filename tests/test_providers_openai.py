@@ -13,60 +13,31 @@ from onion_core.providers.openai import OpenAIProvider
 
 @pytest.fixture
 def mock_openai_response():
-    """模拟 OpenAI API 响应。"""
-    response = MagicMock()
-    response.choices = [
-        MagicMock(
-            message=MagicMock(
-                content="Hello from OpenAI!",
-                tool_calls=None,
-            ),
-            finish_reason="stop",
-        )
-    ]
-    response.usage = MagicMock(
-        prompt_tokens=10,
-        completion_tokens=5,
-        total_tokens=15,
-    )
-    response.model = "gpt-4o"
+    from types import SimpleNamespace
+    msg = SimpleNamespace(content="Hello from OpenAI!", tool_calls=None)
+    choice = SimpleNamespace(message=msg, finish_reason="stop")
+    usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    response = SimpleNamespace(choices=[choice], usage=usage, model="gpt-4o")
     return response
 
 
 @pytest.fixture
 def mock_openai_stream_response():
-    """模拟 OpenAI 流式响应。"""
-    chunks = [
-        MagicMock(
-            choices=[
-                MagicMock(
-                    delta=MagicMock(content="Hello"),
-                    finish_reason=None,
-                )
-            ]
-        ),
-        MagicMock(
-            choices=[
-                MagicMock(
-                    delta=MagicMock(content=" from"),
-                    finish_reason=None,
-                )
-            ]
-        ),
-        MagicMock(
-            choices=[
-                MagicMock(
-                    delta=MagicMock(content=" OpenAI!"),
-                    finish_reason="stop",
-                )
-            ]
-        ),
-    ]
-    
+    from types import SimpleNamespace
+
+    def _make_chunk(delta_text: str, finish: str | None):
+        delta = SimpleNamespace(content=delta_text, tool_calls=None)
+        choice = SimpleNamespace(delta=delta, finish_reason=finish)
+        return SimpleNamespace(choices=[choice])
+
+    chunk1 = _make_chunk("Hello", None)
+    chunk2 = _make_chunk(" from", None)
+    chunk3 = _make_chunk(" OpenAI!", "stop")
+
     async def async_gen():
-        for chunk in chunks:
+        for chunk in (chunk1, chunk2, chunk3):
             yield chunk
-    
+
     return async_gen()
 
 

@@ -585,9 +585,10 @@ class TestAgentLoopSupplemental:
         )
         resp = await loop.run(ctx)
         assert resp.finish_reason == FinishReason.STOP
+        assert exec_count["count"] == 2
 
     @pytest.mark.asyncio
-    async def test_agent_loop_dept_with_signature_dedup(self):
+    async def test_agent_loop_dedup_with_signature_dedup(self):
         registry = ToolRegistry()
         exec_count = {"count": 0}
 

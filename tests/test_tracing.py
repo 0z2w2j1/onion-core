@@ -69,7 +69,9 @@ class TestTracingMiddlewareNoOp:
     @pytest.mark.asyncio
     async def test_on_error_without_otel(self, context):
         mw = TracingMiddleware(service_name="test")
+        orig_meta = dict(context.metadata)
         await mw.on_error(context, ValueError("test error"))
+        assert context.metadata == orig_meta
 
     @pytest.mark.asyncio
     async def test_priority_is_50(self):
@@ -105,18 +107,31 @@ class TestProtocols:
         assert isinstance(tracer, TracerLike)
 
 
-class TestTracingMiddlewareWithMetadata:
-    """Test TracingMiddleware metadata handling."""
+class TestTracingMiddlewareNoOpExtended:
+    """Additional no-op tests for TracingMiddleware without OTel."""
 
     @pytest.mark.asyncio
-    async def test_process_request_sets_metadata(self, context):
-        """Test that process_request stores span in metadata."""
+    async def test_process_request_sets_otel_metadata(self, context):
         mw = TracingMiddleware(service_name="test", pipeline_name="test-pipeline")
         await mw.startup()
-        await mw.process_request(context)
-        # Span may be stored (if OTel available) or not (if not available)
-        # Just verify the method completes without error
+        result = await mw.process_request(context)
+        assert result is context
+        assert "_otel_span" in context.metadata
         await mw.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_on_tool_call_stores_tool_span_metadata(self, context):
+        mw = TracingMiddleware(service_name="test")
+        await mw.startup()
+        tool_call = ToolCall(id="tc-123", name="search", arguments={"query": "test"})
+        result = await mw.on_tool_call(context, tool_call)
+        assert result is tool_call
+        key = f"_otel_tool_span_{tool_call.id}"
+        assert key in context.metadata
+        await mw.shutdown()
+
+
+class TestTracingMiddlewareWithMetadata:
 
     @pytest.mark.asyncio
     async def test_process_response_cleans_metadata(self, context):
@@ -152,14 +167,17 @@ class TestTracingMiddlewareWithMetadata:
         await mw.shutdown()
 
     @pytest.mark.asyncio
-    async def test_on_tool_call_stores_span_in_metadata(self, context):
-        """Test tool call span storage in metadata."""
+    async def test_on_tool_call_with_mock_span(self, context):
         mw = TracingMiddleware(service_name="test")
         await mw.startup()
+        class MockSpan:
+            def set_attribute(self, key: str, value) -> None: pass
+            def set_status(self, status, description: str = "") -> None: pass
+            def record_exception(self, error: Exception) -> None: pass
+            def end(self) -> None: pass
         tool_call = ToolCall(id="tc-123", name="search", arguments={"query": "test"})
-        await mw.on_tool_call(context, tool_call)
-        # Span may or may not be stored depending on OTel availability
-        # Just verify no errors occur
+        result = await mw.on_tool_call(context, tool_call)
+        assert result is tool_call
         await mw.shutdown()
 
     @pytest.mark.asyncio
@@ -214,19 +232,19 @@ class TestTracingMiddlewareWithMetadata:
         """Test complete middleware lifecycle."""
         mw = TracingMiddleware(service_name="integration-test", pipeline_name="main")
         await mw.startup()
-        
-        # Request
+
         ctx = await mw.process_request(context)
-        
-        # Response
+        assert ctx is context
+
         response = LLMResponse(
             content="Hello",
             model="test-model",
             finish_reason=FinishReason.STOP
         )
-        response = await mw.process_response(ctx, response)
-        
-        # Error handling
+        result = await mw.process_response(ctx, response)
+        assert result is response
+        assert "_otel_span" not in ctx.metadata
+
         await mw.on_error(ctx, ValueError("simulated error"))
-        
+
         await mw.shutdown()

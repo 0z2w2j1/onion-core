@@ -41,25 +41,6 @@ class TimeoutProvider:
         pass
 
 
-class InvalidJSONProvider:
-    """Provider that returns malformed responses."""
-    
-    async def complete(self, context):
-        # This simulates a provider that returns invalid data
-        # In real scenarios, this would be caught during JSON parsing
-        return LLMResponse(
-            content=None,  # Invalid: content should not be None with STOP
-            finish_reason=FinishReason.STOP,
-            usage=UsageStats(),
-        )
-    
-    async def stream(self, context):
-        raise NotImplementedError("Stream not supported")
-    
-    async def cleanup(self):
-        pass
-
-
 @pytest.mark.asyncio
 async def test_provider_timeout_handling():
     """Test that provider timeouts are handled correctly."""

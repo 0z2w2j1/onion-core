@@ -170,13 +170,15 @@ class TestAgentLoopErrorHandling:
         pipeline = Pipeline(provider=provider)
         loop = AgentLoop(pipeline=pipeline, registry=registry)
 
+        ctx = make_context()
         async with pipeline:
-            response = await loop.run(make_context())
+            response = await loop.run(ctx)
 
         assert response.content == "Completed with errors"
-        # 验证工具错误被记录到消息历史
-        assert any(msg.role == "tool" and "Error" in str(msg.content) 
-                   for msg in make_context().messages) or True  # 需要检查实际context
+        assert any(
+            msg.role == "tool" and "Error" in str(msg.content)
+            for msg in ctx.messages
+        )
 
     @pytest.mark.asyncio
     async def test_agent_loop_tool_execution_error(self):
