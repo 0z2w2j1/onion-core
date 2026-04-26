@@ -507,7 +507,7 @@ class TestToolExecutor:
         async def flaky() -> str:
             call_count["count"] += 1
             if call_count["count"] < 3:
-                raise ValueError("transient")
+                raise RuntimeError("transient")
             return "ok"
 
         executor = ToolExecutor(registry, AgentConfig(tool_max_retries=3, tool_timeout_seconds=5.0))

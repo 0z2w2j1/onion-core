@@ -31,7 +31,7 @@ async def test_tool_executor_retry_boundaries(
     async def flaky_tool() -> str:
         call_counter["calls"] += 1
         if call_counter["calls"] <= fail_times:
-            raise ValueError("transient failure")
+            raise RuntimeError("transient failure")
         return "ok"
 
     registry = ToolRegistry()
