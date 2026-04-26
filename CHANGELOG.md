@@ -2,6 +2,14 @@
 
 ## [0.9.0] - 2026-04-26
 
+### Distributed Capabilities (New)
+
+- **Layered Distributed Rate Limiting** — `DistributedRateLimitMiddleware` now supports independent rate limits for regular requests vs tool calls. New parameters: `max_tool_calls`, `tool_call_window`. Automatically detects tool call results by checking recent message roles and applies the appropriate limit. Prevents tool call storms from exhausting quota meant for regular conversations. Example: `DistributedRateLimitMiddleware(redis_url="redis://prod:6379", max_requests=100, max_tool_calls=30, tool_call_window=60.0)`.
+
+- **Layered Usage Statistics** — `get_usage()` now returns separate statistics for requests and tool calls: `requests_in_window`, `request_remaining`, `tool_calls_in_window`, `tool_call_remaining`, `window_seconds`, `tool_call_window_seconds`. Enables fine-grained monitoring and alerting.
+
+- **Comprehensive Distributed Usage Guide** — Added `docs/distributed_usage.md` with complete examples for distributed rate limiting, distributed caching, Kubernetes deployment, monitoring integration, troubleshooting, and best practices.
+
 ### Critical Fixes (P0)
 
 - **Streaming Response Buffer Timeout** — `SafetyGuardrailMiddleware.process_stream_chunk()` now uses a time-based flush mechanism (`_MAX_BUFFER_AGE = 2.0s`) in addition to the size-based buffer. Previously, the fixed 50-character buffer could cause excessive Time-To-First-Token (TTFT) delay if the LLM output slow single characters. The new implementation forces buffer flush after 2 seconds, ensuring responsive streaming UX.
