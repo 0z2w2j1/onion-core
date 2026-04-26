@@ -250,7 +250,16 @@ class DistributedCircuitBreakerMiddleware(BaseMiddleware):
             logger.info("DistributedCircuitBreakerMiddleware stopped.")
 
     async def process_request(self, context: AgentContext) -> AgentContext:
-        """请求前检查熔断器状态。"""
+        """
+        请求前检查熔断器状态。
+        
+        Note: This implementation has a TOCTOU (Time-of-Check-Time-of-Use) race condition.
+        The check_call and record_success/failure are separate Redis calls, so the state
+        may be modified by other instances between check and use. This is acceptable for
+        distributed circuit breakers which prioritize availability over strong consistency.
+        In high-concurrency scenarios, a small number of requests may slip through during
+        state transitions. For most use cases, this eventual consistency is sufficient.
+        """
         # 从 metadata 中获取 provider 名称
         provider_name = context.metadata.get("provider_name", "default")
         

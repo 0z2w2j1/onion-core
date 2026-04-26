@@ -181,6 +181,46 @@ class DistributedCacheMiddleware(BaseMiddleware):
         
         logger.info("Distributed cache cleared (deleted %d keys)", deleted)
 
+    async def invalidate(self, context: AgentContext) -> bool:
+        """
+        使指定请求的缓存失效。
+        
+        Args:
+            context: AgentContext，用于生成缓存键
+            
+        Returns:
+            True 如果缓存条目存在并被删除，False 如果不存在
+        """
+        if not self._redis:
+            raise RuntimeError("Redis not initialized")
+        
+        cache_key = self._generate_cache_key(context)
+        redis_key = f"{self._key_prefix}:{cache_key}"
+        
+        try:
+            result = await self._redis.delete(redis_key)
+            if result > 0:
+                logger.info(
+                    "[%s] Cache invalidated (key=%s)",
+                    context.request_id,
+                    cache_key[:16],
+                )
+                return True
+            else:
+                logger.debug(
+                    "[%s] Cache key not found for invalidation (key=%s)",
+                    context.request_id,
+                    cache_key[:16],
+                )
+                return False
+        except Exception as exc:
+            logger.error(
+                "[%s] Failed to invalidate cache: %s",
+                context.request_id,
+                exc,
+            )
+            return False
+
     async def get_cache_size(self) -> int:
         """获取当前缓存条目数。"""
         if not self._redis:

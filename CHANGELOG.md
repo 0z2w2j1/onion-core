@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.6] - 2026-04-26
+
+### Pipeline Timeout & Reliability Enhancements
+
+- **Request-Level Total Timeout** — Added `total_timeout` parameter to `Pipeline.__init__()` for end-to-end request timeout control (including all middleware + provider calls). Both `run()` and `stream()` methods now support total timeout via deadline-based mechanism. Raises clear `TimeoutError` with message: `"Pipeline total timeout ({timeout}s) exceeded for request {request_id}"`. Prevents indefinite hangs from slow LLM responses.
+
+### Cache Management Improvements
+
+- **Cache Invalidation API** — Added `async invalidate(context: AgentContext) -> bool` method to both `ResponseCacheMiddleware` and `DistributedCacheMiddleware`. Allows manual cache invalidation for specific requests based on context-generated cache keys. Returns `True` if entry was found and deleted, `False` otherwise. Useful for cache warming/cooling strategies and data consistency scenarios.
+
+### Distributed System Documentation
+
+- **TOCTOU Race Condition Documentation** — Added comprehensive docstring to `DistributedCircuitBreakerMiddleware.process_request()` explaining the Time-of-Check-Time-of-Use race condition between `check_call` and `record_success/failure`. Clarifies that distributed circuit breakers prioritize availability over strong consistency, and a small number of requests may slip through during state transitions in high-concurrency scenarios. This eventual consistency is acceptable for most use cases.
+
+### Code Quality
+
+- All changes pass Ruff linting ✓
+- All changes pass MyPy strict mode ✓
+- All 39 pipeline and cache tests pass ✓
+- No breaking changes to public API
+- Backward compatible: existing code continues to work without modification
+
+---
+
 ## [0.9.5] - 2026-04-26
 
 ### Agent Loop & Tool Execution Enhancements

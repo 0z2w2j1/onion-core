@@ -103,6 +103,7 @@ class Pipeline:
         name: str = "default",
         middleware_timeout: float | None = None,
         provider_timeout: float | None = None,
+        total_timeout: float | None = None,
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
         fallback_providers: list[LLMProvider] | None = None,
@@ -119,6 +120,7 @@ class Pipeline:
             name: Pipeline 实例名称，用于 Metrics/Traces 标签
             middleware_timeout: 单个中间件调用超时（秒），None 不限制
             provider_timeout: provider.complete() / stream() 超时（秒），None 不限制
+            total_timeout: 整个请求的总超时（包括所有中间件 + provider 调用），None 不限制
             max_retries: provider 调用失败时的最大重试次数（指数退避）
             retry_base_delay: 重试基础延迟（秒），实际延迟 = base * 2^attempt + jitter
             fallback_providers: 主 provider 全部重试失败后依次尝试的备用 provider 列表
@@ -134,6 +136,7 @@ class Pipeline:
         self._fallback_providers: list[LLMProvider] = fallback_providers or []
         self._middleware_timeout = middleware_timeout
         self._provider_timeout = provider_timeout
+        self._total_timeout = total_timeout
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
         self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
@@ -295,6 +298,22 @@ class Pipeline:
     async def run(self, context: AgentContext) -> LLMResponse:
         """非流式完整调用：request → provider.complete → response。"""
         self._validate_context(context)
+        
+        if self._total_timeout is not None:
+            try:
+                return await asyncio.wait_for(
+                    self._run_with_cache_handling(context),
+                    timeout=self._total_timeout,
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Pipeline total timeout ({self._total_timeout}s) exceeded for request {context.request_id}"
+                ) from None
+        else:
+            return await self._run_with_cache_handling(context)
+    
+    async def _run_with_cache_handling(self, context: AgentContext) -> LLMResponse:
+        """内部方法：处理缓存命中逻辑。"""
         try:
             context = await self._run_request(context)
         except CacheHitException as exc:
@@ -311,6 +330,28 @@ class Pipeline:
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用：request → provider.stream → 逐 chunk 过中间件。"""
         self._validate_context(context)
+        
+        if self._total_timeout is not None:
+            # 使用 deadline 机制实现总超时
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                raise RuntimeError(
+                    "stream() must be called from within an async context. "
+                    "Use stream_sync() for synchronous usage."
+                ) from None
+            deadline = loop.time() + self._total_timeout
+            
+            async for chunk in self._stream_with_deadline(context, deadline):
+                yield chunk
+        else:
+            async for chunk in self._stream_without_deadline(context):
+                yield chunk
+    
+    async def _stream_with_deadline(self, context: AgentContext, deadline: float) -> AsyncIterator[StreamChunk]:
+        """内部方法：带总超时的流式调用。"""
+        buf_key = f"_safety_buf_{context.request_id}"
+        chunk_count = 0
         try:
             context = await self._run_request(context)
         except CacheHitException:
@@ -321,6 +362,100 @@ class Pipeline:
             )
             # 继续执行 provider 调用
 
+        async def _provider_gen() -> AsyncIterator[StreamChunk]:
+            async for chunk in self._provider.stream(context):
+                yield chunk
+
+        gen = _provider_gen()
+        while True:
+            try:
+                # 计算剩余时间
+                loop = asyncio.get_running_loop()
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Pipeline total timeout ({self._total_timeout}s) exceeded for stream request {context.request_id}"
+                    )
+
+                raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                break
+
+            # 检查 chunk 数量防止 DoS
+            chunk_count += 1
+            if chunk_count > self._max_stream_chunks:
+                raise ValidationError(
+                    f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                )
+
+            chunk = await self._run_stream_chunk(context, raw_chunk)
+            yield chunk
+        
+        context.metadata.pop(buf_key, None)
+    
+    async def _stream_without_deadline(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
+        """内部方法：无总超时的流式调用（原有逻辑）。"""
+        buf_key = f"_safety_buf_{context.request_id}"
+        chunk_count = 0
+        try:
+            context = await self._run_request(context)
+        except CacheHitException:
+            # 缓存命中 - 流式不支持缓存，记录警告
+            logger.warning(
+                "[%s] Cache hit in stream mode (not supported), falling back to provider",
+                context.request_id,
+            )
+            # 继续执行 provider 调用
+
+        async def _provider_gen() -> AsyncIterator[StreamChunk]:
+            async for chunk in self._provider.stream(context):
+                yield chunk
+
+        if self._provider_timeout is not None:
+            # 计算绝对截止时间，确保总超时而非每 chunk 超时
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                raise RuntimeError(
+                    "stream() must be called from within an async context. "
+                    "Use stream_sync() for synchronous usage."
+                ) from None
+            deadline = loop.time() + self._provider_timeout
+
+            gen = _provider_gen()
+            while True:
+                try:
+                    # 计算剩余时间
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            f"Stream timeout exceeded ({self._provider_timeout}s)"
+                        )
+
+                    raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+
+                # 检查 chunk 数量防止 DoS
+                chunk_count += 1
+                if chunk_count > self._max_stream_chunks:
+                    raise ValidationError(
+                        f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                    )
+
+                chunk = await self._run_stream_chunk(context, raw_chunk)
+                yield chunk
+        else:
+            async for raw_chunk in self._provider.stream(context):
+                # 检查 chunk 数量防止 DoS
+                chunk_count += 1
+                if chunk_count > self._max_stream_chunks:
+                    raise ValidationError(
+                        f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                    )
+
+                chunk = await self._run_stream_chunk(context, raw_chunk)
+                yield chunk
         buf_key = f"_safety_buf_{context.request_id}"
         chunk_count = 0
         try:

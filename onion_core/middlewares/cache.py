@@ -89,6 +89,33 @@ class ResponseCacheMiddleware(BaseMiddleware):
         self._cache.clear()
         logger.info("Response cache cleared.")
 
+    async def invalidate(self, context: AgentContext) -> bool:
+        """
+        使指定请求的缓存失效。
+        
+        Args:
+            context: AgentContext，用于生成缓存键
+            
+        Returns:
+            True 如果缓存条目存在并被删除，False 如果不存在
+        """
+        cache_key = self._generate_cache_key(context)
+        if cache_key in self._cache:
+            del self._cache[cache_key]
+            logger.info(
+                "[%s] Cache invalidated (key=%s)",
+                context.request_id,
+                cache_key[:16],
+            )
+            return True
+        else:
+            logger.debug(
+                "[%s] Cache key not found for invalidation (key=%s)",
+                context.request_id,
+                cache_key[:16],
+            )
+            return False
+
     def get_cache_size(self) -> int:
         """获取当前缓存条目数。"""
         return len(self._cache)
