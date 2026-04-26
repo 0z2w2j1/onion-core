@@ -7,14 +7,17 @@ import asyncio
 import pytest
 
 from onion_core import (
+    AgentContext,
     EchoProvider,
     LLMResponse,
+    Message,
     Pipeline,
     StreamChunk,
     ToolCall,
     ToolResult,
 )
 from onion_core.base import BaseMiddleware
+from onion_core.models import ValidationError
 
 from .conftest import make_context
 
@@ -300,3 +303,149 @@ async def test_onion_reverse_order(hook, expected):
         tr = ToolResult(tool_call_id="t", name="tool", result="ok")
         await p.execute_tool_result(ctx, tr)
     assert order == expected
+
+
+# ── Context Validation ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_validate_context_too_many_messages():
+    from onion_core.pipeline import _MAX_MESSAGES
+    p = Pipeline(provider=EchoProvider())
+    ctx = AgentContext(messages=[Message(role="user", content="x")] * (_MAX_MESSAGES + 1))
+    with pytest.raises(ValidationError, match="Too many messages"):
+        await p.run(ctx)
+
+
+@pytest.mark.asyncio
+async def test_validate_context_content_too_long():
+    p = Pipeline(provider=EchoProvider())
+    ctx = AgentContext(messages=[Message(role="user", content="x" * 1_500_000)])
+    with pytest.raises(ValidationError, match="content too long"):
+        await p.run(ctx)
+
+
+@pytest.mark.asyncio
+async def test_validate_context_unicode_bomb():
+    p = Pipeline(provider=EchoProvider())
+    zalgo = "h" + "u\u0300\u0301\u0302\u0303\u0304" * 50 + "llo"
+    ctx = AgentContext(messages=[Message(role="user", content=zalgo)])
+    with pytest.raises(ValidationError, match="suspicious Unicode"):
+        await p.run(ctx)
+
+
+@pytest.mark.asyncio
+async def test_validate_context_multimodal_content():
+    from onion_core.models import ContentBlock
+    p = Pipeline(provider=EchoProvider())
+    blocks = [ContentBlock(type="text", text="hello")]
+    ctx = AgentContext(messages=[Message(role="user", content=blocks)])
+    resp = await p.run(ctx)
+    assert isinstance(resp, LLMResponse)
+
+
+# ── Runtime middleware registration ───────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_add_middleware_async():
+    events: list[str] = []
+
+    class AsyncMW(BaseMiddleware):
+        async def startup(self):
+            events.append("started")
+        async def process_request(self, ctx):
+            events.append("request")
+            return ctx
+        async def process_response(self, ctx, r):
+            events.append("response")
+            return r
+        async def process_stream_chunk(self, ctx, c): return c
+        async def on_tool_call(self, ctx, tc): return tc
+        async def on_tool_result(self, ctx, r): return r
+        async def on_error(self, ctx, e): pass
+
+    p = Pipeline(provider=EchoProvider())
+    await p.startup()
+    await p.add_middleware_async(AsyncMW())
+    ctx = make_context()
+    resp = await p.run(ctx)
+    assert isinstance(resp, LLMResponse)
+    assert "started" in events
+    assert "request" in events
+    await p.shutdown()
+
+
+# ── Sync API edge cases ──────────────────────────────────────────────────────
+
+def test_run_async_in_sync_from_async_raises():
+    async def _inner():
+        p = Pipeline(provider=EchoProvider())
+        with pytest.raises(RuntimeError, match="Cannot call sync methods"):
+            p.run_sync(make_context())
+
+    asyncio.run(_inner())
+
+
+# ── Middleware error isolation chain ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_middleware_error_isolation_in_process_response():
+    class BuggyMW(BaseMiddleware):
+        async def process_request(self, ctx): return ctx
+        async def process_response(self, ctx, r):
+            raise RuntimeError("response error")
+        async def process_stream_chunk(self, ctx, c): return c
+        async def on_tool_call(self, ctx, tc): return tc
+        async def on_tool_result(self, ctx, r): return r
+        async def on_error(self, ctx, e): pass
+
+    p = Pipeline(provider=EchoProvider()).add_middleware(BuggyMW())
+    resp = await p.run(make_context())
+    assert isinstance(resp, LLMResponse)
+
+
+@pytest.mark.asyncio
+async def test_mandatory_middleware_error_not_isolated():
+    class MandatoryBuggyMW(BaseMiddleware):
+        is_mandatory = True
+        async def process_request(self, ctx): return ctx
+        async def process_response(self, ctx, r):
+            raise RuntimeError("mandatory failure")
+        async def process_stream_chunk(self, ctx, c): return c
+        async def on_tool_call(self, ctx, tc): return tc
+        async def on_tool_result(self, ctx, r): return r
+        async def on_error(self, ctx, e): pass
+
+    p = Pipeline(provider=EchoProvider()).add_middleware(MandatoryBuggyMW())
+    with pytest.raises(RuntimeError, match="mandatory"):
+        await p.run(make_context())
+
+
+# ── manager.py alias ─────────────────────────────────────────────────────────
+
+def test_manager_alias():
+    from onion_core.manager import MiddlewareManager
+    assert MiddlewareManager is Pipeline
+
+
+# ── from_config factory ───────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_from_config_creates_pipeline():
+    from onion_core.config import ContextWindowConfig, OnionConfig, PipelineConfig, SafetyConfig
+    cfg = OnionConfig(
+        pipeline=PipelineConfig(max_retries=2),
+        safety=SafetyConfig(enable_pii_masking=True),
+        context_window=ContextWindowConfig(max_tokens=2000),
+    )
+    p = Pipeline.from_config(provider=EchoProvider(), config=cfg)
+    assert len(p.middlewares) == 3
+    resp = await p.run(make_context())
+    assert isinstance(resp, LLMResponse)
+
+
+# ── __init__.py imports ──────────────────────────────────────────────────────
+
+def test_all_exports_importable():
+    import onion_core
+    for name in onion_core.__all__:
+        assert hasattr(onion_core, name), f"Missing export: {name}"

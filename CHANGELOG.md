@@ -15,7 +15,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Test coverage increased from 79% to 92%**: Added comprehensive test suites for previously uncovered modules:
+  - `test_health_server.py` — Full HTTP-level tests for `HealthServer`, `HealthCheckHandler` (all endpoints: liveness, readiness, startup, health, 404), and `start_health_server()` convenience function
+  - `test_agent_runtime.py` — Tests for `AgentRuntime` (init validation, run/run_streaming, hooks, cancel), `StateMachine` (transitions, callbacks, determine_next_action), `DefaultPlanner` (all 6 decision branches), `SlidingWindowMemory` (trim, trim_with_summary, token estimation), and `ToolExecutor` (unknown tool, retry, concurrent execution)
+  - `BaseMiddleware` default implementations — Tests for `process_stream_chunk`, `on_tool_call`, `on_tool_result`, `on_error`, `startup`/`shutdown`, and `name` property defaults
+  - `StructuredLogAdapter` — Full coverage for `_inject_extra`, all log level methods, `with_context`, `logger` property, and `exception` with exc_info
+  - `JsonFormatter` edge cases — trace_id/span_id/error_code from extra fields, request_id override precedence, custom extra passthrough
+  - `configure_logging()` text format path
+  - Pipeline context validation — Too many messages, content too long, Unicode bomb detection, multimodal content
+  - Middleware error isolation chain — `process_response` error isolation, mandatory middleware propagation
+  - Runtime middleware registration via `add_middleware_async()`
+  - Sync API edge case — `run_sync()` from async context raises `RuntimeError`
+  - Safety middleware PII masking (input-side enable, custom PII rules)
+  - `manager.py` backward-compatibility alias test
+  - `Pipeline.from_config()` factory method test
+  - `__init__.py` all-exports importability test
+  - `Pipeline.health_check()` state transitions test
+
 ### Fixed
+
+- **HealthServer.stop() not cleaning up server reference**: Added `server_close()`, `self._server = None`, and `self._thread = None` to ensure proper resource cleanup on shutdown
 
 - **P0: AgentLoop Assistant Message Duplication** — `AgentLoop.run()` appended `response.content` as a standalone assistant message after already appending `response.to_assistant_message()` via the pipeline. This caused duplicate assistant entries in conversation history, polluting LLM context. Now uses `response.to_assistant_message()` which correctly includes both content and tool_calls.
 

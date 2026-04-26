@@ -333,3 +333,178 @@ async def test_tracing_middleware_noop():
     resp = await p.run(ctx)
     assert isinstance(resp, LLMResponse)
     assert "_otel_span" not in ctx.metadata
+
+
+# ── StructuredLogAdapter ──────────────────────────────────────────────────────
+
+def test_structured_log_adapter_injects_extra():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter")
+    logger.setLevel(logging.DEBUG)
+    adapter = StructuredLogAdapter(logger, request_id="req-1", trace_id="trace-1")
+
+    records: list[logging.LogRecord] = []
+
+    class Handler(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Handler()
+    logger.addHandler(handler)
+    try:
+        adapter.info("test msg")
+        assert len(records) == 1
+        assert records[0].request_id == "req-1"
+        assert records[0].trace_id == "trace-1"
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_structured_log_adapter_with_extra_dict():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter_extra")
+    logger.setLevel(logging.DEBUG)
+    adapter = StructuredLogAdapter(logger, span_id="span-1")
+
+    records: list[logging.LogRecord] = []
+
+    class Handler(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Handler()
+    logger.addHandler(handler)
+    try:
+        adapter.info("msg with extra", extra={"custom": "value"})
+        assert len(records) == 1
+        assert getattr(records[0], "span_id", None) == "span-1"
+        assert getattr(records[0], "custom", None) == "value"
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_structured_log_adapter_with_context():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter_ctx")
+    adapter = StructuredLogAdapter(logger, request_id="req-1")
+    new_adapter = adapter.with_context(trace_id="trace-2")
+    assert new_adapter._request_id == "req-1"
+    assert new_adapter._trace_id == "trace-2"
+
+
+def test_structured_log_adapter_logger_property():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter_prop")
+    adapter = StructuredLogAdapter(logger)
+    assert adapter.logger is logger
+
+
+def test_structured_log_adapter_levels():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter_levels")
+    logger.setLevel(logging.DEBUG)
+    adapter = StructuredLogAdapter(logger, request_id="req-1")
+
+    records: list[logging.LogRecord] = []
+
+    class Handler(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Handler()
+    logger.addHandler(handler)
+    try:
+        adapter.debug("debug")
+        adapter.info("info")
+        adapter.warning("warn")
+        adapter.error("err")
+        assert len(records) == 4
+        assert records[0].levelname == "DEBUG"
+        assert records[1].levelname == "INFO"
+        assert records[2].levelname == "WARNING"
+        assert records[3].levelname == "ERROR"
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_structured_log_adapter_exception():
+    from onion_core.observability.logging import StructuredLogAdapter
+    logger = logging.getLogger("onion_core.test_adapter_exc")
+    logger.setLevel(logging.ERROR)
+    adapter = StructuredLogAdapter(logger, error_code="ERR-001")
+
+    records: list[logging.LogRecord] = []
+
+    class Handler(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Handler()
+    logger.addHandler(handler)
+    try:
+        try:
+            raise ValueError("test")
+        except ValueError:
+            adapter.exception("error occurred")
+        assert len(records) == 1
+        assert records[0].levelname == "ERROR"
+        assert records[0].exc_info is not None
+        assert getattr(records[0], "error_code", None) == "ERR-001"
+    finally:
+        logger.removeHandler(handler)
+
+
+# ── JsonFormatter edge cases ──────────────────────────────────────────────────
+
+def test_json_formatter_with_extra_fields():
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="test", level=logging.INFO,
+        pathname="", lineno=0,
+        msg="msg", args=(), exc_info=None,
+    )
+    record.trace_id = "trace-abc"
+    record.span_id = "span-xyz"
+    record.error_code = "ERR-999"
+    record.custom_field = "hello"
+
+    output = formatter.format(record)
+    data = json.loads(output)
+    assert data["trace_id"] == "trace-abc"
+    assert data["span_id"] == "span-xyz"
+    assert data["error_code"] == "ERR-999"
+    assert data["extra"]["custom_field"] == "hello"
+
+
+def test_json_formatter_trace_id_from_extra():
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="test", level=logging.INFO,
+        pathname="", lineno=0,
+        msg="msg", args=(), exc_info=None,
+    )
+    record.extra = {"trace_id": "trace-from-extra"}
+
+    output = formatter.format(record)
+    data = json.loads(output)
+    assert data["trace_id"] == "trace-from-extra"
+
+
+def test_json_formatter_request_id_override_from_extra():
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="test", level=logging.INFO,
+        pathname="", lineno=0,
+        msg="[prefix-123] msg", args=(), exc_info=None,
+    )
+    record.extra = {"request_id": "override-id"}
+
+    output = formatter.format(record)
+    data = json.loads(output)
+    assert data["request_id"] == "override-id"
+
+
+def test_configure_logging_text_format():
+    logger = configure_logging(level="WARNING", json_format=False, logger_name="onion_core.test_text")
+    assert logger.level == logging.WARNING
+    assert len(logger.handlers) > 0

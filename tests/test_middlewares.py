@@ -202,3 +202,81 @@ async def test_observability_records_tool_calls():
     await p.execute_tool_call(ctx, tc)
     assert "tool_calls" in ctx.metadata
     assert "search" in ctx.metadata["tool_calls"]
+
+
+# ── SafetyGuardrailMiddleware edge cases ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_safety_pii_masking():
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        SafetyGuardrailMiddleware(enable_input_pii_masking=True)
+    )
+    ctx = AgentContext(messages=[Message(role="user", content="My email is test@example.com")])
+    resp = await p.run(ctx)
+    assert isinstance(resp, LLMResponse)
+    assert "test@example.com" not in ctx.messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_safety_pii_masking_with_custom_rules():
+    import re
+
+    from onion_core.middlewares.safety import PiiRule
+    rule = PiiRule("phone", re.compile(r"\b\d{3}-\d{4}\b"), "[PHONE]")
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        SafetyGuardrailMiddleware(enable_input_pii_masking=True, pii_rules=[rule])
+    )
+    ctx = AgentContext(messages=[Message(role="user", content="Call 123-4567")])
+    resp = await p.run(ctx)
+    assert isinstance(resp, LLMResponse)
+    assert "[PHONE]" in ctx.messages[0].content
+
+
+# ── ContextWindowMiddleware edge cases ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_context_window_keep_rounds_respected():
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        ContextWindowMiddleware(max_tokens=4000, keep_rounds=1)
+    )
+    ctx = make_long_context(n_rounds=20, words_per_msg=100)
+    await p.run(ctx)
+    assert ctx.metadata.get("context_truncated") is True
+
+
+@pytest.mark.asyncio
+async def test_context_window_over_limit_system_only():
+    p = Pipeline(provider=EchoProvider()).add_middleware(
+        ContextWindowMiddleware(max_tokens=10)
+    )
+    ctx = AgentContext(messages=[
+        Message(role="system", content="x" * 500),
+        Message(role="user", content="hi"),
+    ])
+    await p.run(ctx)
+    assert ctx.metadata.get("context_truncated") is True
+
+
+# ── ObservabilityMiddleware edge cases ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_observability_handles_stream():
+    p = Pipeline(provider=EchoProvider()).add_middleware(ObservabilityMiddleware())
+    ctx = make_context()
+    chunks = [c async for c in p.stream(ctx)]
+    assert len(chunks) > 0
+    assert "start_time" in ctx.metadata
+    assert "duration_s" in ctx.metadata
+
+
+@pytest.mark.asyncio
+async def test_observability_handles_error():
+    class BuggyProvider(EchoProvider):
+        async def complete(self, context):
+            raise RuntimeError("provider crashed")
+
+    p = Pipeline(provider=BuggyProvider()).add_middleware(ObservabilityMiddleware())
+    ctx = make_context()
+    with pytest.raises(RuntimeError):
+        await p.run(ctx)
+    assert "start_time" in ctx.metadata

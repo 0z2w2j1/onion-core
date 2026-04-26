@@ -163,7 +163,10 @@ class HealthServer:
         """停止健康检查服务器。"""
         if self._server:
             self._server.shutdown()
+            self._server.server_close()
             logger.info("Health check server stopped.")
+            self._server = None
+            self._thread = None
 
 
 def start_health_server(
