@@ -236,7 +236,7 @@ class TestAgentLoopErrorHandling:
             async def complete(self, context: AgentContext) -> LLMResponse:
                 return LLMResponse(
                     content=None,
-                    tool_calls=[ToolCall(id="call_1", name="test", arguments={})],
+                    tool_calls=[ToolCall(id="call_1", name="test_tool", arguments={})],
                     finish_reason=FinishReason.TOOL_CALLS,
                 )
         

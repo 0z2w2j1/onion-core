@@ -38,7 +38,7 @@ class TimeoutTool(BaseTool):
     input_schema = EmptyArgs
 
     async def execute(self, **kwargs):  # type: ignore[override]
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(2.0)
         return "late"
 
 
@@ -82,7 +82,7 @@ async def test_tool_executor_timeout_error_and_retry_logging_fields(caplog: pyte
 
     executor = ToolExecutor(
         registry,
-        AgentConfig(tool_max_retries=1, tool_timeout_seconds=0.01),
+        AgentConfig(tool_max_retries=1, tool_timeout_seconds=1.0),
     )
 
     with caplog.at_level(logging.WARNING, logger="src.core.executor"):
