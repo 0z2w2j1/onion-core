@@ -154,7 +154,7 @@ class AgentLoop:
     @staticmethod
     def _get_tool_call_dedup_policy(context: AgentContext) -> str:
         pipeline_cfg = context.config.get("onion", {}).get("pipeline", {})
-        policy = context.config.get("tool_call_dedup_policy", pipeline_cfg.get("tool_call_dedup_policy", "relaxed"))
+        policy: str = context.config.get("tool_call_dedup_policy", pipeline_cfg.get("tool_call_dedup_policy", "relaxed"))
         if policy not in {"strict", "relaxed", "off"}:
             return "relaxed"
         return policy

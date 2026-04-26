@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from onion_core import EchoProvider, LLMResponse, Pipeline, StreamChunk

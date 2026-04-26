@@ -126,7 +126,7 @@ class ToolExecutor:
                             timeout=self._config.tool_timeout_seconds,
                         )
                         return result, attempt_number - 1
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         elapsed = time.monotonic() - started
                         logger.warning(
                             "Tool attempt timed out",
