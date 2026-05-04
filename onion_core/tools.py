@@ -188,8 +188,11 @@ class ToolRegistry:
         """
         self._tools: dict[str, ToolDefinition] = {}
         self._idempotency_cache: dict[str, IdempotencyCacheEntry] = {}
+        self._idempotency_lock = asyncio.Lock()
         self._max_cache_size = max_cache_size
         self._cache_ttl = cache_ttl
+        self._write_count = 0
+        self._cleanup_interval = 100
 
     def register(
         self,
@@ -286,18 +289,17 @@ class ToolRegistry:
             )
 
         if tool_call.idempotency_key is not None:
-            cached = self._idempotency_cache.get(tool_call.idempotency_key)
-            if cached is not None:
-                # 检查是否过期
-                if time.time() - cached.timestamp < self._cache_ttl:
-                    logger.info(
-                        "Idempotency hit for key='%s', returning cached result",
-                        tool_call.idempotency_key,
-                    )
-                    return cached.result.model_copy(deep=True)
-                else:
-                    # 过期则删除
-                    del self._idempotency_cache[tool_call.idempotency_key]
+            async with self._idempotency_lock:
+                cached = self._idempotency_cache.get(tool_call.idempotency_key)
+                if cached is not None:
+                    if time.time() - cached.timestamp < self._cache_ttl:
+                        logger.info(
+                            "Idempotency hit for key='%s', returning cached result",
+                            tool_call.idempotency_key,
+                        )
+                        return cached.result.model_copy(deep=True)
+                    else:
+                        del self._idempotency_cache[tool_call.idempotency_key]
 
         if context and context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
             return ToolResult(
@@ -335,7 +337,10 @@ class ToolRegistry:
                 result = await tool_def.func(**kwargs)
             else:
                 loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, lambda: tool_def.func(**kwargs))
+                result = await loop.run_in_executor(
+                    None,
+                    lambda fn=tool_def.func, kw=kwargs: fn(**kw)  # type: ignore[misc]
+                )
 
             logger.info("Tool '%s' executed successfully.", tool_call.name)
             # 统一转为 str 以满足 Pydantic Union[str, Dict, List] 类型约束
@@ -357,16 +362,21 @@ class ToolRegistry:
                 result=result,
             )
             if tool_call.idempotency_key is not None:
-                self._idempotency_cache[tool_call.idempotency_key] = IdempotencyCacheEntry(
-                    result=tool_result,
-                    timestamp=time.time(),
-                )
-                # 定期清理缓存（每 100 次写入清理一次）
-                if len(self._idempotency_cache) % 100 == 0:
+                async with self._idempotency_lock:
+                    self._idempotency_cache[tool_call.idempotency_key] = IdempotencyCacheEntry(
+                        result=tool_result,
+                        timestamp=time.time(),
+                    )
+                    self._write_count += 1
+                if self._write_count % self._cleanup_interval == 0:
                     self._cleanup_expired_cache_entries()
             return tool_result
         except Exception as exc:
-            logger.error("Tool '%s' raised %s: %s", tool_call.name, type(exc).__name__, exc)
+            logger.error(
+                "Tool '%s' raised %s: %s",
+                tool_call.name, type(exc).__name__, exc,
+                exc_info=True,
+            )
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,

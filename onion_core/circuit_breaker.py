@@ -55,6 +55,7 @@ class CircuitBreaker:
                    time.time() - self._last_failure_time >= self.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN
                     self._success_count = 0
+                    self._failure_count = 0
                     logger.info("Circuit breaker '%s' entering HALF_OPEN state.", self.name)
                     return
                 raise CircuitBreakerError(f"Circuit breaker '{self.name}' is OPEN.")
@@ -83,8 +84,8 @@ class CircuitBreaker:
                         self.name, self._failure_count
                     )
             elif self._state == CircuitState.HALF_OPEN:
-                # 半开状态下任何一次失败都直接重新切回 OPEN
                 self._state = CircuitState.OPEN
+                self._success_count = 0
                 logger.warning("Circuit breaker '%s' returned to OPEN from HALF_OPEN.", self.name)
 
     def _reset(self) -> None:

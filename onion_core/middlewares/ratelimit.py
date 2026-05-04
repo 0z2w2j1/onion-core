@@ -78,8 +78,8 @@ class RateLimitMiddleware(BaseMiddleware):
         sid = context.session_id
         now = time.monotonic()
         
-        # 检测是否为工具调用结果阶段（检查最近的消息中是否有 tool 角色）
-        is_tool_result = any(m.role == "tool" for m in context.messages[-3:])
+        # 通过 context.metadata 显式标记区分普通请求与工具调用阶段
+        is_tool_result = context.metadata.get("_is_tool_call_phase", False)
 
         async with self._lock:
             # 根据请求类型选择对应的限流窗口
@@ -144,13 +144,18 @@ class RateLimitMiddleware(BaseMiddleware):
         logger.error("[%s] RateLimitMiddleware error: %s", context.request_id, error)
 
     def get_usage(self, session_id: str) -> dict[str, Any]:
+        """获取指定 session 的使用量统计。
+
+        注意：此方法是同步的且无锁保护，仅适用于调试/监控场景。
+        在并发请求场景下，返回的数据可能包含中间状态（快照不一致）。
+        并发安全版本请使用 get_usage_async()。
+        """
         now = time.monotonic()
-        # 注意：此方法为同步，仅做快照读取，不修改结构，竞态影响可接受
-        request_window = self._request_windows.get(session_id, deque())
-        tool_call_window = self._tool_call_windows.get(session_id, deque())
+        req_window = list(self._request_windows.get(session_id, deque()))
+        tool_window = list(self._tool_call_windows.get(session_id, deque()))
         
-        active_requests = sum(1 for t in request_window if t >= now - self._window)
-        active_tool_calls = sum(1 for t in tool_call_window if t >= now - self._tool_call_window)
+        active_requests = sum(1 for t in req_window if t >= now - self._window)
+        active_tool_calls = sum(1 for t in tool_window if t >= now - self._tool_call_window)
         
         return {
             "session_id": session_id,
@@ -163,5 +168,9 @@ class RateLimitMiddleware(BaseMiddleware):
             "window_seconds": self._window,
             "tool_call_window_seconds": self._tool_call_window,
         }
+
+    async def get_usage_async(self, session_id: str) -> dict[str, Any]:
+        async with self._lock:
+            return self.get_usage(session_id)
 
 

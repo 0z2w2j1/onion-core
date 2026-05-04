@@ -161,7 +161,7 @@ class RetryPolicy:
         ValueError, TypeError, NotImplementedError,
         AttributeError, KeyError, IndexError,
     )
-    _FALLBACK_TYPES = (RateLimitExceeded,)
+    _FALLBACK_TYPES: tuple[type[Exception], ...] = ()
 
     def classify(self, exc: Exception) -> RetryOutcome:
         if isinstance(exc, OnionError):
@@ -301,6 +301,8 @@ class LLMResponse(BaseModel):
             FinishReason.STOP,
             FinishReason.MAX_STEPS,
             FinishReason.CANCELLED,
+            FinishReason.ERROR,
+            FinishReason.LENGTH,
         )
 
     def to_assistant_message(self) -> Message:
@@ -316,7 +318,7 @@ class LLMResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentConfig(BaseModel):
-    model: str = "gpt-4"
+    model: str = ""
     max_steps: int = Field(default=10, ge=1, le=100)
     max_tokens: int = Field(default=4096, ge=256, le=128000)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)

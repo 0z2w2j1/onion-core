@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -64,6 +65,9 @@ class ResponseCacheMiddleware(BaseMiddleware):
         # LRU 缓存：{cache_key: (timestamp, LLMResponse)}
         self._cache: OrderedDict[str, tuple[float, LLMResponse]] = OrderedDict()
         
+        # 并发保护
+        self._lock = asyncio.Lock()
+        
         # 统计信息
         self._hits = 0
         self._misses = 0
@@ -87,36 +91,43 @@ class ResponseCacheMiddleware(BaseMiddleware):
         return self._hits / total
 
     def clear_cache(self) -> None:
-        """清空所有缓存。"""
+        """清空所有缓存（非并发安全，仅限单线程/初始化场景）。"""
         self._cache.clear()
+        logger.info("Response cache cleared.")
+
+    async def clear_cache_async(self) -> None:
+        """清空所有缓存（并发安全，使用 asyncio.Lock）。"""
+        async with self._lock:
+            self._cache.clear()
         logger.info("Response cache cleared.")
 
     async def invalidate(self, context: AgentContext) -> bool:
         """
         使指定请求的缓存失效。
-        
+
         Args:
             context: AgentContext，用于生成缓存键
-            
+
         Returns:
             True 如果缓存条目存在并被删除，False 如果不存在
         """
         cache_key = self._generate_cache_key(context)
-        if cache_key in self._cache:
-            del self._cache[cache_key]
-            logger.info(
-                "[%s] Cache invalidated (key=%s)",
-                context.request_id,
-                cache_key[:16],
-            )
-            return True
-        else:
-            logger.debug(
-                "[%s] Cache key not found for invalidation (key=%s)",
-                context.request_id,
-                cache_key[:16],
-            )
-            return False
+        async with self._lock:
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+                logger.info(
+                    "[%s] Cache invalidated (key=%s)",
+                    context.request_id,
+                    cache_key[:16],
+                )
+                return True
+            else:
+                logger.debug(
+                    "[%s] Cache key not found for invalidation (key=%s)",
+                    context.request_id,
+                    cache_key[:16],
+                )
+                return False
 
     def get_cache_size(self) -> int:
         """获取当前缓存条目数。"""
@@ -131,34 +142,35 @@ class ResponseCacheMiddleware(BaseMiddleware):
         """
         cache_key = self._generate_cache_key(context)
         
-        # 检查缓存是否存在且未过期
-        if cache_key in self._cache:
-            timestamp, cached_response = self._cache[cache_key]
-            if time.time() - timestamp < self._ttl_seconds:
-                # 缓存命中 - 抛出异常中断后续流程
-                self._hits += 1
-                
-                # 移动到末尾（LRU）
-                self._cache.move_to_end(cache_key)
-                
-                logger.info(
-                    "[%s] Cache HIT (key=%s, ttl=%.1fs remaining, hit_rate=%.1f%%)",
-                    context.request_id,
-                    cache_key[:16],
-                    self._ttl_seconds - (time.time() - timestamp),
-                    self.hit_rate * 100,
-                )
-                
-                # 抛出异常，让 Pipeline 短路返回
-                raise CacheHitException(cached_response)
+        async with self._lock:
+            # 检查缓存是否存在且未过期
+            if cache_key in self._cache:
+                timestamp, cached_response = self._cache[cache_key]
+                if time.time() - timestamp < self._ttl_seconds:
+                    # 缓存命中 - 抛出异常中断后续流程
+                    self._hits += 1
+                    
+                    # 移动到末尾（LRU）
+                    self._cache.move_to_end(cache_key)
+                    
+                    logger.info(
+                        "[%s] Cache HIT (key=%s, ttl=%.1fs remaining, hit_rate=%.1f%%)",
+                        context.request_id,
+                        cache_key[:16],
+                        self._ttl_seconds - (time.time() - timestamp),
+                        self.hit_rate * 100,
+                    )
+                    
+                    # 抛出异常，让 Pipeline 短路返回
+                    raise CacheHitException(cached_response)
+                else:
+                    # 缓存过期，删除
+                    del self._cache[cache_key]
+                    self._misses += 1
+                    logger.debug("[%s] Cache EXPIRED (key=%s)", context.request_id, cache_key[:16])
             else:
-                # 缓存过期，删除
-                del self._cache[cache_key]
                 self._misses += 1
-                logger.debug("[%s] Cache EXPIRED (key=%s)", context.request_id, cache_key[:16])
-        else:
-            self._misses += 1
-            logger.debug("[%s] Cache MISS (key=%s)", context.request_id, cache_key[:16])
+                logger.debug("[%s] Cache MISS (key=%s)", context.request_id, cache_key[:16])
         
         return context
 
@@ -173,7 +185,8 @@ class ResponseCacheMiddleware(BaseMiddleware):
         # 缓存新响应（仅当 finish_reason 为 stop 时）
         if response.finish_reason == FinishReason.STOP:
             cache_key = self._generate_cache_key(context)
-            self._store_in_cache(cache_key, response)
+            async with self._lock:
+                self._store_in_cache(cache_key, response)
             logger.debug("[%s] Response cached (key=%s)", context.request_id, cache_key[:16])
         
         return response
@@ -211,9 +224,9 @@ class ResponseCacheMiddleware(BaseMiddleware):
             }
             key_data = {"messages": messages_for_key, "config": config_for_key}
         
-        # 生成 MD5 哈希
+        # 生成 SHA-256 哈希
         key_string = json.dumps(key_data, sort_keys=True, default=str)
-        return hashlib.md5(key_string.encode("utf-8")).hexdigest()
+        return hashlib.sha256(key_string.encode("utf-8")).hexdigest()
 
     def _store_in_cache(self, key: str, response: LLMResponse) -> None:
         """

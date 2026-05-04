@@ -72,6 +72,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         pii_rules: list[PiiRule] | None = None,
         enable_builtin_pii: bool = True,
         enable_input_pii_masking: bool = False,
+        unicode_confusion_threshold: float = 0.6,
     ) -> None:
         self._blocked_keywords = list(blocked_keywords or DEFAULT_BLOCKED_KEYWORDS)
         self._keyword_patterns = [
@@ -80,6 +81,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         ]
         self._blocked_tools: set[str] = set(blocked_tools or [])
         self._enable_input_pii_masking = enable_input_pii_masking
+        self._unicode_confusion_threshold = unicode_confusion_threshold
         self._pii_rules: list[PiiRule] = []
         if enable_builtin_pii:
             self._pii_rules.extend(BUILTIN_PII_RULES)
@@ -113,48 +115,59 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         return self
 
     async def process_request(self, context: AgentContext) -> AgentContext:
-        last_user_msg = self._get_last_user_message(context)
-        if last_user_msg is None:
-            return context
-        
-        # 1. 关键词检测（整词边界匹配，避免误报）
-        for keyword, pattern in zip(self._blocked_keywords, self._keyword_patterns, strict=True):
-            if pattern.search(last_user_msg):
-                logger.warning("[%s] BLOCKED — keyword: '%s'", context.request_id, keyword)
+        checked_ids: set[int] = context.metadata.get("_safety_checked_msg_ids", set())
+        new_checked: set[int] = set()
+
+        for msg in context.messages:
+            if msg.role != "user":
+                continue
+            msg_id = id(msg)
+            if msg_id in checked_ids:
+                continue
+
+            user_text = msg.text_content
+            if not user_text:
+                continue
+
+            new_checked.add(msg_id)
+
+            # 1. 关键词检测（整词边界匹配，避免误报）
+            for keyword, pattern in zip(self._blocked_keywords, self._keyword_patterns, strict=True):
+                if pattern.search(user_text):
+                    logger.warning("[%s] BLOCKED — keyword: '%s'", context.request_id, keyword)
+                    raise SecurityException(
+                        f"Request blocked: detected prohibited keyword '{keyword}'",
+                        error_code=ErrorCode.SECURITY_BLOCKED_KEYWORD,
+                    )
+
+            # 2. 正则模式检测（增强检测能力）
+            for pattern in self._injection_patterns:
+                if pattern.search(user_text):
+                    logger.warning("[%s] BLOCKED — injection pattern detected", context.request_id)
+                    raise SecurityException(
+                        "Potential prompt injection detected",
+                        error_code=ErrorCode.SECURITY_PROMPT_INJECTION,
+                    )
+
+            # 3. Unicode 混淆检测
+            if self._detect_unicode_confusion(user_text, self._unicode_confusion_threshold):
+                logger.warning("[%s] BLOCKED — unicode confusion detected", context.request_id)
                 raise SecurityException(
-                    f"Request blocked: detected prohibited keyword '{keyword}'",
-                    error_code=ErrorCode.SECURITY_BLOCKED_KEYWORD,
-                )
-        
-        # 2. 正则模式检测（增强检测能力）
-        for pattern in self._injection_patterns:
-            if pattern.search(last_user_msg):
-                logger.warning("[%s] BLOCKED — injection pattern detected", context.request_id)
-                raise SecurityException(
-                    "Potential prompt injection detected",
+                    "Suspicious character encoding detected",
                     error_code=ErrorCode.SECURITY_PROMPT_INJECTION,
                 )
-        
-        # 3. Unicode 混淆检测
-        if self._detect_unicode_confusion(last_user_msg):
-            logger.warning("[%s] BLOCKED — unicode confusion detected", context.request_id)
-            raise SecurityException(
-                "Suspicious character encoding detected",
-                error_code=ErrorCode.SECURITY_PROMPT_INJECTION,
-            )
-        
+
+        context.metadata["_safety_checked_msg_ids"] = checked_ids | new_checked
+
         # 4. 输入侧 PII 脱敏（默认关闭，由 enable_input_pii_masking 控制）
         if self._enable_input_pii_masking:
-            masked = self._mask_pii(last_user_msg)
-            if masked != last_user_msg:
-                for i in range(len(context.messages) - 1, -1, -1):
-                    msg = context.messages[i]
-                    if msg.role == "user" and msg.text_content == last_user_msg:
-                        if isinstance(msg.content, str):
-                            context.messages[i] = msg.model_copy(update={"content": masked})
-                        break
-                logger.info("[%s] Input PII masked.", context.request_id)
-        
+            for i, msg in enumerate(context.messages):
+                if msg.role == "user" and isinstance(msg.content, str):
+                    masked = self._mask_pii(msg.content)
+                    if masked != msg.content:
+                        context.messages[i] = msg.model_copy(update={"content": masked})
+            logger.info("[%s] Input PII masked.", context.request_id)
+
         logger.debug("[%s] Safety check passed.", context.request_id)
         return context
 
@@ -249,7 +262,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         return text
     
     @staticmethod
-    def _detect_unicode_confusion(text: str) -> bool:
+    def _detect_unicode_confusion(text: str, threshold: float = 0.6) -> bool:
         """
         检测是否存在 Unicode 混淆攻击。
         
@@ -267,9 +280,7 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         non_ascii_alpha = sum(1 for c in text if not c.isascii() and c.isalpha())
         total_alpha = ascii_alpha + non_ascii_alpha
         
-        # 如果只有非 ASCII 字母（如纯中文），不视为混淆攻击
         if ascii_alpha == 0 or non_ascii_alpha == 0:
             return False
         
-        # 当 ASCII 和非 ASCII 字母混合时，检查非 ASCII 比例
-        return non_ascii_alpha / total_alpha > 0.3
+        return non_ascii_alpha / total_alpha > threshold

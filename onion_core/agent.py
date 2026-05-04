@@ -182,7 +182,11 @@ class AgentLoop:
             turn_seen_signatures: set[str] = set()
             turn_result_summaries: list[str] = []
 
-            # 3. 执行工具调用并追加结果到 context.messages
+            # 3. 先追加助手回复到 context.messages（必须在 tool 结果之前）
+            context.messages.append(response.to_assistant_message())
+
+            # 4. 执行工具调用并追加结果到 context.messages
+            context.metadata["tool_calls_depth"] = 0
             for tool_call in response.tool_calls:
                 call_signature = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
                 if self._is_duplicate_tool_call(
@@ -199,9 +203,11 @@ class AgentLoop:
                 depth = context.metadata.get("tool_calls_depth", 0) + 1
                 context.metadata["tool_calls_depth"] = depth
 
+                context.metadata["_is_tool_call_phase"] = True
                 intercepted = await self._pipeline.execute_tool_call(context, tool_call)
                 tool_result = await self._registry.execute(intercepted, context)
                 processed = await self._pipeline.execute_tool_result(context, tool_result)
+                context.metadata.pop("_is_tool_call_phase", None)
                 turn_result_summaries.append(self._summarize_tool_result(processed))
 
                 result_text = (
@@ -213,9 +219,6 @@ class AgentLoop:
                     content=result_text,
                     name=processed.name,
                 ))
-
-            # 4. 追加助手回复到 context.messages
-            context.messages.append(response.to_assistant_message())
 
             # 5. 检查状态进展
             turn_state_hash = self._build_turn_state_hash(response, turn_result_summaries)
@@ -656,8 +659,15 @@ class SlidingWindowMemory:
         available = self._max_tokens - system_reserve
 
         if available <= 0:
-            logger.error("System messages alone (%d tokens) exceed memory limit (%d tokens)", system_reserve, self._max_tokens)
-            return system_messages[:-max(1, len(system_messages) - 1)] + (non_system[-1:] if non_system else [])
+            logger.warning(
+                "System messages alone (%d tokens) exceed memory limit (%d tokens). "
+                "Keeping first system message only.",
+                system_reserve, self._max_tokens,
+            )
+            kept_system = system_messages[:1]
+            last_user = next((m for m in reversed(non_system) if m.role == MessageRole.USER), None)
+            kept_non_system = [last_user] if last_user else (non_system[-1:] if non_system else [])
+            return kept_system + kept_non_system
 
         non_system_reversed = list(reversed(non_system))
         tokens_list = await self._token_counter.estimate_tokens_batch(non_system_reversed)
@@ -750,8 +760,6 @@ class _RequestContext:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AgentRuntime:
-    _model_limits_applied: bool = False
-    # 使用简单的标志位 + 类变量来避免竞态，因为配置调整只在首次实例化时执行一次
 
     def __init__(
         self,
@@ -766,6 +774,7 @@ class AgentRuntime:
         if not tool_registry:
             raise AgentRuntimeError("tool_registry is required")
 
+        self._model_limits_applied = False
         self._auto_tune_config(config)
 
         self._config = config
@@ -777,17 +786,16 @@ class AgentRuntime:
         self._state: AgentState | None = None
         self._fsm: StateMachine | None = None
         self._cancelled = False
+        self._shutdown_requested = False
         self._active_count: int = 0
         self._active_lock = asyncio.Lock()
         self._step_hooks: list[Callable[[StepRecord], None]] = []
         self._error_hooks: list[Callable[[str, Exception], None]] = []
 
-    @classmethod
-    def _auto_tune_config(cls, config: AgentConfig) -> None:
+    def _auto_tune_config(self, config: AgentConfig) -> None:
         """自动调整模型配置（仅在首次调用时生效）。"""
-        if cls._model_limits_applied:
+        if self._model_limits_applied:
             return
-        # 简单检查-设置模式，虽然有微小竞态窗口但不影响正确性
         limits = lookup_model_limits(config.model)
         if limits is None:
             return
@@ -800,7 +808,7 @@ class AgentRuntime:
                 "Auto-tuned config for model=%s: max_tokens=%d memory_max_tokens=%d",
                 config.model, sane_max_output, sane_memory,
             )
-        cls._model_limits_applied = True
+        self._model_limits_applied = True
 
     @property
     def state(self) -> AgentState:
@@ -817,6 +825,9 @@ class AgentRuntime:
     @property
     def is_idle(self) -> bool:
         return self._active_count == 0
+
+    def shutdown_requested(self) -> bool:
+        return self._shutdown_requested
 
     def on_step(self, callback: Callable[[StepRecord], None]) -> None:
         self._step_hooks.append(callback)
@@ -1069,18 +1080,18 @@ class AgentRuntime:
         start = time.monotonic()
         logger.info("Step %d acting: trace_id=%s tool_count=%d", step_index, trace_id, len(tool_calls))
 
-        # 创建临时 context 供工具执行使用
+        # 递增工具调用深度跟踪（使用持久状态避免每次创建空 metadata）
+        depth = self._state.metadata.get("tool_calls_depth", 0) + 1
+        self._state.metadata["tool_calls_depth"] = depth
+
         temp_context = AgentContext(
             request_id=self._state.run_id,
             session_id=self._state.session_id,
             trace_id=trace_id,
             messages=self._state.messages.copy(),
+            metadata={"tool_calls_depth": depth},
         )
-        
-        # 递增工具调用深度跟踪
-        depth = temp_context.metadata.get("tool_calls_depth", 0) + 1
-        temp_context.metadata["tool_calls_depth"] = depth
-        
+
         results = await self._executor.execute_all(tool_calls, context=temp_context)
 
         for r in results:
@@ -1129,9 +1140,13 @@ class AgentRuntime:
             await chunk_queue.put(chunk)
 
         async def _run() -> None:
-            async for _ in self._run_loop(user_message, state, on_chunk=_collect):
-                pass
-            await chunk_queue.put(_SENTINEL)
+            try:
+                async for _ in self._run_loop(user_message, state, on_chunk=_collect):
+                    pass
+            except Exception as exc:
+                logger.error("run_streaming_text internal error: %s", exc, exc_info=True)
+            finally:
+                await chunk_queue.put(_SENTINEL)
 
         runner = asyncio.create_task(_run())
         try:
@@ -1152,35 +1167,43 @@ class AgentRuntime:
 # 信号处理 & 优雅关闭
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_SHUTDOWN_REQUESTED = False
-
 
 def shutdown_requested() -> bool:
-    return _SHUTDOWN_REQUESTED
+    logger.warning(
+        "Module-level shutdown_requested() is deprecated. "
+        "Use agent.shutdown_requested() instance method instead."
+    )
+    return False
 
 
 def install_signal_handlers(agent: AgentRuntime | None = None, timeout: float = 30.0) -> None:
-    global _SHUTDOWN_REQUESTED
+    import sys
 
-    def _handler(signum: int, frame: object) -> None:
-        global _SHUTDOWN_REQUESTED
-        if _SHUTDOWN_REQUESTED:
-            logger.warning("Second signal received, forcing exit")
-            raise SystemExit(1)
-        _SHUTDOWN_REQUESTED = True
-        sig_name = signal.Signals(signum).name
-        logger.warning("Received %s, initiating graceful shutdown", sig_name)
+    def _handle_shutdown() -> None:
+        if agent is not None and agent.shutdown_requested():
+            logger.warning("Second shutdown signal received, ignoring.")
+            return
         if agent is not None:
+            agent._shutdown_requested = True
             agent.cancel()
-        if agent is not None:
             try:
                 loop = asyncio.get_running_loop()
-                loop.call_soon_threadsafe(
-                    asyncio.ensure_future, agent.drain(timeout)
-                )
+                loop.create_task(agent.drain(timeout))
             except RuntimeError:
-                pass
+                logger.warning("No running event loop, drain skipped during shutdown.")
 
-    signal.signal(signal.SIGTERM, _handler)
-    signal.signal(signal.SIGINT, _handler)
-    logger.info("Signal handlers installed (SIGTERM, SIGINT)")
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and sys.platform != "win32":
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _handle_shutdown)
+        logger.info("Signal handlers installed via event loop.")
+    else:
+        def _sync_handler(signum: int, frame: object) -> None:
+            _handle_shutdown()
+        signal.signal(signal.SIGTERM, _sync_handler)
+        signal.signal(signal.SIGINT, _sync_handler)
+        logger.info("Signal handlers installed via signal.signal().")
