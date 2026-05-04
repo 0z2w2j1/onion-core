@@ -26,17 +26,19 @@ logger = logging.getLogger("onion_core.middleware.cache")
 
 class ResponseCacheMiddleware(BaseMiddleware):
     """
-    响应缓存中间件。
-    
+    响应缓存中间件。priority=75。
+
     基于请求内容（messages + config）生成缓存键，
     缓存完整的 LLMResponse，在 TTL 内返回缓存结果。
-    
+
     特性：
       - 自动过期（TTL）
       - LRU 淘汰策略
       - 可配置的缓存键生成策略
       - 缓存命中/未命中指标统计
     """
+
+    priority: int = 75
 
     def __init__(
         self,
@@ -53,8 +55,6 @@ class ResponseCacheMiddleware(BaseMiddleware):
                 - "user_only": 仅使用用户消息
                 - "custom": 需要子类重写 _generate_cache_key()
         """
-        super().__init__()
-        self.priority = 75
         self._ttl_seconds = ttl_seconds
         self._max_size = max_size
         self._cache_key_strategy = cache_key_strategy

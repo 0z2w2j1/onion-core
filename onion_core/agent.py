@@ -37,6 +37,7 @@ from .models import (
     LLMResponse,
     Message,
     MessageRole,
+    OnionError,
     RetryOutcome,
     RetryPolicy,
     StepRecord,
@@ -59,19 +60,19 @@ logger = logging.getLogger(__name__)
 # 异常
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class AgentLoopError(Exception):
+class AgentLoopError(OnionError):
     pass
 
 
-class AgentRuntimeError(Exception):
+class AgentRuntimeError(OnionError):
     pass
 
 
-class StateTransitionError(Exception):
+class StateTransitionError(OnionError):
     pass
 
 
-class ExecutionError(Exception):
+class ExecutionError(OnionError):
     def __init__(self, message: str, retry_count: int, cause: Exception) -> None:
         super().__init__(message)
         self.retry_count = retry_count

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import queue
 import random
@@ -27,7 +28,7 @@ from typing import Any, TypeVar, cast, overload
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
 from .config import OnionConfig
-from .error_codes import ErrorCode
+from .error_codes import ErrorCode, OnionErrorWithCode
 from .models import (
     _MAX_TOOL_CALL_DEPTH,
     AgentContext,
@@ -306,8 +307,10 @@ class Pipeline:
                     timeout=self._total_timeout,
                 )
             except TimeoutError as exc:
-                raise TimeoutError(
-                    f"Pipeline total timeout ({self._total_timeout}s) exceeded for request {context.request_id}"
+                raise OnionErrorWithCode(
+                    code=ErrorCode.TIMEOUT_TOTAL_PIPELINE,
+                    message=f"Pipeline total timeout ({self._total_timeout}s) exceeded for request {context.request_id}",
+                    cause=exc,
                 ) from exc
         else:
             return await self._run_with_cache_handling(context)
@@ -382,8 +385,9 @@ class Pipeline:
                 loop = asyncio.get_running_loop()
                 remaining = deadline - loop.time()
                 if remaining <= 0:
-                    raise TimeoutError(
-                        f"Pipeline total timeout ({self._total_timeout}s) exceeded for stream request {context.request_id}"
+                    raise OnionErrorWithCode(
+                        code=ErrorCode.TIMEOUT_TOTAL_PIPELINE,
+                        message=f"Pipeline total timeout ({self._total_timeout}s) exceeded for stream request {context.request_id}",
                     )
 
                 raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
@@ -440,8 +444,9 @@ class Pipeline:
                     # 计算剩余时间
                     remaining = deadline - loop.time()
                     if remaining <= 0:
-                        raise TimeoutError(
-                            f"Stream timeout exceeded ({self._provider_timeout}s)"
+                        raise OnionErrorWithCode(
+                            code=ErrorCode.TIMEOUT_PROVIDER,
+                            message=f"Stream timeout exceeded ({self._provider_timeout}s)",
                         )
 
                     raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
@@ -597,7 +602,10 @@ class Pipeline:
             last_exc = exceptions[-1][1]
             raise last_exc
 
-        raise RuntimeError("Unexpected state: no providers were attempted")  # pragma: no cover
+        raise OnionErrorWithCode(
+            code=ErrorCode.INTERNAL_UNEXPECTED,
+            message="Unexpected state: no providers were attempted",
+        )  # pragma: no cover
 
     # ------------------------------------------------------------------
     # 内部调度
@@ -674,6 +682,37 @@ class Pipeline:
                 f"(max: {_MAX_TOOL_CALL_DEPTH})",
                 error_code=ErrorCode.VALIDATION_INVALID_TOOL_CALL,
             )
+
+        # 验证 metadata 总大小（防止 DoS）
+        try:
+            metadata_size = len(json.dumps(context.metadata, default=str))
+        except (TypeError, ValueError):
+            metadata_size = len(str(context.metadata))
+        if metadata_size > 1_000_000:
+            raise ValidationError(
+                f"Metadata too large: {metadata_size} bytes (max: 1MB)",
+                error_code=ErrorCode.VALIDATION_INVALID_CONTEXT,
+            )
+
+        # 验证 metadata key 数量
+        if len(context.metadata) > 100:
+            raise ValidationError(
+                f"Metadata has too many keys: {len(context.metadata)} (max: 100)",
+                error_code=ErrorCode.VALIDATION_INVALID_CONTEXT,
+            )
+
+        # 验证 config 嵌套深度
+        if self._config_depth(context.config) > 3:
+            raise ValidationError(
+                "Config nesting depth exceeds limit (max: 3)",
+                error_code=ErrorCode.VALIDATION_INVALID_CONFIG,
+            )
+
+    @staticmethod
+    def _config_depth(obj: object, depth: int = 0) -> int:
+        if not isinstance(obj, dict) or depth > 3:
+            return depth
+        return max((Pipeline._config_depth(v, depth + 1) for v in obj.values()), default=depth)
 
     @overload
     async def _call_middleware(

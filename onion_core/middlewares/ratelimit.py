@@ -24,9 +24,9 @@ class RateLimitMiddleware(BaseMiddleware):
 
     priority: int = 150
     is_mandatory: bool = True
-    
+
     # 单个 session 最多保留的时间戳数量，防止内存泄漏
-    _MAX_TIMESTAMPS_PER_SESSION = 1000
+    _MAX_TIMESTAMPS_PER_SESSION: int = 1000
 
     def __init__(
         self,

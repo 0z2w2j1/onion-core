@@ -87,12 +87,10 @@ class ContextWindowMiddleware(BaseMiddleware):
         self._summary_strategy = summary_strategy
         self._summarizer = summarizer
         self._rule_based_summarizer = RuleBasedContextSummarizer()
-        # 默认 encoding（启动时加载）
-        self._default_encoding = tiktoken.get_encoding(encoding_name)
-        # LRU encoding 缓存，避免重复加载（最大容量 ENCODING_CACHE_MAX_SIZE）
-        self._encoding_cache: OrderedDict[str, tiktoken.Encoding] = OrderedDict(
-            [(encoding_name, self._default_encoding)]
-        )
+        # 默认 encoding（延迟加载，避免 __init__ 中阻塞事件循环）
+        self._default_encoding: tiktoken.Encoding | None = None
+        # LRU encoding 缓存（启动时再填充默认 encoding）
+        self._encoding_cache: OrderedDict[str, tiktoken.Encoding] = OrderedDict()
 
     def _get_encoding(self, name: str) -> tiktoken.Encoding:
         """按名称获取 encoding，带 LRU 缓存。未知名称回退到默认 encoding 并记录警告。"""
@@ -114,11 +112,11 @@ class ContextWindowMiddleware(BaseMiddleware):
                 "Unknown encoding '%s' (%s), falling back to '%s'",
                 name, exc, self._default_encoding_name,
             )
-            return self._default_encoding
+            return self._default_enc
 
     async def startup(self) -> None:
         # 创建线程池用于异步 Token 计算
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tiktoken")
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ctx-win-tokenizer")
         logger.info(
             "ContextWindowMiddleware started | max_tokens=%d | keep_rounds=%d | encoding=%s | summary_strategy=%s",
             self._max_tokens,
@@ -132,8 +130,16 @@ class ContextWindowMiddleware(BaseMiddleware):
             self._executor.shutdown(wait=False)
         logger.info("ContextWindowMiddleware stopped.")
 
+    @property
+    def _default_enc(self) -> tiktoken.Encoding:
+        if self._default_encoding is None:
+            self._default_encoding = tiktoken.get_encoding(self._default_encoding_name)
+            self._encoding_cache[self._default_encoding_name] = self._default_encoding
+            self._encoding_cache.move_to_end(self._default_encoding_name)
+        return self._default_encoding
+
     def count_tokens(self, messages: list[Message], encoding: tiktoken.Encoding | None = None) -> int:
-        enc = encoding or self._default_encoding
+        enc = encoding or self._default_enc
         total = sum(
             4 + len(enc.encode(m.role)) + len(enc.encode(m.text_content))
             + (len(enc.encode(m.name)) if m.name else 0)
@@ -159,7 +165,7 @@ class ContextWindowMiddleware(BaseMiddleware):
             return self.count_tokens(messages, encoding)
         
         loop = asyncio.get_running_loop()
-        enc = encoding or self._default_encoding
+        enc = encoding or self._default_enc
         
         # 在线程池中执行编码计算
         def _encode_messages() -> int:
@@ -223,9 +229,6 @@ class ContextWindowMiddleware(BaseMiddleware):
                 context.config.get("context_window", {}).get("encoding_name", self._default_encoding_name)
             ))
             context.metadata["pre_tokens"] = token_count
-            context.metadata["context_truncated"] = False
-            context.metadata["truncated"] = False
-            context.metadata["summary_generated"] = False
             return context
 
         rt_cfg = context.config.get("context_window", {})

@@ -147,10 +147,11 @@ class SafetyGuardrailMiddleware(BaseMiddleware):
         if self._enable_input_pii_masking:
             masked = self._mask_pii(last_user_msg)
             if masked != last_user_msg:
-                for msg in reversed(context.messages):
+                for i in range(len(context.messages) - 1, -1, -1):
+                    msg = context.messages[i]
                     if msg.role == "user" and msg.text_content == last_user_msg:
                         if isinstance(msg.content, str):
-                            msg.content = masked
+                            context.messages[i] = msg.model_copy(update={"content": masked})
                         break
                 logger.info("[%s] Input PII masked.", context.request_id)
         

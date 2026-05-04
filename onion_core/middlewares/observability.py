@@ -84,8 +84,12 @@ class ObservabilityMiddleware(BaseMiddleware):
 
     async def on_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         context.metadata.setdefault("tool_calls", []).append(tool_call.name)
+        args_sanitized = (
+            {k: (v if len(str(v)) <= 200 else f"<{len(str(v))} chars>") for k, v in tool_call.arguments.items()}
+            if tool_call.arguments else {}
+        )
         logger.info(
-            "[%s] Tool call: %s | args=%s", context.request_id, tool_call.name, tool_call.arguments
+            "[%s] Tool call: %s | args=%s", context.request_id, tool_call.name, args_sanitized
         )
         return tool_call
 

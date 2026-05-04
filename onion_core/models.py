@@ -54,7 +54,7 @@ class FinishReason(StrEnum):
     ERROR = "error"
 
 
-_MAX_TOOL_CALL_DEPTH = 10  # 工具调用最大嵌套深度
+_MAX_TOOL_CALL_DEPTH: int = 10  # 工具调用最大嵌套深度
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

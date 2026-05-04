@@ -98,7 +98,7 @@ class OnionConfig(BaseSettings):
             data = json.loads(p.read_text(encoding="utf-8"))
         elif suffix in (".yaml", ".yml"):
             try:
-                import yaml  # type: ignore
+                import yaml
                 data = yaml.safe_load(p.read_text(encoding="utf-8"))
             except ImportError as err:
                 raise ImportError("pip install pyyaml to use YAML config files") from err
