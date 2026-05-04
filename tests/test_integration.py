@@ -9,6 +9,7 @@ and error handling.
 
 import pytest
 
+from onion_core import OnionErrorWithCode
 from onion_core.middlewares.context import ContextWindowMiddleware
 from onion_core.middlewares.ratelimit import RateLimitMiddleware
 from onion_core.middlewares.safety import SafetyGuardrailMiddleware
@@ -184,7 +185,7 @@ async def test_pipeline_total_timeout():
             messages=[Message(role="user", content="Will timeout")],
         )
         
-        with pytest.raises(TimeoutError, match="Pipeline total timeout"):
+        with pytest.raises(OnionErrorWithCode, match=r"Pipeline total timeout \(0\.5s\) exceeded"):
             await p.run(context)
     finally:
         await p.shutdown()

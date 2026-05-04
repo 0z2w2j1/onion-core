@@ -13,6 +13,7 @@ import threading
 
 import pytest
 
+from onion_core import OnionErrorWithCode
 from onion_core.agent import AgentRuntime
 from onion_core.models import (
     AgentConfig,
@@ -83,7 +84,7 @@ async def test_pipeline_total_timeout_vs_provider_timeout():
         )
         
         # Should hit total_timeout first
-        with pytest.raises(TimeoutError, match="Pipeline total timeout"):
+        with pytest.raises(OnionErrorWithCode, match=r"Pipeline total timeout \(0\.1s\) exceeded"):
             await p.run(context)
     finally:
         await p.shutdown()
