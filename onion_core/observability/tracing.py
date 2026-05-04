@@ -124,10 +124,10 @@ class TracingMiddleware(BaseMiddleware):
     OpenTelemetry 追踪中间件。priority=50（最外层，包裹所有其他中间件）。
 
     每次 run()/stream() 调用创建一个根 span：
-      - span name: "onion.request"
+      - span name: "pipeline.request"
       - attributes: pipeline_name, request_id, session_id, message_count, model
-    工具调用创建子 span：
-      - span name: "onion.tool.<tool_name>"
+     工具调用创建子 span：
+      - span name: "pipeline.tool.<tool_name>"
     """
 
     priority: int = 50
@@ -170,8 +170,8 @@ class TracingMiddleware(BaseMiddleware):
         if not self._otel_available or self._tracer is None:
             return context
 
-        span = self._tracer.start_span("onion.request")
-        span.set_attribute("onion.pipeline_name", self._pipeline_name)
+        span = self._tracer.start_span("pipeline.run")
+        span.set_attribute("pipeline.name", self._pipeline_name)
         span.set_attribute("onion.request_id", context.request_id)
         span.set_attribute("onion.session_id", context.session_id)
         span.set_attribute("onion.message_count", len(context.messages))
@@ -226,8 +226,8 @@ class TracingMiddleware(BaseMiddleware):
         if not self._otel_available or self._tracer is None:
             return tool_call
 
-        span = self._tracer.start_span(f"onion.tool.{tool_call.name}")
-        span.set_attribute("onion.pipeline_name", self._pipeline_name)
+        span = self._tracer.start_span(f"pipeline.tool.{tool_call.name}")
+        span.set_attribute("pipeline.name", self._pipeline_name)
         span.set_attribute("onion.tool.id", tool_call.id)
         span.set_attribute("onion.tool.name", tool_call.name)
         context.metadata[f"_otel_tool_span_{tool_call.id}"] = span

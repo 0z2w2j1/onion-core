@@ -38,6 +38,7 @@ class ObservabilityMiddleware(BaseMiddleware):
         # 将 trace_id 写入 ContextVar，贯穿整个协程调用链
         _trace_id_var.set(context.trace_id)
         context.metadata["start_time"] = time.perf_counter()
+        context.metadata["tool_calls"] = []  # 每轮请求重置工具调用列表
         logger.info(
             "[%s] Request started | trace=%s | session=%s | messages=%d",
             context.request_id,

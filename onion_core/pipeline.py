@@ -62,7 +62,10 @@ def _detect_unicode_bomb(text: str) -> bool:
     检测 Unicode 炸弹（Zalgo 文本等）。
 
     检查组合字符（combining characters）比例是否超过阈值。
-    Zalgo 文本通过大量组合字符实现“溢出”效果，可能导致渲染引擎崩溃。
+    Zalgo 文本通过大量组合字符实现"溢出"效果，可能导致渲染引擎崩溃。
+
+    采用提前退出策略：一旦组合字符数量超过阈值所需的最小值即返回 True，
+    避免对正常文本扫描全部字符。
 
     Args:
         text: 待检测的文本
@@ -73,14 +76,18 @@ def _detect_unicode_bomb(text: str) -> bool:
     if not text:
         return False
 
-    combining_count = sum(1 for c in text if unicodedata.combining(c))
     total_chars = len(text)
-
     if total_chars == 0:
         return False
 
-    ratio = combining_count / total_chars
-    return ratio > _UNICODE_COMBINING_THRESHOLD
+    threshold_count = int(total_chars * _UNICODE_COMBINING_THRESHOLD) + 1
+    combining_count = 0
+    for c in text:
+        if unicodedata.combining(c):
+            combining_count += 1
+            if combining_count >= threshold_count:
+                return True
+    return False
 
 
 class Pipeline:
@@ -359,6 +366,39 @@ class Pipeline:
             context.metadata.pop(buf_key, None)
             context.metadata.pop(timestamp_key, None)
     
+    async def _get_healthy_stream_provider(self, context: AgentContext) -> tuple[LLMProvider, object]:
+        """
+        选择第一个未被熔断的 provider 用于流式调用。
+
+        在流式调用开始前检查 provider 的熔断状态，
+        主 provider 被熔断时自动尝试 fallback provider。
+
+        Returns:
+            (provider, circuit_breaker_or_None)
+
+        Raises:
+            CircuitBreakerError: 所有 provider 均被熔断
+        """
+        if not self._enable_circuit_breaker:
+            return self._provider, None
+
+        all_providers = [self._provider] + self._fallback_providers
+        for provider_idx, provider in enumerate(all_providers):
+            cb_idx = self._provider_indices.get(id(provider), provider_idx)
+            cb = self._circuit_breakers.get(cb_idx)
+            if cb:
+                try:
+                    await cb.check_call()
+                except CircuitBreakerError:
+                    logger.warning(
+                        "[%s][pipeline=%s] Provider #%d (%s) is circuit-broken, trying next for stream",
+                        context.request_id, self.name, provider_idx, type(provider).__name__,
+                    )
+                    continue
+            return provider, cb
+
+        raise CircuitBreakerError("All providers are circuit-broken for streaming")
+
     async def _stream_with_deadline(self, context: AgentContext, deadline: float) -> AsyncIterator[StreamChunk]:
         """内部方法：带总超时的流式调用。"""
         buf_key = f"_safety_buf_{context.request_id}"
@@ -367,46 +407,52 @@ class Pipeline:
         try:
             context = await self._run_request(context)
         except CacheHitException:
-            # 缓存命中 - 流式不支持缓存，记录警告
             logger.warning(
                 "[%s] Cache hit in stream mode (not supported), falling back to provider",
                 context.request_id,
             )
-            # 继续执行 provider 调用
+
+        stream_provider, cb = await self._get_healthy_stream_provider(context)
 
         async def _provider_gen() -> AsyncIterator[StreamChunk]:
-            async for chunk in self._provider.stream(context):
+            async for chunk in stream_provider.stream(context):
                 yield chunk
 
         gen = _provider_gen()
-        while True:
-            try:
-                # 计算剩余时间
-                loop = asyncio.get_running_loop()
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    raise OnionErrorWithCode(
-                        code=ErrorCode.TIMEOUT_TOTAL_PIPELINE,
-                        message=f"Pipeline total timeout ({self._total_timeout}s) exceeded for stream request {context.request_id}",
+        stream_success = False
+        try:
+            while True:
+                try:
+                    loop = asyncio.get_running_loop()
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise OnionErrorWithCode(
+                            code=ErrorCode.TIMEOUT_TOTAL_PIPELINE,
+                            message=f"Pipeline total timeout ({self._total_timeout}s) exceeded for stream request {context.request_id}",
+                        )
+
+                    raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+
+                chunk_count += 1
+                if chunk_count > self._max_stream_chunks:
+                    raise ValidationError(
+                        f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
                     )
 
-                raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
-            except StopAsyncIteration:
-                break
+                chunk = await self._run_stream_chunk(context, raw_chunk)
+                yield chunk
 
-            # 检查 chunk 数量防止 DoS
-            chunk_count += 1
-            if chunk_count > self._max_stream_chunks:
-                raise ValidationError(
-                    f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
-                )
-
-            chunk = await self._run_stream_chunk(context, raw_chunk)
-            yield chunk
-        
-        # 正常结束时清理缓冲区
-        context.metadata.pop(buf_key, None)
-        context.metadata.pop(timestamp_key, None)
+            stream_success = True
+        finally:
+            if cb:
+                if stream_success:
+                    await cb.record_success()
+                else:
+                    await cb.record_failure()
+            context.metadata.pop(buf_key, None)
+            context.metadata.pop(timestamp_key, None)
     
     async def _stream_without_deadline(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """内部方法：无总超时的流式调用（原有逻辑）。"""
@@ -416,19 +462,18 @@ class Pipeline:
         try:
             context = await self._run_request(context)
         except CacheHitException:
-            # 缓存命中 - 流式不支持缓存，记录警告
             logger.warning(
                 "[%s] Cache hit in stream mode (not supported), falling back to provider",
                 context.request_id,
             )
-            # 继续执行 provider 调用
+
+        stream_provider, cb = await self._get_healthy_stream_provider(context)
 
         async def _provider_gen() -> AsyncIterator[StreamChunk]:
-            async for chunk in self._provider.stream(context):
+            async for chunk in stream_provider.stream(context):
                 yield chunk
 
         if self._provider_timeout is not None:
-            # 计算绝对截止时间，确保总超时而非每 chunk 超时
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError as exc:
@@ -439,44 +484,61 @@ class Pipeline:
             deadline = loop.time() + self._provider_timeout
 
             gen = _provider_gen()
-            while True:
-                try:
-                    # 计算剩余时间
-                    remaining = deadline - loop.time()
-                    if remaining <= 0:
-                        raise OnionErrorWithCode(
-                            code=ErrorCode.TIMEOUT_PROVIDER,
-                            message=f"Stream timeout exceeded ({self._provider_timeout}s)",
+            stream_success = False
+            try:
+                while True:
+                    try:
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            raise OnionErrorWithCode(
+                                code=ErrorCode.TIMEOUT_PROVIDER,
+                                message=f"Stream timeout exceeded ({self._provider_timeout}s)",
+                            )
+
+                        raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+                    except StopAsyncIteration:
+                        break
+
+                    chunk_count += 1
+                    if chunk_count > self._max_stream_chunks:
+                        raise ValidationError(
+                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
                         )
 
-                    raw_chunk = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
-                except StopAsyncIteration:
-                    break
+                    chunk = await self._run_stream_chunk(context, raw_chunk)
+                    yield chunk
 
-                # 检查 chunk 数量防止 DoS
-                chunk_count += 1
-                if chunk_count > self._max_stream_chunks:
-                    raise ValidationError(
-                        f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
-                    )
-
-                chunk = await self._run_stream_chunk(context, raw_chunk)
-                yield chunk
+                stream_success = True
+            finally:
+                if cb:
+                    if stream_success:
+                        await cb.record_success()
+                    else:
+                        await cb.record_failure()
+                context.metadata.pop(buf_key, None)
+                context.metadata.pop(timestamp_key, None)
         else:
-            async for raw_chunk in self._provider.stream(context):
-                # 检查 chunk 数量防止 DoS
-                chunk_count += 1
-                if chunk_count > self._max_stream_chunks:
-                    raise ValidationError(
-                        f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
-                    )
+            stream_success = False
+            try:
+                async for raw_chunk in stream_provider.stream(context):
+                    chunk_count += 1
+                    if chunk_count > self._max_stream_chunks:
+                        raise ValidationError(
+                            f"Stream exceeded max chunks limit: {chunk_count} > {self._max_stream_chunks}"
+                        )
 
-                chunk = await self._run_stream_chunk(context, raw_chunk)
-                yield chunk
-        
-        # 正常结束时清理缓冲区
-        context.metadata.pop(buf_key, None)
-        context.metadata.pop(timestamp_key, None)
+                    chunk = await self._run_stream_chunk(context, raw_chunk)
+                    yield chunk
+
+                stream_success = True
+            finally:
+                if cb:
+                    if stream_success:
+                        await cb.record_success()
+                    else:
+                        await cb.record_failure()
+                context.metadata.pop(buf_key, None)
+                context.metadata.pop(timestamp_key, None)
 
     async def execute_tool_call(self, context: AgentContext, tool_call: ToolCall) -> ToolCall:
         return await self._run_tool_call(context, tool_call)
@@ -572,7 +634,7 @@ class Pipeline:
                             provider_idx,
                             attempt + 1,
                             self._max_retries + 1,
-                            exc,
+                            type(exc).__name__,
                             delay,
                         )
                         await asyncio.sleep(delay)
@@ -583,14 +645,14 @@ class Pipeline:
                             self.name,
                             provider_idx,
                             self._max_retries + 1,
-                            exc,
+                            type(exc).__name__,
                         )
                         exceptions.append((provider_name, exc))
 
         # 所有 provider 都失败，聚合异常信息
         if exceptions:
             error_summary = "; ".join(
-                f"{name}: {type(exc).__name__}({exc})" for name, exc in exceptions
+                f"{name}: {type(exc).__name__}" for name, exc in exceptions
             )
             logger.error(
                 "[%s][pipeline=%s] All providers failed: %s",

@@ -40,6 +40,7 @@ from ..models import (
     FinishReason,
     LLMResponse,
     StreamChunk,
+    ToolCall,
     UsageStats,
 )
 
@@ -378,8 +379,6 @@ class DistributedCacheMiddleware(BaseMiddleware):
     def _deserialize_response(self, data: str) -> LLMResponse:
         """从 JSON 字符串反序列化为 LLMResponse。"""
         obj = json.loads(data)
-        
-        from ..models import ToolCall
         
         tool_calls = [
             ToolCall(**tc) for tc in obj.get("tool_calls", [])

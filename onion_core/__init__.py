@@ -9,6 +9,8 @@ Onion Core — Agent 中间件框架
     from onion_core.middlewares import ObservabilityMiddleware, SafetyGuardrailMiddleware, ContextWindowMiddleware
 """
 
+from __future__ import annotations
+
 from importlib.metadata import PackageNotFoundError, version
 
 from .agent import (
@@ -18,6 +20,7 @@ from .agent import (
     AgentRuntimeError,
     BasePlanner,
     DefaultPlanner,
+    ExecutionError,
     MemorySummarizer,
     PlannerDecision,
     SlidingWindowMemory,
@@ -113,6 +116,7 @@ __all__ = [
     "DefaultPlanner",
     "PlannerDecision",
     "ToolExecutor",
+    "ExecutionError",
     "SlidingWindowMemory",
     "MemorySummarizer",
     # 异常与重试策略

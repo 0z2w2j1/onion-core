@@ -117,6 +117,11 @@ class ContextWindowMiddleware(BaseMiddleware):
     async def startup(self) -> None:
         # 创建线程池用于异步 Token 计算
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ctx-win-tokenizer")
+        # 提前加载默认 encoding，避免在 async 请求处理中同步阻塞事件循环
+        if self._default_encoding is None:
+            self._default_encoding = tiktoken.get_encoding(self._default_encoding_name)
+            self._encoding_cache[self._default_encoding_name] = self._default_encoding
+            self._encoding_cache.move_to_end(self._default_encoding_name)
         logger.info(
             "ContextWindowMiddleware started | max_tokens=%d | keep_rounds=%d | encoding=%s | summary_strategy=%s",
             self._max_tokens,

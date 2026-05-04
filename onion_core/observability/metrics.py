@@ -32,22 +32,22 @@ from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResul
 logger = logging.getLogger("onion_core.metrics")
 
 try:
-    from prometheus_client import Counter, Histogram, Summary
+    from prometheus_client import Counter as _PromCounter, Histogram as _PromHistogram, Summary as _PromSummary
     _PROM_AVAILABLE = True
 except ImportError:
     _PROM_AVAILABLE = False
 
 
-def _make_counter(name: str, desc: str, labels: list[str]) -> Any:
+def _make_counter(name: str, desc: str, labels: list[str]) -> _PromCounter | _NoOpMetric:
     if _PROM_AVAILABLE:
-        return Counter(name, desc, labels)
+        return _PromCounter(name, desc, labels)
     return _NoOpMetric()
 
 
-def _make_histogram(name: str, desc: str, labels: list[str], buckets: list[float] | None = None) -> Any:
+def _make_histogram(name: str, desc: str, labels: list[str], buckets: list[float] | None = None) -> _PromHistogram | _NoOpMetric:
     if _PROM_AVAILABLE:
         kwargs: dict[str, Any] = {"buckets": buckets} if buckets else {}
-        return Histogram(name, desc, labels, **kwargs)
+        return _PromHistogram(name, desc, labels, **kwargs)
     return _NoOpMetric()
 
 
@@ -198,8 +198,8 @@ if _PROM_AVAILABLE:
 # P95/P99 延迟百分位监控（Summary 指标）
 _REQUEST_LATENCY_SUMMARY: Any = _NoOpMetric()
 if _PROM_AVAILABLE:
-    _REQUEST_LATENCY_SUMMARY = Summary(
-        "onion_request_latency_seconds",
+    _REQUEST_LATENCY_SUMMARY = _PromSummary(
+        "onion_request_latency_seconds_summary",
         "Pipeline request latency summary (P95/P99)",
         ["pipeline_name", "model"],
     )
@@ -207,8 +207,8 @@ if _PROM_AVAILABLE:
 # Token 成本追踪
 _TOKEN_COST_USD: Any = _NoOpMetric()
 if _PROM_AVAILABLE:
-    _TOKEN_COST_USD = Counter(
-        "onion_token_cost_usd",
+    _TOKEN_COST_USD = _PromCounter(
+        "onion_token_cost_dollars_total",
         "Total token cost in USD",
         ["pipeline_name", "model", "provider"],
     )
@@ -223,9 +223,9 @@ class MetricsMiddleware(BaseMiddleware):
     指标：
       onion_requests_total{pipeline_name, model, finish_reason, status}
       onion_request_duration_seconds{pipeline_name, model} (Histogram)
-      onion_request_latency_seconds{pipeline_name, model} (Summary, P95/P99)
+      onion_request_latency_seconds_summary{pipeline_name, model} (Summary, P95/P99)
       onion_tokens_total{pipeline_name, model, type}
-      onion_token_cost_usd{pipeline_name, model, provider}
+      onion_token_cost_dollars_total{pipeline_name, model, provider}
       onion_tool_calls_total{pipeline_name, tool_name, status}
       onion_active_requests{pipeline_name}
     

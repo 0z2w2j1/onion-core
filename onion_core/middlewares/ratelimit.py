@@ -17,6 +17,9 @@ class RateLimitMiddleware(BaseMiddleware):
     """
     滑动窗口速率限制中间件。priority=150。
 
+    priority=150 排在安全护栏(200)之前，确保限流检查优先于敏感内容检测，
+    对恶意的高频请求进行早期拦截，减少后续中间件的无效开销。
+
     按 session_id 独立计数，LRU 淘汰长期不活跃的 session（防内存泄漏）。
     
     改进：支持分层限流，区分普通对话和工具调用，避免工具调用风暴。
@@ -123,6 +126,9 @@ class RateLimitMiddleware(BaseMiddleware):
         return context
 
     async def process_response(self, context: AgentContext, response: LLMResponse) -> LLMResponse:
+        # 注意：rate_limit_remaining / rate_limit_type 不在此处清理，
+        # 因为 AgentLoop 多轮场景下下一轮 process_request 会覆盖它们，
+        # 单次调用后保留这些 key 方便调用方检查限流状态。
         return response
 
     async def process_stream_chunk(self, context: AgentContext, chunk: StreamChunk) -> StreamChunk:

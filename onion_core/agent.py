@@ -17,6 +17,7 @@ import hashlib
 import inspect
 import json
 import logging
+import random
 import signal
 import time
 from abc import ABC, abstractmethod
@@ -488,7 +489,8 @@ class ToolExecutor:
             except TimeoutError:
                 if attempt < self._config.tool_max_retries:
                     logger.warning("Tool '%s' attempt %d timed out, retrying...", tool_call.name, attempt + 1)
-                    await asyncio.sleep(min(2 ** attempt, 30))  # Cap at 30 seconds
+                    delay = min(2 ** attempt, 30) + random.uniform(0, 0.1 * min(2 ** attempt, 30))
+                    await asyncio.sleep(delay)  # Cap at 30s + jitter
                     continue
                 return ToolResult(
                     tool_call_id=tool_call.id, name=tool_call.name,
@@ -507,7 +509,8 @@ class ToolExecutor:
                     )
                 if attempt < self._config.tool_max_retries:
                     logger.warning("Tool '%s' attempt %d failed: %s, retrying...", tool_call.name, attempt + 1, e)
-                    await asyncio.sleep(min(2 ** attempt, 30))  # Cap at 30 seconds
+                    delay = min(2 ** attempt, 30) + random.uniform(0, 0.1 * min(2 ** attempt, 30))
+                    await asyncio.sleep(delay)  # Cap at 30s + jitter
                     continue
                 return ToolResult(
                     tool_call_id=tool_call.id, name=tool_call.name,

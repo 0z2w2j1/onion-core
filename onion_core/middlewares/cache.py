@@ -1,5 +1,4 @@
-"""
-Onion Core - Response Cache Middleware
+"""Onion Core - 响应缓存中间件
 
 提供 LLM 响应缓存功能，避免重复调用相同的请求。
 支持 TTL（生存时间）和最大缓存大小限制。
@@ -28,12 +27,15 @@ class ResponseCacheMiddleware(BaseMiddleware):
     """
     响应缓存中间件。priority=75。
 
+    priority=75 排在 Tracing(50) 之后，在 Provider 调用前尽早检查缓存，
+    避免对相同请求重复调用 LLM。
+
     基于请求内容（messages + config）生成缓存键，
     缓存完整的 LLMResponse，在 TTL 内返回缓存结果。
 
     特性：
       - 自动过期（TTL）
-      - LRU 淘汰策略
+      - LRU 淘汰策略（惰性清理：过期条目仅在访问时删除，长期未访问的条目可能占用内存）
       - 可配置的缓存键生成策略
       - 缓存命中/未命中指标统计
     """
