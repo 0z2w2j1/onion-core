@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Round 4 Code Review Fixes** — Concurrency safety hardening, streaming sentinel pattern fixes, config defaults for distributed middlewares (connection timeouts, Lua script loading, retry config)
+- **Systematic Code Review Fixes** — Circuit breaker state machine hardening, memory leak prevention (RateLimitMiddleware deque cleanup, distributed cache stats lock), type annotation improvements across all modules
+- **Exception Hierarchy & Type Safety** — Unified exception handling in pipeline retry logic, fixed `ErrorCode | None` type narrowing for `OnionErrorWithCode`, stricter input validation
+- **Metrics & Observability** — Fixed optional import handling for Prometheus metrics, graceful degradation when optional deps unavailable
+- **Config Depth Access** — Hardened 3-layer nesting limit validation in `Pipeline._config_depth`
+
+### Quality
+
+- 522 tests passing, 84% coverage
+- mypy strict mode: 0 errors
+- ruff check: 0 errors
+
+---
+
 ## [1.0.0] - 2026-04-26
 
 ### Production Release

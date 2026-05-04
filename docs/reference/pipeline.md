@@ -1,7 +1,7 @@
 # API Reference - Pipeline
 
 > **模块**: `onion_core.pipeline`  
-> **版本**: v1.0.1
+> **版本**: v1.0.0
 
 ## Pipeline
 

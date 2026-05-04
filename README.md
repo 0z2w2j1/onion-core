@@ -196,7 +196,7 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM, etc.
 - **Layered rate limiting**: Separate limits for regular requests vs tool calls (prevents tool call storms)
 - Per-session sliding window (in-memory, single-process)
 - Circuit breaker: stops hitting a failing provider (CLOSED → OPEN → HALF_OPEN → CLOSED)
-- **Note**: Distributed backends (Redis/Etcd) are planned for v1.0
+- **Note**: Redis-backed distributed middlewares are available as optional components
 
 #### 📊 Production Observability
 - Structured JSON logging with `request_id`
@@ -273,12 +273,12 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 |------|--------|
 | Version | 1.0.0 (Production/Stable) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 390+ tests, **92%** coverage |
+| Test Coverage | 522 tests, **84%** coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | License | MIT |
-| Architecture | Single-process only (distributed support planned for v1.1) |
+| Architecture | Single-process with optional Redis-backed distributed coordination |
 
 ### 🚧 Development Progress (Phase 1: Foundation)
 
@@ -320,9 +320,7 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 | Phase | Target | Status |
 |-------|--------|--------|
 | Phase 1 | Foundation & Standardization | ✅ Complete |
-| Phase 2 | Performance Optimization | 🔄 Planned |
-| Phase 3 | Advanced Features | 🔄 Planned |
-| v1.0 | Production Ready | 🔄 Planned |
+| v1.0 | Production Ready | ✅ Released |
 
 > ⚠️ **Note:** This is a **Production/Stable** release (v1.0.0). APIs are stable and backward compatible.
 > 
@@ -540,7 +538,7 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM 等
 #### ⚡ 限流与熔断
 - 按用户（Session ID）滑动窗口限流（内存态，单进程）
 - 熔断器：持续故障时自动切断（CLOSED → OPEN → HALF_OPEN → CLOSED）
-- **注意**：分布式后端（Redis/Etcd）计划在 v1.0 中实现
+- **注意**：Redis 支持的分布式中间件已可用（可选组件）
 
 #### 📊 生产级可观测
 - 带 `request_id` 的结构化 JSON 日志
@@ -617,12 +615,12 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 |------|------|
 | 版本 | 1.0.0（Production/Stable） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 390+ 个测试，**92%** 覆盖率 |
+| 测试覆盖 | 522 个测试，**84%** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
-| 架构限制 | 仅支持单进程部署（分布式支持计划于 v1.1） |
+| 架构限制 | 单进程部署，可选 Redis 分布式协调支持 |
 
 ### 🚧 开发进度（第一阶段：基础与标准化）
 
@@ -664,9 +662,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 | 阶段 | 目标 | 状态 |
 |------|------|------|
 | 第一阶段 | 基础与标准化 | ✅ 已完成 |
-| 第二阶段 | 性能优化 | 🔄 计划中 |
-| 第三阶段 | 高级功能 | 🔄 计划中 |
-| v1.0 | 生产就绪 | 🔄 计划中 |
+| v1.0 | 生产就绪 | ✅ 已发布 |
 
 > ⚠️ **注意：** 当前为 **生产就绪** 版本（v1.0.0）。API 稳定且向后兼容。
 >

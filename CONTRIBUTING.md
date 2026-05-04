@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Onion Core! This document provides guidelines and workflows for contributing.
 
-> **Note:** This project is in Beta (v0.6.0). APIs may change until v1.0.
+> **Note:** This project is Production/Stable (v1.0.0). APIs are stable and backward compatible.
 
 ---
 
@@ -10,7 +10,7 @@ Thank you for your interest in contributing to Onion Core! This document provide
 
 ### Reporting Issues
 
-- Use [GitHub Issues](https://github.com/anomalyco/opencode/issues) to report bugs or request features
+- Use [GitHub Issues](https://github.com/0z2w2j1/onion-core/issues) to report bugs or request features
 - Include: expected behavior, actual behavior, reproduction steps, environment info
 
 ### Pull Request Workflow
@@ -135,7 +135,7 @@ Feel free to open a GitHub Issue for any questions about contributing.
 
 感谢您对 Onion Core 的关注！本文档提供贡献指南和工作流程。
 
-> **注意：** 此项目处于 Beta 阶段（v0.6.0）。在 v1.0 之前，API 可能会发生变化。
+> **注意：** 此项目处于 Production/Stable 阶段（v1.0.0）。API 稳定且向后兼容。
 
 ---
 
@@ -143,7 +143,7 @@ Feel free to open a GitHub Issue for any questions about contributing.
 
 ### 报告问题
 
-- 使用 [GitHub Issues](https://github.com/anomalyco/opencode/issues) 报告bugs或请求新功能
+- 使用 [GitHub Issues](https://github.com/0z2w2j1/onion-core/issues) 报告bugs或请求新功能
 - 包含：预期行为、实际行为、重现步骤、 环境信息
 
 ### Pull Request 工作流程

@@ -473,6 +473,8 @@ class Pipeline:
                         loop = asyncio.get_running_loop()
                         remaining = deadline - loop.time()
                         if remaining <= 0:
+                            if timeout_code is None:
+                                timeout_code = ErrorCode.TIMEOUT_TOTAL_PIPELINE
                             raise OnionErrorWithCode(
                                 code=timeout_code,
                                 message=timeout_message,

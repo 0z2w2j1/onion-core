@@ -1,6 +1,6 @@
 # Onion Core - Architecture Design Document
 
-> Version: 0.7.5 | Date: 2026-04-26
+> Version: 1.0.0 | Date: 2026-04-26
 
 ## Changelog (v0.7.5)
 
@@ -260,9 +260,9 @@ AgentLoop.run(context)
         └─ is_complete → return response
 ```
 
-### 3.8 Agent Runtime (`src/core/`) — State Compression
+### 3.8 Agent Runtime (`onion_core/agent/`) — State Compression
 
-`AgentRuntime` (the newer `src/` agent runtime) manages `AgentState` across multi-turn sessions. To prevent unbounded memory growth:
+`AgentRuntime` manages `AgentState` across multi-turn sessions. To prevent unbounded memory growth:
 
 - **`AgentState.compress(config)`** — truncates `messages` list to `state_max_messages` (default: 200), preserving system messages
 - **`AgentState.archive_history(config)`** — moves old `StepRecord` entries to `archived_summaries` list, keeping `state_max_history_steps` (default: 100)
@@ -279,7 +279,7 @@ AgentState (in-memory)
   └── cumulative_usage (running token total)
 ```
 
-### 3.9 Agent Runtime (`src/core/`) — LLM Client Ownership
+### 3.9 Agent Runtime (`onion_core/agent/`) — LLM Client Ownership
 
 `AgentRuntime` accepts an `owns_client` flag (default: `True`) to control LLM client lifecycle:
 

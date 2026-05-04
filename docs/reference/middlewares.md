@@ -1,7 +1,7 @@
 # API Reference - Middlewares
 
 > **模块**: `onion_core.middlewares`  
-> **版本**: v1.0.1
+> **版本**: v1.0.0
 
 ## BaseMiddleware
 

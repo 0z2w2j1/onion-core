@@ -1,6 +1,6 @@
 # Onion Core - Monitoring & Alerting Guide
 
-> Version: 0.8.0 | Updated: 2026-04-26
+> Version: 1.0.0 | Updated: 2026-04-26
 
 This guide provides comprehensive instructions for monitoring Onion Core in production environments, including Prometheus metrics, Grafana dashboards, and Alertmanager rules.
 
@@ -398,10 +398,10 @@ logger.info("Processing started", extra={"span_id": "span-1"})
 # JSON output includes: request_id, trace_id, span_id automatically
 ```
 
-**RequestContext (src/ library)**: Propagate request context via `ContextVar`:
+**RequestContext (onion_core library)**: Propagate request context via `ContextVar`:
 
 ```python
-from src.observability import RequestContext, current_request_id
+from onion_core.observability import RequestContext, current_request_id
 
 with RequestContext(request_id="req-1", trace_id="trace-1"):
     print(current_request_id())  # "req-1"

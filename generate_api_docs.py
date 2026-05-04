@@ -62,18 +62,18 @@ def generate_api_doc(module_path: str, output_file: str):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
     
-    print(f"✅ Generated: {output_file}")
+    print(f"Generated: {output_file}")
 
 def main():
-    print("🚀 Generating API Reference documents...\n")
+    print("Generating API Reference documents...\n")
     
     for module_path, output_file in modules.items():
         try:
             generate_api_doc(module_path, output_file)
         except Exception as e:
-            print(f"❌ Failed to generate {output_file}: {e}")
+            print(f"FAILED to generate {output_file}: {e}")
     
-    print(f"\n✨ Generated {len(modules)} API reference documents!")
+    print(f"\nGenerated {len(modules)} API reference documents!")
     print("\nNext step: Run 'mkdocs build' to generate the documentation site.")
 
 if __name__ == "__main__":
