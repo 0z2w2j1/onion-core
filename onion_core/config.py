@@ -114,14 +114,14 @@ class OnionConfig(BaseSettings):
         return cls()
 
     def get(self, key: str, default: Any = None) -> Any:
-        """点分路径访问配置值，如 cfg.get('context_window.max_tokens')。"""
-        parts = key.split(".", 1)
-        section = getattr(self, parts[0], None)
-        if section is None:
-            return default
-        if len(parts) == 1:
-            return section
-        return getattr(section, parts[1].replace(".", "_"), default)
+        """点分路径访问配置值，支持任意深度，如 cfg.get('context_window.max_tokens')。"""
+        parts = key.split(".")
+        obj: Any = self
+        for part in parts:
+            if obj is None:
+                return default
+            obj = obj.get(part) if isinstance(obj, dict) else getattr(obj, part, None)
+        return obj if obj is not None else default
 
     def to_context_config(self) -> dict[str, Any]:
         """序列化为 AgentContext.config 格式。"""

@@ -32,7 +32,9 @@ from ..models import AgentContext, LLMResponse, StreamChunk, ToolCall, ToolResul
 logger = logging.getLogger("onion_core.metrics")
 
 try:
-    from prometheus_client import Counter as _PromCounter, Histogram as _PromHistogram, Summary as _PromSummary
+    from prometheus_client import Counter as _PromCounter
+    from prometheus_client import Histogram as _PromHistogram
+    from prometheus_client import Summary as _PromSummary
     _PROM_AVAILABLE = True
 except ImportError:
     _PROM_AVAILABLE = False

@@ -95,16 +95,14 @@ class ContextWindowMiddleware(BaseMiddleware):
     def _get_encoding(self, name: str) -> tiktoken.Encoding:
         """按名称获取 encoding，带 LRU 缓存。未知名称回退到默认 encoding 并记录警告。"""
         if name in self._encoding_cache:
-            # LRU：移动到末尾（最近使用）
             self._encoding_cache.move_to_end(name)
             return self._encoding_cache[name]
         try:
             enc = tiktoken.get_encoding(name)
-            # LRU：添加到缓存，如果超出容量则删除最旧的
             self._encoding_cache[name] = enc
             self._encoding_cache.move_to_end(name)
             if len(self._encoding_cache) > ENCODING_CACHE_MAX_SIZE:
-                self._encoding_cache.popitem(last=False)  # 删除最旧的
+                self._encoding_cache.popitem(last=False)
             logger.debug("Loaded encoding: %s", name)
             return enc
         except Exception as exc:
@@ -112,7 +110,9 @@ class ContextWindowMiddleware(BaseMiddleware):
                 "Unknown encoding '%s' (%s), falling back to '%s'",
                 name, exc, self._default_encoding_name,
             )
-            return self._default_enc
+            if self._default_encoding is None:
+                self._default_encoding = tiktoken.get_encoding(self._default_encoding_name)
+            return self._default_encoding
 
     async def startup(self) -> None:
         # 创建线程池用于异步 Token 计算
@@ -132,7 +132,9 @@ class ContextWindowMiddleware(BaseMiddleware):
 
     async def shutdown(self) -> None:
         if self._executor:
-            self._executor.shutdown(wait=False)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._executor.shutdown)
+            self._executor = None
         logger.info("ContextWindowMiddleware stopped.")
 
     @property
