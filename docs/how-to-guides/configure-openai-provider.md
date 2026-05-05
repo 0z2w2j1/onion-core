@@ -84,7 +84,7 @@ provider = OpenAIProvider(model="text-embedding-ada-002")
 ### Model Parameters
 
 ```python
-from onion_core.models import ModelParameters
+from onion_core.models import ModelParameters, AgentContext
 
 params = ModelParameters(
     temperature=0.7,
@@ -94,7 +94,8 @@ params = ModelParameters(
     presence_penalty=0.0
 )
 
-response = await provider.generate(prompt="Hello", params=params)
+context = AgentContext(messages=[{"role": "user", "content": "Hello"}])
+response = await provider.complete(context)
 ```
 
 ## Streaming Support
@@ -102,10 +103,13 @@ response = await provider.generate(prompt="Hello", params=params)
 ### Async Streaming
 
 ```python
+from onion_core.models import AgentContext
+
 async def stream_response():
     provider = OpenAIProvider(api_key="your-key", model="gpt-4")
+    context = AgentContext(messages=[{"role": "user", "content": "Tell me a story"}])
     
-    async for chunk in provider.stream_generate("Tell me a story"):
+    async for chunk in provider.stream(context):
         print(chunk.content, end="", flush=True)
 
 import asyncio
@@ -131,10 +135,10 @@ for chunk in agent.stream_sync("Tell me a story"):
 from openai import RateLimitError
 import asyncio
 
-async def generate_with_retry(provider, prompt, max_retries=3):
+async def generate_with_retry(provider, context, max_retries=3):
     for attempt in range(max_retries):
         try:
-            return await provider.generate(prompt)
+            return await provider.complete(context)
         except RateLimitError as e:
             if attempt == max_retries - 1:
                 raise
@@ -151,7 +155,8 @@ async def generate_with_retry(provider, prompt, max_retries=3):
 from openai import AuthenticationError
 
 try:
-    response = await provider.generate("Hello")
+    context = AgentContext(messages=[{"role": "user", "content": "Hello"}])
+    response = await provider.complete(context)
 except AuthenticationError:
     print("Invalid API key. Please check your configuration.")
 except Exception as e:
@@ -163,19 +168,21 @@ except Exception as e:
 ### Token Tracking
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 async def track_token_usage(response):
     usage = response.usage
-    metrics.increment('openai.tokens.prompt', usage.prompt_tokens)
-    metrics.increment('openai.tokens.completion', usage.completion_tokens)
-    metrics.increment('openai.tokens.total', usage.total_tokens)
+    logger.info(
+        f"Tokens used: prompt={usage.prompt_tokens}, "
+        f"completion={usage.completion_tokens}, "
+        f"total={usage.total_tokens}"
+    )
     
     # Calculate cost (example for gpt-4)
     cost = (usage.prompt_tokens * 0.03 + usage.completion_tokens * 0.06) / 1000
-    metrics.increment('openai.cost.usd', cost)
+    logger.info(f"Estimated cost: ${cost:.4f}")
 ```
 
 ### Use Cheaper Models for Simple Tasks
@@ -206,11 +213,11 @@ import json
 
 logger = logging.getLogger(__name__)
 
-async def logged_generate(provider, prompt, **kwargs):
-    logger.info(f"OpenAI request: {prompt[:100]}...")
+async def logged_generate(provider, context):
+    logger.info(f"OpenAI request")
     
     try:
-        response = await provider.generate(prompt, **kwargs)
+        response = await provider.complete(context)
         logger.info(
             f"OpenAI response: {len(response.content)} chars, "
             f"{response.usage.total_tokens} tokens"

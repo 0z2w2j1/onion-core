@@ -14,24 +14,26 @@ This guide shows how to enable and configure response caching to improve perform
 ### In-Memory Cache
 
 ```python
-from onion_core.middlewares import CacheMiddleware
+from onion_core.middlewares import ResponseCacheMiddleware
+from onion_core import Pipeline
 
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     ttl=300,  # Time to live in seconds (5 minutes)
     max_size=1000  # Maximum number of cached items
 )
 
-pipeline = Pipeline(middlewares=[cache])
+pipeline = Pipeline()
+pipeline.add_middleware(cache)
 ```
 
 ### Usage
 
 ```python
 # First call - hits the API
-response1 = await pipeline.execute(request)
+response1 = await pipeline.run(context)
 
 # Second call with same request - returns cached response
-response2 = await pipeline.execute(request)  # Much faster!
+response2 = await pipeline.run(context)  # Much faster!
 ```
 
 ## Advanced Configuration
@@ -39,7 +41,7 @@ response2 = await pipeline.execute(request)  # Much faster!
 ### Custom TTL per Request
 
 ```python
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     default_ttl=300,
     ttl_strategy=lambda request: 600 if request.is_important else 60
 )
@@ -52,7 +54,7 @@ def custom_cache_key(request):
     """Generate custom cache key."""
     return f"{request.model}:{request.prompt_hash}:{request.temperature}"
 
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     key_generator=custom_cache_key
 )
 ```
@@ -76,7 +78,8 @@ distributed_cache = DistributedCacheMiddleware(
     prefix="onion_cache"
 )
 
-pipeline = Pipeline(middlewares=[distributed_cache])
+pipeline = Pipeline()
+pipeline.add_middleware(distributed_cache)
 ```
 
 ### Benefits
@@ -103,7 +106,7 @@ await cache.invalidate_pattern("gpt-4:*")
 ### Automatic Invalidation
 
 ```python
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     ttl=300,
     auto_invalidate_on_error=True,  # Clear cache on errors
     max_age=3600  # Absolute maximum age
@@ -115,20 +118,15 @@ cache = CacheMiddleware(
 ### Cache Metrics
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 async def track_cache_performance(request, cached):
     if cached:
-        metrics.increment('cache.hits')
+        logger.info("Cache hit")
     else:
-        metrics.increment('cache.misses')
-    
-    hit_rate = metrics.get('cache.hits') / (
-        metrics.get('cache.hits') + metrics.get('cache.misses')
-    )
-    metrics.gauge('cache.hit_rate', hit_rate)
+        logger.info("Cache miss")
 ```
 
 ### Logging
@@ -147,7 +145,7 @@ async def logged_cache_lookup(request):
         return cached
     
     logger.debug(f"Cache miss for key: {cache_key}")
-    response = await provider.generate(request)
+    response = await provider.complete(context)
     await cache.set(cache_key, response)
     return response
 ```
@@ -167,7 +165,7 @@ async def write_through_cache(request):
         return cached
     
     # Fetch from provider
-    response = await provider.generate(request)
+    response = await provider.complete(context)
     
     # Write to cache
     await cache.set(cache_key, response)
@@ -187,7 +185,7 @@ async def read_aside_cache(request):
         return cached
     
     try:
-        response = await provider.generate(request)
+        response = await provider.complete(context)
         # Only cache successful responses
         if response.success:
             await cache.set(cache_key, response)

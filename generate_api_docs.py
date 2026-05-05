@@ -11,6 +11,10 @@ modules = {
     "onion_core.error_codes": "api/error_codes.md",
     "onion_core.base": "api/base.md",
     "onion_core.provider": "api/provider.md",
+    "onion_core.pipeline": "api/pipeline.md",
+    "onion_core.models": "api/models.md",
+    "onion_core.health_server": "api/health_server.md",
+    "onion_core.manager": "api/manager.md",
     
     # Middlewares
     "onion_core.middlewares.safety": "api/middlewares/safety.md",
@@ -18,7 +22,10 @@ modules = {
     "onion_core.middlewares.observability": "api/middlewares/observability.md",
     "onion_core.middlewares.ratelimit": "api/middlewares/ratelimit.md",
     "onion_core.middlewares.cache": "api/middlewares/cache.md",
-    "onion_core.middlewares.circuit_breaker": "api/middlewares/circuit_breaker.md",
+    "onion_core.middlewares.distributed_cache": "api/middlewares/distributed_cache.md",
+    "onion_core.middlewares.distributed_circuit_breaker": "api/middlewares/distributed_circuit_breaker.md",
+    "onion_core.middlewares.distributed_ratelimit": "api/middlewares/distributed_ratelimit.md",
+    "onion_core.circuit_breaker": "api/middlewares/circuit_breaker.md",
     
     # Providers
     "onion_core.providers.openai": "api/providers/openai.md",

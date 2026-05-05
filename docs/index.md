@@ -17,25 +17,27 @@ Onion Core is a **middleware framework** for building reliable, secure, and obse
                                    │
                                    ▼
               ┌────────────────────────────────────────┐
-              │  [1] Tracing     (priority=50)        │ ◄── Outer
-              │  [2] Metrics     (priority=90)        │
-              │  [3] Observability(priority=100)      │
-              │  [4] Rate Limit  (priority=150)       │
-              │  [5] Safety      (priority=200)       │
-              │  [6] Context     (priority=300)       │
-              └──────────────┬───────────────────────┘
-                             │
-                             ▼
-                    [ LLM Provider Call ]
-                             │
-                             ▼
-              ┌────────────────────────────────────────┐
-              │  [6] Context     (priority=300)       │
-              │  [5] Safety      (priority=200)       │
-              │  [4] Rate Limit  (priority=150)       │
-              │  [3] Observability(priority=100)      │
-              │  [2] Metrics     (priority=90)        │
-              │  [1] Tracing     (priority=50)        │ ◄── Inner
+               │  [1] Tracing     (priority=50)        │ ◄── Outer
+               │  [2] Cache       (priority=75)        │
+               │  [3] Metrics     (priority=90)        │
+               │  [4] Observability(priority=100)      │
+               │  [5] Rate Limit  (priority=150)       │
+               │  [6] Safety      (priority=200)       │
+               │  [7] Context     (priority=300)       │
+               └──────────────┬───────────────────────┘
+                              │
+                              ▼
+                     [ LLM Provider Call ]
+                              │
+                              ▼
+               ┌────────────────────────────────────────┐
+               │  [7] Context     (priority=300)       │
+               │  [6] Safety      (priority=200)       │
+               │  [5] Rate Limit  (priority=150)       │
+               │  [4] Observability(priority=100)      │
+               │  [3] Metrics     (priority=90)        │
+               │  [2] Cache       (priority=75)        │
+               │  [1] Tracing     (priority=50)        │ ◄── Inner
               └──────────────┬───────────────────────┘
                              │
                              ▼
@@ -113,7 +115,7 @@ Understanding-oriented discussions of design decisions.
 - **⚡ Reliability**: Retry with exponential backoff, circuit breaker, fallback providers
 - **📊 Observability**: Structured logging, Prometheus metrics, OpenTelemetry tracing
 - **🔄 Flexibility**: Provider-agnostic, middleware extensibility, async-first design
-- **🌐 Distributed**: Redis-based rate limiting, caching, and circuit breaking
+- **🌐 Distributed**: Redis-based `DistributedRateLimitMiddleware`, `DistributedCacheMiddleware`, `DistributedCircuitBreakerMiddleware`
 
 ## 🤝 Contributing
 

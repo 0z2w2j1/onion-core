@@ -204,9 +204,9 @@ def is_likely_pii(self, match: PIIMatch, context: str) -> bool:
 ## Configuration
 
 ```python
-from onion_core.middlewares import SafetyMiddleware
+from onion_core.middlewares import SafetyGuardrailMiddleware
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     pii_detection=True,
     streaming_buffer_size=100,
     pii_patterns={

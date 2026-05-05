@@ -143,12 +143,8 @@ async for chunk in p.stream(ctx):
 同步版本的 `run()`，适用于 Flask/Django 等同步框架。
 
 ```python
-def run_sync(self, context: AgentContext, timeout: float | None = None) -> LLMResponse
+def run_sync(self, context: AgentContext) -> LLMResponse
 ```
-
-**参数**:
-- `context`: 请求上下文
-- `timeout`: 可选的超时时间（秒），覆盖 Pipeline 配置
 
 **注意**:
 - **不能**在 async 上下文中调用（会抛出 `RuntimeError`）
@@ -171,7 +167,7 @@ def chat():
 同步版本的 `stream()`。
 
 ```python
-def stream_sync(self, context: AgentContext, timeout: float | None = None) -> Iterator[StreamChunk]
+def stream_sync(self, context: AgentContext) -> Iterator[StreamChunk]
 ```
 
 **注意**:

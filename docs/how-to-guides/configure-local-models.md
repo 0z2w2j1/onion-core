@@ -119,6 +119,7 @@ provider = LMStudioProvider(
 ```python
 from onion_core.agent import AgentRuntime
 from onion_core.config import OnionConfig
+from onion_core.models import AgentContext
 
 config = OnionConfig(
     provider="ollama",
@@ -128,7 +129,8 @@ config = OnionConfig(
 agent = AgentRuntime(config=config)
 
 async def chat():
-    response = await agent.run_async("Explain quantum computing")
+    ctx = AgentContext(messages=[{"role": "user", "content": "Explain quantum computing"}])
+    response = await agent.run(ctx)
     print(response.content)
 
 import asyncio
@@ -245,23 +247,22 @@ ollama serve
 ```python
 from onion_core import Pipeline
 from onion_core.middlewares import (
-    SafetyMiddleware,
+    SafetyGuardrailMiddleware,
     ContextWindowMiddleware,
-    CacheMiddleware
+    ResponseCacheMiddleware
 )
+from onion_core.providers import OllamaProvider
 
 # Create pipeline with local model
-pipeline = Pipeline(
-    middlewares=[
-        SafetyMiddleware(),
-        ContextWindowMiddleware(max_tokens=4096),
-        CacheMiddleware(ttl=300)
-    ],
-    provider=OllamaProvider(model="llama2")
-)
+pipeline = Pipeline()
+pipeline.add_middleware(SafetyGuardrailMiddleware())
+pipeline.add_middleware(ContextWindowMiddleware(max_tokens=4096))
+pipeline.add_middleware(ResponseCacheMiddleware(ttl=300))
+
+provider = OllamaProvider(model="llama2")
 
 # Use pipeline
-response = await pipeline.execute(request)
+response = await pipeline.run(context)
 ```
 
 ## Best Practices

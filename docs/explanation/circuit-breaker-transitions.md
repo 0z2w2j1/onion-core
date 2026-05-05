@@ -44,9 +44,9 @@ stateDiagram-v2
 ## Configuration
 
 ```python
-from onion_core import CircuitBreakerMiddleware
+from onion_core.circuit_breaker import CircuitBreaker
 
-circuit_breaker = CircuitBreakerMiddleware(
+circuit_breaker = CircuitBreaker(
     failure_threshold=5,      # Number of failures before opening
     recovery_timeout=60,      # Seconds before trying again
     half_open_max_calls=3,    # Test calls in half-open state

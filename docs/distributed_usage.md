@@ -147,7 +147,7 @@ spec:
     spec:
       containers:
       - name: agent
-        image: onion-core:0.9.0
+        image: onion-core:1.0.0
         env:
         - name: REDIS_URL
           value: "redis://redis-service:6379"
@@ -251,7 +251,66 @@ cache = DistributedCacheMiddleware(
 
 ---
 
-## 3. 组合使用：完整生产配置
+## 3. 分布式熔断器（DistributedCircuitBreakerMiddleware）
+
+### 基础用法
+
+```python
+from onion_core.middlewares import DistributedCircuitBreakerMiddleware
+
+async def main():
+    circuit_breaker = DistributedCircuitBreakerMiddleware(
+        redis_url="redis://localhost:6379/2",
+        failure_threshold=5,         # 连续失败 5 次触发熔断
+        recovery_timeout=30.0,       # 熔断 30 秒后进入半开状态
+        success_threshold=2,         # 半开状态连续成功 2 次恢复
+        key_prefix="onion:prod:cb",
+        pool_size=10,
+    )
+
+    async with Pipeline(provider=EchoProvider()) as p:
+        p.add_middleware(circuit_breaker)
+
+        ctx = AgentContext(
+            session_id="user-123",
+            messages=[Message(role="user", content="Hello")]
+        )
+
+        try:
+            response = await p.run(ctx)
+            print(response.content)
+        except Exception as e:
+            print(f"Circuit breaker blocked: {e}")
+
+asyncio.run(main())
+```
+
+### 状态查询
+
+```python
+# 查询 Provider 熔断状态
+state = await circuit_breaker.get_state("OpenAIProvider")
+print(state)
+# 输出：
+# {
+#     "provider": "OpenAIProvider",
+#     "state": "CLOSED",          # CLOSED / OPEN / HALF_OPEN
+#     "failure_count": 0,
+#     "success_count": 0,
+#     "last_failure_time": None,
+# }
+
+# 手动重置熔断器
+await circuit_breaker.reset("OpenAIProvider")
+```
+
+### 与 Pipeline 原生熔断的对比
+
+Pipeline 内置的 `enable_circuit_breaker=True` 使用进程内内存状态，适合单实例部署。`DistributedCircuitBreakerMiddleware` 通过 Redis 共享状态，适合多实例部署，确保所有实例对同一 Provider 的健康状态有一致认知。
+
+---
+
+## 4. 组合使用：完整生产配置
 
 ```python
 """
@@ -333,7 +392,7 @@ asyncio.run(main())
 
 ---
 
-## 4. 监控与告警
+## 5. 监控与告警
 
 ### Prometheus 指标集成
 
@@ -395,7 +454,7 @@ async def report_metrics(rate_limiter, cache):
 
 ---
 
-## 5. 故障排查
+## 6. 故障排查
 
 ### 常见问题
 
@@ -445,7 +504,7 @@ redis-cli MONITOR
 
 ---
 
-## 6. 性能基准
+## 7. 性能基准
 
 ### 测试环境
 
@@ -470,7 +529,7 @@ redis-cli MONITOR
 
 ---
 
-## 7. 最佳实践
+## 8. 最佳实践
 
 ### ✅ 推荐做法
 

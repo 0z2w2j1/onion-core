@@ -376,7 +376,7 @@ tiktoken 是 CPU 密集型操作，会阻塞事件循环：
 token_count = tiktoken.encoding_for_model("gpt-4").encode(text)
 
 # ✅ 新实现：卸载到线程池
-loop = asyncio.get_event_loop()
+loop = asyncio.get_running_loop()
 token_count = await loop.run_in_executor(
     self._token_executor,  # ThreadPoolExecutor
     lambda: tiktoken.encoding_for_model("gpt-4").encode(text)

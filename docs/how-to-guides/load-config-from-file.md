@@ -22,21 +22,15 @@ pip install pyyaml
 Create `config.yaml`:
 
 ```yaml
-# Basic settings
-api_key: "${OPENAI_API_KEY}"  # Use environment variable
-provider: "openai"
-model: "gpt-4"
-
 # Pipeline settings
 pipeline:
-  timeout: 30.0
   max_retries: 3
-  retry_delay: 1.0
+  provider_timeout: 30.0
+  enable_circuit_breaker: true
 
 # Safety settings
 safety:
-  enabled: true
-  pii_detection: true
+  enable_pii_masking: true
   blocked_keywords:
     - "password"
     - "secret"
@@ -45,20 +39,18 @@ safety:
 # Context window settings
 context_window:
   max_tokens: 8000
-  max_messages: 50
-  strategy: "hybrid"
+  keep_rounds: 2
+  encoding_name: "cl100k_base"
 
 # Observability settings
 observability:
-  logging_enabled: true
-  metrics_enabled: true
-  tracing_enabled: true
   log_level: "INFO"
+  log_tool_args: true
 
 # Concurrency settings
 concurrency:
-  max_workers: 10
-  task_queue_size: 100
+  tool_concurrency: 10
+  llm_max_connections: 100
 ```
 
 ### Load YAML Configuration
@@ -102,22 +94,17 @@ Create `config.json`:
 
 ```json
 {
-  "api_key": "${OPENAI_API_KEY}",
-  "provider": "openai",
-  "model": "gpt-4",
   "pipeline": {
-    "timeout": 30.0,
     "max_retries": 3,
-    "retry_delay": 1.0
+    "provider_timeout": 30.0
   },
   "safety": {
-    "enabled": true,
-    "pii_detection": true,
+    "enable_pii_masking": true,
     "blocked_keywords": ["password", "secret"]
   },
   "context_window": {
     "max_tokens": 8000,
-    "max_messages": 50
+    "keep_rounds": 2
   }
 }
 ```
@@ -168,23 +155,17 @@ pip install toml
 Create `config.toml`:
 
 ```toml
-api_key = "${OPENAI_API_KEY}"
-provider = "openai"
-model = "gpt-4"
-
 [pipeline]
-timeout = 30.0
 max_retries = 3
-retry_delay = 1.0
+provider_timeout = 30.0
 
 [safety]
-enabled = true
-pii_detection = true
+enable_pii_masking = true
 blocked_keywords = ["password", "secret"]
 
 [context_window]
 max_tokens = 8000
-max_messages = 50
+keep_rounds = 2
 ```
 
 ### Load TOML Configuration
@@ -225,16 +206,13 @@ config/
 `config/base.yaml`:
 
 ```yaml
-provider: "openai"
-model: "gpt-4"
-
 pipeline:
-  timeout: 30.0
+  provider_timeout: 30.0
   max_retries: 3
 
 safety:
-  enabled: true
-  pii_detection: true
+  enable_pii_masking: true
+  blocked_keywords: ["password", "secret"]
 ```
 
 ### Development Configuration
@@ -244,12 +222,11 @@ safety:
 ```yaml
 # Inherits from base.yaml
 observability:
-  logging_enabled: true
   log_level: "DEBUG"
-  metrics_enabled: false
+  log_tool_args: true
 
 concurrency:
-  max_workers: 2
+  tool_concurrency: 2
 ```
 
 ### Production Configuration
@@ -259,18 +236,16 @@ concurrency:
 ```yaml
 # Inherits from base.yaml
 pipeline:
-  timeout: 60.0
+  provider_timeout: 60.0
   max_retries: 5
 
 observability:
-  logging_enabled: true
   log_level: "WARNING"
-  metrics_enabled: true
-  tracing_enabled: true
+  log_tool_args: false
 
 concurrency:
-  max_workers: 20
-  task_queue_size: 500
+  tool_concurrency: 20
+  llm_max_connections: 50
 ```
 
 ### Load Environment-Specific Config
@@ -314,16 +289,13 @@ config = load_environment_config(env)
 from pydantic import BaseModel, Field, ValidationError
 import yaml
 
-class PipelineConfigSchema(BaseModel):
-    timeout: float = Field(ge=1.0, le=300.0)
-    max_retries: int = Field(ge=0, le=10)
-    retry_delay: float = Field(ge=0.1, le=10.0)
+class PipelineValidationSchema(BaseModel):
+    provider_timeout: float = Field(ge=1.0, le=300.0, default=30.0)
+    max_retries: int = Field(ge=0, le=10, default=3)
+    enable_circuit_breaker: bool = True
 
 class ConfigSchema(BaseModel):
-    api_key: str
-    provider: str
-    model: str
-    pipeline: PipelineConfigSchema
+    pipeline: PipelineValidationSchema = Field(default_factory=PipelineValidationSchema)
 
 def validate_config(file_path: str) -> bool:
     """Validate configuration file against schema."""

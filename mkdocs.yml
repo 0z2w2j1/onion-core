@@ -27,6 +27,12 @@ nav:
     - 'Setup Fallback Providers': how-to-guides/setup-fallback-providers.md
     - 'Use Sync API in Web Frameworks': how-to-guides/use-sync-api-in-web-frameworks.md
     - 'Troubleshoot Timeouts': how-to-guides/troubleshoot-timeouts.md
+    - 'Monitor Pipeline Performance': how-to-guides/monitor-pipeline-performance.md
+    - 'Debug Middleware Order': how-to-guides/debug-middleware-order.md
+    - 'Prevent Agent Loops': how-to-guides/prevent-agent-loops.md
+    - 'Implement Tool Deduplication': how-to-guides/implement-tool-deduplication.md
+    - 'Handle Circuit Breaker Trips': how-to-guides/handle-circuit-breaker-trips.md
+    - 'Streaming PII Buffer': how-to-guides/streaming-pii-buffer.md
   - Reference:
     - Overview: reference/README.md
     - Pipeline: reference/pipeline.md
@@ -45,6 +51,12 @@ nav:
         - Rate Limit: api/middlewares/ratelimit.md
         - Cache: api/middlewares/cache.md
         - Circuit Breaker: api/middlewares/circuit_breaker.md
+        - Distributed Cache: api/middlewares/distributed_cache.md
+        - Distributed Circuit Breaker: api/middlewares/distributed_circuit_breaker.md
+        - Distributed Rate Limit: api/middlewares/distributed_ratelimit.md
+      - Infrastructure:
+        - Health Server: api/health_server.md
+        - Manager: api/manager.md
       - Providers:
         - Base Provider: api/provider.md
         - OpenAI: api/providers/openai.md
@@ -78,7 +90,7 @@ nav:
 # 主题配置
 theme:
   name: material
-  language: zh
+  language: en
   features:
     - navigation.tabs
     - navigation.sections

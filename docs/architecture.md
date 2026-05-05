@@ -2,41 +2,33 @@
 
 > Version: 1.0.0 | Date: 2026-04-26
 
-## Changelog (v0.7.5)
+## Changelog (v1.0.0)
 
-### State Compression
-- **Bounded memory growth**: `AgentState` now supports `compress()` and `archive_history()` to limit `messages` and `steps_history` growth across multi-turn conversations
-- **Configurable limits**: `state_max_messages` (default: 200) and `state_max_history_steps` (default: 100) in `AgentConfig`
-- **Layered storage**: Old step records are automatically archived to `archived_summaries` preserving traceability
-- **Auto-compaction**: `AgentRuntime.run()` calls `compact()` on each step to prevent OOM in long-running sessions
-- **Summary-based trimming**: `_run_think_phase` now uses `SlidingWindowMemory.trim_with_summary()` instead of `trim()`, enabling high-quality context compression via the `MemorySummarizer` interface when configured
+### Architecture Consolidation
+- **Unified package**: All models and runtime logic consolidated into `onion_core/`. `AgentRuntime`, `StateMachine`, `Planner`, `ToolExecutor`, and `SlidingWindowMemory` live in `onion_core.agent`. `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` in `onion_core.models`.
+- **Provider naming**: `OpenAIProvider` replaces legacy `OpenAILLMClient`; all providers in `onion_core.providers/`.
+- **Observability**: `ObservabilityMiddleware` provides structured JSON logging, Prometheus metrics, and OpenTelemetry tracing; trace context propagated via `ContextVar` through `request_id` → `trace_id` → `span_id` → `error_code` chain.
 
-### LLM Client Ownership
-- **External lifecycle management**: `AgentRuntime` now accepts `owns_client=False` to skip client cleanup (for singleton/shared clients)
-- **Pipeline provider ownership**: `Pipeline` now accepts `owns_provider=False` for externally managed provider lifecycles
-- **Thread safety**: Singleton `OpenAILLMClient` instances are no longer prematurely closed by runtime instances
+### State Compression & Memory Management
+- **Bounded memory growth**: `AgentState` supports `compress()`, `archive_history()`, and `compact()` with configurable limits (`state_max_messages`, `state_max_history_steps`).
+- **Summary-based trimming**: `SlidingWindowMemory.trim_with_summary()` for high-quality context compression via `MemorySummarizer`.
 
-### Standardized Observability
-- **Full trace context**: `StructuredLogFilter` injects `request_id`, `trace_id`, `span_id`, and `error_code` into log records automatically via logging filters
-- **StructuredLogAdapter**: Convenience wrapper for injecting context fields into any logger
-- **RequestContext**: `ContextVar`-based request/trace/span propagation for the `src/` library
-- **End-to-end traceability**: request_id → trace_id → span_id → error_code chain throughout all modules
+### Provider & Pipeline Lifecycle
+- **External lifecycle management**: `Pipeline` accepts `owns_provider=False`; `AgentRuntime` accepts `owns_client=False` for shared/singleton providers.
+- **Resource cleanup**: `LLMProvider.cleanup()` closes HTTP client sessions on shutdown, preventing connection pool leaks.
+
+### Streaming & Sync API
+- **Streaming**: `AgentRuntime.run_streaming()` yields `StepRecord` objects as `AsyncIterator`.
+- **Sync wrappers**: `p.run_sync()` and `p.stream_sync()` are stable public API; auto-detect event loop conflicts and use thread pool fallback.
 
 ### State Machine Hardening
-- **Fixed redundant transition**: Removed duplicate `transition_to(AgentStatus.THINKING)` from `_run_think_phase` — the main loop already ensures the state is THINKING
-- **Terminal ERROR state**: `AgentStatus.ERROR` is now a true terminal state (empty allowed transitions) — `ERROR -> THINKING` and `ERROR -> FINISHED` removed, eliminating illegal back-edges that could cause `StateTransitionError` at runtime
+- `AgentStatus.ERROR` is a true terminal state; redundant transitions removed from `_run_think_phase`.
+- Configurable retry in `OpenAIProvider.complete()` respects `AgentConfig` retry settings.
 
-### Configurable LLM Retry
-- **Fixed bypassed config**: `OpenAILLMClient.complete()` now calls `_make_request_with_retry_configurable()` instead of the hardcoded `_make_request_with_retry()`, so `AgentConfig.retry_max_attempts`, `retry_min_wait`, and `retry_max_wait` actually take effect
-
-### Packaging Fix
-- **Included `src/` package**: `pyproject.toml` now includes `src*` in `[tool.setuptools.packages.find]`, ensuring the new Agent middleware core is shipped in published distributions
-
-### Streaming API
-- **Implemented `run_streaming()`**: `AgentRuntime.run_streaming()` is now an `AsyncIterator[StepRecord]` that yields step records as they occur, fulfilling the streaming contract
-
-### Structured Logging Filter
-- **`StructuredLogFilter`**: New `logging.Filter` in `src/observability/context.py` that injects `request_id`, `trace_id`, `span_id`, and `error_code` from `ContextVar` into every `LogRecord`, enabling cross-module trace correlation without manual field injection
+### Distributed Middleware
+- **`DistributedRateLimitMiddleware`**: Redis-backed rate limiting with Lua scripts.
+- **`DistributedCacheMiddleware`**: Redis-backed distributed cache.
+- **`DistributedCircuitBreakerMiddleware`**: Redis-backed circuit breaker.
 
 ## 1. Overview
 
@@ -49,25 +41,27 @@ Onion Core is an **onion-model middleware framework** for building reliable, sec
                                    │
                                    ▼
               ┌────────────────────────────────────────┐
-              │  [1] Tracing     (priority=50)        │ ◄── Outer
-              │  [2] Metrics     (priority=90)        │
-              │  [3] Observability(priority=100)      │
-              │  [4] Rate Limit  (priority=150, M)   │
-              │  [5] Safety      (priority=200, M)    │
-              │  [6] Context     (priority=300)       │
-              └──────────────┬───────────────────────┘
-                             │
-                             ▼
-                    [ LLM Provider Call ]
-                             │
-                             ▼
-              ┌────────────────────────────────────────┐
-              │  [6] Context     (priority=300)       │
-              │  [5] Safety      (priority=200, M)    │
-              │  [4] Rate Limit  (priority=150, M)   │
-              │  [3] Observability(priority=100)      │
-              │  [2] Metrics     (priority=90)        │
-              │  [1] Tracing     (priority=50)        │ ◄── Inner
+               │  [1] Tracing     (priority=50)        │ ◄── Outer
+               │  [2] Cache       (priority=75)        │
+               │  [3] Metrics     (priority=90)        │
+               │  [4] Observability(priority=100)      │
+               │  [5] Rate Limit  (priority=150, M)   │
+               │  [6] Safety      (priority=200, M)    │
+               │  [7] Context     (priority=300)       │
+               └──────────────┬───────────────────────┘
+                              │
+                              ▼
+                     [ LLM Provider Call ]
+                              │
+                              ▼
+               ┌────────────────────────────────────────┐
+               │  [7] Context     (priority=300)       │
+               │  [6] Safety      (priority=200, M)    │
+               │  [5] Rate Limit  (priority=150, M)   │
+               │  [4] Observability(priority=100)      │
+               │  [3] Metrics     (priority=90)        │
+               │  [2] Cache       (priority=75)        │
+               │  [1] Tracing     (priority=50)        │ ◄── Inner
               └──────────────┬───────────────────────┘
                              │
                              ▼
@@ -260,7 +254,7 @@ AgentLoop.run(context)
         └─ is_complete → return response
 ```
 
-### 3.8 Agent Runtime (`onion_core/agent/`) — State Compression
+### 3.8 Agent Runtime (`onion_core.agent`) — State Compression
 
 `AgentRuntime` manages `AgentState` across multi-turn sessions. To prevent unbounded memory growth:
 
@@ -279,13 +273,13 @@ AgentState (in-memory)
   └── cumulative_usage (running token total)
 ```
 
-### 3.9 Agent Runtime (`onion_core/agent/`) — LLM Client Ownership
+### 3.9 Agent Runtime (`onion_core.agent`) — LLM Client Ownership
 
 `AgentRuntime` accepts an `owns_client` flag (default: `True`) to control LLM client lifecycle:
 
 ```python
-# Shared client (e.g., singleton OpenAILLMClient)
-shared_client = OpenAILLMClient.get_instance(config)
+# Shared client (e.g., singleton OpenAIProvider)
+shared_client = OpenAIProvider.get_instance(config)
 runtime1 = AgentRuntime(config, shared_client, registry, owns_client=False)
 runtime2 = AgentRuntime(config, shared_client, registry, owns_client=False)
 # shared_client is NOT closed when runtime1/2 finish
@@ -344,6 +338,7 @@ User Code
 | Priority | Middleware | Mandatory | Purpose |
 |----------|-----------|-----------|---------|
 | 50 | `TracingMiddleware` | No | OpenTelemetry distributed tracing |
+| 75 | `ResponseCacheMiddleware` | No | LRU cache with TTL for LLM responses |
 | 90 | `MetricsMiddleware` | No | Prometheus metrics collection |
 | 100 | `ObservabilityMiddleware` | No | JSON structured logging, timing |
 | 150 | `RateLimitMiddleware` | **Yes** | Sliding window rate limiting |
@@ -425,27 +420,23 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. Limitations (v0.7.5)
+## 9. Limitations
 
 | Area | Limitation |
 |------|------------|
-| **Distributed state** | Circuit breaker and rate limiter are in-memory only (single process) |
-| **Version** | 0.7.5 (Beta) — API may change without notice until v1.0 |
+| **Distributed state** | In-memory circuit breaker and rate limiter are the default; distributed (Redis-backed) alternatives available via `DistributedCircuitBreakerMiddleware`, `DistributedRateLimitMiddleware`, and `DistributedCacheMiddleware` |
+| **Version** | 1.0.0 (Production/Stable) |
 | **Documentation** | Bilingual (English + Chinese) documentation maintained |
 | **CI/CD** | GitHub Actions configured for testing, linting, and benchmarks |
 
-### Recent Improvements (v0.7.5)
+### Recent Improvements (v1.0.0)
 
-- **State machine hardening**: ERROR is now a true terminal state; redundant THINKING transition removed from `_run_think_phase`
-- **Configurable retry activation**: `OpenAILLMClient.complete()` now uses configurable retry, respecting `retry_max_attempts`/`retry_min_wait`/`retry_max_wait` in `AgentConfig`
-- **Packaging fix**: `pyproject.toml` includes `src*` so the new agent middleware core is shipped in distributions
-- **Streaming API implemented**: `AgentRuntime.run_streaming()` is now a working `AsyncIterator[StepRecord]`
-- **Structured log filter**: `StructuredLogFilter` in `src/observability/context.py` injects `request_id`/`trace_id`/`span_id`/`error_code` into all log records
-- **Summary-based memory compression**: `_run_think_phase` now uses `trim_with_summary()` for higher-quality context compression
-
-### Recent Improvements (v0.8.0)
-
-- **Architecture consolidation**: Removed `src/` package, unified all models and runtime logic into `onion_core/`. `AgentRuntime`, `StateMachine`, `Planner`, `ToolExecutor`, and `SlidingWindowMemory` now live in `onion_core.agent`. `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` moved to `onion_core.models`.
+- **Architecture consolidation**: All models and runtime logic live in `onion_core/`. `AgentRuntime`, `StateMachine`, `Planner`, `ToolExecutor`, and `SlidingWindowMemory` in `onion_core.agent`. `AgentStatus`, `ActionType`, `StepRecord`, `AgentConfig`, `AgentState` in `onion_core.models`.
+- **State machine hardening**: ERROR is now a true terminal state.
+- **Configurable retry**: `OpenAIProvider.complete()` respects `AgentConfig` retry settings.
+- **Streaming API**: `AgentRuntime.run_streaming()` is a working `AsyncIterator[StepRecord]`.
+- **Observability**: `ObservabilityMiddleware` injects `request_id`/`trace_id`/`span_id`/`error_code` into all log records.
+- **Summary-based memory compression**: `_run_think_phase` uses `trim_with_summary()`.
 
 ### Recent Improvements (v0.7.4)
 
@@ -529,7 +520,7 @@ health = pipeline.health_check()
 # }
 ```
 
-### 10.5 Response Cache Middleware (v0.7.0)
+### 10.5 Response Cache Middleware
 
 New `ResponseCacheMiddleware` provides automatic caching of LLM responses:
 - **Configurable TTL**: Time-to-live for cache entries (default: 300s)
@@ -559,7 +550,7 @@ print(f"Cache size: {cache.get_cache_size()}")  # e.g., 42
 - Cost savings: Up to 100% for cached responses
 - Typical hit rates: 50-80% for FAQ-style applications
 
-### 10.6 Enhanced Synchronous API (v0.7.0)
+### 10.6 Synchronous API
 
 All synchronous methods now handle event loop conflicts automatically:
 - **Automatic detection**: Detects if event loop is already running
@@ -579,7 +570,7 @@ with Pipeline(provider=MyProvider()) as p:
 
 # Onion Core - 架构设计文档
 
-> 版本：0.8.0 | 日期：2026-04-26
+> 版本：1.0.0 | 日期：2026-04-26
 
 ## 1. 概述
 
@@ -592,25 +583,27 @@ Onion Core 是一个用于构建可靠、安全、可观测的 AI Agent 应用�
                                    │
                                    ▼
                ┌────────────────────────────────────────┐
-               │  [1] 链路追踪     (priority=50)        │ ◄── 外层
-               │  [2] 性能监控   (priority=90)        │
-               │  [3] 可观测性   (priority=100)      │
-               │  [4] 限流保护 (priority=150, M)    │
-               │  [5] 安全护栏 (priority=200, M)   │
-               │  [6] 上下文管理 (priority=300)     │
-               └──────────────┬───────────────────────┘
-                             │
-                             ▼
-                      [ LLM Provider 调用]
-                             │
-                             ▼
-               ┌────────────────────────────────────────┐
-               │  [6] 上下文管理 (priority=300)     │
-               │  [5] 安全护栏 (priority=200, M)   │
-               │  [4] 限流保护 (priority=150, M)    │
-               │  [3] 可观测性 (priority=100)       │
-               │  [2] 性能监控   (priority=90)      │
-               │  [1] 链路追踪   (priority=50)     │ ◄── 内层
+                │  [1] 链路追踪     (priority=50)        │ ◄── 外层
+                │  [2] 缓存       (priority=75)        │
+                │  [3] 性能监控   (priority=90)        │
+                │  [4] 可观测性   (priority=100)      │
+                │  [5] 限流保护 (priority=150, M)    │
+                │  [6] 安全护栏 (priority=200, M)   │
+                │  [7] 上下文管理 (priority=300)     │
+                └──────────────┬───────────────────────┘
+                              │
+                              ▼
+                       [ LLM Provider 调用]
+                              │
+                              ▼
+                ┌────────────────────────────────────────┐
+                │  [7] 上下文管理 (priority=300)     │
+                │  [6] 安全护栏 (priority=200, M)   │
+                │  [5] 限流保护 (priority=150, M)    │
+                │  [4] 可观测性 (priority=100)       │
+                │  [3] 性能监控   (priority=90)      │
+                │  [2] 缓存       (priority=75)      │
+                │  [1] 链路追踪   (priority=50)     │ ◄── 内层
                └──────────────┬───────────────────────┘
                              │
                              ▼
@@ -836,6 +829,7 @@ AgentLoop.run(context)
 | 优先级 | 中间件 | 强制 | 用途 |
 |----------|-----------|-----------|---------|
 | 50 | `TracingMiddleware` | 否 | OpenTelemetry 分布式链路追踪 |
+| 75 | `ResponseCacheMiddleware` | 否 | LRU 缓存 LLM 响应 |
 | 90 | `MetricsMiddleware` | 否 | Prometheus 指标收集 |
 | 100 | `ObservabilityMiddleware` | 否 | JSON 结构化日志、耗时统计 |
 | 150 | `RateLimitMiddleware` | **是** | 滑动窗口限流 |
@@ -917,27 +911,23 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 ---
 
-## 9. 限制 (v0.7.5)
+## 9. 限制
 
 | 领域 | 限制 |
 |------|------------|
-| **分布式状态** | 熔断器和限流器仅内存存在（单进程） |
-| **版本** | 0.7.5（Beta）— API 可能在 v1.0 之前发生变化 |
+| **分布式状态** | 默认使用内存熔断器和限流器；分布式（Redis 支持）替代方案可通过 `DistributedCircuitBreakerMiddleware`、`DistributedRateLimitMiddleware`、`DistributedCacheMiddleware` 获取 |
+| **版本** | 1.0.0（生产/稳定） |
 | **文档** | 维护中英双语文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试、代码检查和基准测试 |
 
-### 近期改进 (v0.7.5)
+### 近期改进 (v1.0.0)
 
-- **状态机加固**：ERROR 现在是真正的终态；`_run_think_phase` 中的冗余 THINKING 转移已移除
-- **可配置重试生效**：`OpenAILLMClient.complete()` 现使用可配置重试，`AgentConfig.retry_max_attempts`/`retry_min_wait`/`retry_max_wait` 实际生效
-- **打包修复**：`pyproject.toml` 包含 `src*`，确保新 Agent 中间件核心进入发布包
-- **流式 API 实现**：`AgentRuntime.run_streaming()` 现在是一个可用的 `AsyncIterator[StepRecord]`
-- **结构化日志过滤器**：`StructuredLogFilter` 将 `request_id`/`trace_id`/`span_id`/`error_code` 注入所有日志记录
-- **基于摘要的内存压缩**：`_run_think_phase` 使用 `trim_with_summary()` 实现更高质量的上下文压缩
-
-### 近期改进 (v0.8.0)
-
-- **架构统一**：移除 `src/` 包，将所有模型和运行时逻辑合并到 `onion_core/`。`AgentRuntime`、`StateMachine`、`Planner`、`ToolExecutor`、`SlidingWindowMemory` 移至 `onion_core.agent`。`AgentStatus`、`ActionType`、`StepRecord`、`AgentConfig`、`AgentState` 移至 `onion_core.models`。
+- **架构统一**：所有模型和运行时逻辑合并到 `onion_core/`。`AgentRuntime`、`StateMachine`、`Planner`、`ToolExecutor`、`SlidingWindowMemory` 在 `onion_core.agent`。`AgentStatus`、`ActionType`、`StepRecord`、`AgentConfig`、`AgentState` 在 `onion_core.models`。
+- **状态机加固**：ERROR 现在是真正的终态。
+- **可配置重试**：`OpenAIProvider.complete()` 遵循 `AgentConfig` 重试设置。
+- **流式 API**：`AgentRuntime.run_streaming()` 是 `AsyncIterator[StepRecord]`。
+- **可观测性**：`ObservabilityMiddleware` 注入 `request_id`/`trace_id`/`span_id`/`error_code` 到所有日志记录。
+- **基于摘要的内存压缩**：`_run_think_phase` 使用 `trim_with_summary()`。
 
 ### 近期改进 (v0.7.4)
 

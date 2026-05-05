@@ -2,7 +2,7 @@
 
 > **问题**：LLM 厂商（OpenAI、Anthropic 等）会频繁调整 API 价格，硬编码在代码中的定价表很快就会过时。
 
-> **解决方案**：Onion Core v0.9.1+ 提供多层级定价配置机制，支持动态更新而无需修改代码。
+> **解决方案**：Onion Core v1.0.0+ 提供多层级定价配置机制，支持动态更新而无需修改代码。
 
 ---
 
@@ -52,7 +52,7 @@ spec:
     spec:
       containers:
       - name: agent
-        image: onion-core:0.9.1
+        image: onion-core:1.0.0
         env:
         - name: ONION_MODEL_PRICING
           value: |
@@ -69,7 +69,7 @@ spec:
 version: '3.8'
 services:
   agent:
-    image: onion-core:0.9.1
+    image: onion-core:1.0.0
     environment:
       ONION_MODEL_PRICING: >
         {
@@ -376,5 +376,5 @@ curl http://localhost:8000/metrics | grep onion_token_cost_usd
 
 ---
 
-**最后更新**: 2026-04-26  
-**版本**: Onion Core v0.9.1+
+**最后更新**: 2026-05-05  
+**版本**: Onion Core v1.0.0+

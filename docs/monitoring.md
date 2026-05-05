@@ -399,7 +399,7 @@ class CustomMetricsMiddleware(MetricsMiddleware):
 
 # Onion Core - 监控与告警指南
 
-> 版本：0.8.0 | 更新日期：2026-04-26
+> 版本：1.0.0 | 更新日期：2026-04-26
 
 ## 1. 概述
 

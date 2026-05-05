@@ -38,14 +38,13 @@ print(f"Memory: {usage['rss_mb']:.2f}MB ({usage['percent']:.1f}%)")
 ### Integration with Observability
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 async def track_memory():
     usage = get_memory_usage()
-    metrics.gauge('memory.rss.mb', usage['rss_mb'])
-    metrics.gauge('memory.percent', usage['percent'])
+    logger.info("memory_usage", rss_mb=usage['rss_mb'], percent=usage['percent'])
 ```
 
 ## Memory Optimization Strategies
@@ -69,9 +68,9 @@ context_middleware = ContextWindowMiddleware(
 Implement TTL and size limits:
 
 ```python
-from onion_core.middlewares import CacheMiddleware
+from onion_core.middlewares import ResponseCacheMiddleware
 
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     ttl=300,  # 5 minutes
     max_size=1000,  # Maximum entries
     eviction_policy="lru"  # Least Recently Used
@@ -83,8 +82,8 @@ cache = CacheMiddleware(
 Process data in chunks instead of loading entire responses:
 
 ```python
-async def stream_response(agent, prompt):
-    async for chunk in agent.stream_async(prompt):
+async def stream_response(agent, ctx):
+    async for chunk in agent.run_streaming(ctx):
         # Process each chunk immediately
         yield chunk
         # Chunk is garbage collected after yielding

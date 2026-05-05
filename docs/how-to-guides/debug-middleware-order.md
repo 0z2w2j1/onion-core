@@ -31,25 +31,28 @@ class DebugMiddleware(BaseMiddleware):
         self.name = name
         self.priority = priority
     
-    async def process_request(self, request):
+    async def process_request(self, ctx):
         logger.info(f"[REQUEST] {self.name} (priority={self.priority})")
-        response = await self.next.process_request(request)
+        return ctx
+    
+    async def process_response(self, ctx):
         logger.info(f"[RESPONSE] {self.name} (priority={self.priority})")
-        return response
+        return ctx
 ```
 
 ### Usage
 
 ```python
-pipeline = Pipeline(middlewares=[
-    DebugMiddleware("Tracing", 50),
-    DebugMiddleware("Metrics", 90),
-    DebugMiddleware("Safety", 200),
-    DebugMiddleware("Context", 300),
-])
+from onion_core import Pipeline
+
+pipeline = Pipeline()
+pipeline.add_middleware(DebugMiddleware("Tracing", 50))
+pipeline.add_middleware(DebugMiddleware("Metrics", 90))
+pipeline.add_middleware(DebugMiddleware("Safety", 200))
+pipeline.add_middleware(DebugMiddleware("Context", 300))
 
 # Output will show execution order
-await pipeline.execute(request)
+await pipeline.run(context)
 ```
 
 ## Common Issues
@@ -77,13 +80,12 @@ print_middleware_order(pipeline)
 
 ```python
 # Correct order
-pipeline = Pipeline(middlewares=[
-    TracingMiddleware(priority=50),      # Outer layer
-    MetricsMiddleware(priority=90),
-    RateLimitMiddleware(priority=150),
-    SafetyMiddleware(priority=200),
-    ContextMiddleware(priority=300),     # Inner layer
-])
+pipeline = Pipeline()
+pipeline.add_middleware(TracingMiddleware(priority=50))      # Outer layer
+pipeline.add_middleware(MetricsMiddleware(priority=90))
+pipeline.add_middleware(RateLimitMiddleware(priority=150))
+pipeline.add_middleware(SafetyGuardrailMiddleware(priority=200))
+pipeline.add_middleware(ContextMiddleware(priority=300))     # Inner layer
 ```
 
 ### Issue 2: Missing Middleware
@@ -123,22 +125,21 @@ class TrackedMiddleware(BaseMiddleware):
         return await self.wrapped.process_request(request)
 ```
 
-### Issue 3: Middleware Not Chained
+### Issue 3: Middleware Pipeline Configuration
 
-**Problem**: Middleware doesn't call `self.next`
+**Problem**: Middleware doesn't participate in the onion pipeline correctly
 
 **Diagnosis**:
 
 ```python
-class ChainValidator(BaseMiddleware):
-    """Validate middleware chaining."""
+from onion_core.base import BaseMiddleware
+
+class PipelineValidator(BaseMiddleware):
+    """Validate middleware is properly configured."""
     
-    async def process_request(self, request):
-        if not hasattr(self, 'next') or self.next is None:
-            logger.error(f"{self.__class__.__name__} is not properly chained!")
-            raise MiddlewareChainError("Broken middleware chain")
-        
-        return await self.next.process_request(request)
+    async def process_request(self, ctx):
+        logger.info(f"{self.__class__.__name__} processing request")
+        return ctx
 ```
 
 ## Testing Middleware Order
@@ -148,6 +149,8 @@ class ChainValidator(BaseMiddleware):
 ```python
 import pytest
 from unittest.mock import Mock
+from onion_core.models import AgentContext
+from onion_core.base import BaseMiddleware
 
 @pytest.mark.asyncio
 async def test_middleware_order():
@@ -159,23 +162,25 @@ async def test_middleware_order():
         def __init__(self, name):
             self.name = name
         
-        async def process_request(self, request):
+        async def process_request(self, ctx):
             execution_order.append(f"request:{self.name}")
-            response = await self.next.process_request(request)
+            return ctx
+        
+        async def process_response(self, ctx):
             execution_order.append(f"response:{self.name}")
-            return response
+            return ctx
     
     # Create pipeline
-    middlewares = [
-        OrderTrackingMiddleware("A"),
-        OrderTrackingMiddleware("B"),
-        OrderTrackingMiddleware("C"),
-    ]
+    from onion_core import Pipeline
     
-    pipeline = Pipeline(middlewares=middlewares, provider=MockProvider())
+    pipeline = Pipeline()
+    pipeline.add_middleware(OrderTrackingMiddleware("A"))
+    pipeline.add_middleware(OrderTrackingMiddleware("B"))
+    pipeline.add_middleware(OrderTrackingMiddleware("C"))
     
     # Execute
-    await pipeline.execute(MockRequest())
+    ctx = AgentContext(messages=[{"role": "user", "content": "test"}])
+    await pipeline.run(ctx)
     
     # Verify order
     expected = [
@@ -196,16 +201,15 @@ import time
 class TimingMiddleware(BaseMiddleware):
     """Measure middleware execution time."""
     
-    async def process_request(self, request):
+    async def process_request(self, ctx):
         start = time.time()
-        response = await self.next.process_request(request)
         duration = time.time() - start
         
         logger.info(
             f"{self.__class__.__name__} took {duration*1000:.2f}ms"
         )
         
-        return response
+        return ctx
 ```
 
 ### Optimize Order
@@ -214,14 +218,13 @@ Place fast middleware first, slow middleware last:
 
 ```python
 # Optimized order
-pipeline = Pipeline(middlewares=[
-    TracingMiddleware(priority=50),      # Very fast
-    MetricsMiddleware(priority=90),      # Fast
-    RateLimitMiddleware(priority=150),   # Fast
-    CacheMiddleware(priority=180),       # Fast (can short-circuit)
-    SafetyMiddleware(priority=200),      # Medium
-    ContextMiddleware(priority=300),     # Slower
-])
+pipeline = Pipeline()
+pipeline.add_middleware(TracingMiddleware(priority=50))     # Very fast
+pipeline.add_middleware(MetricsMiddleware(priority=90))      # Fast
+pipeline.add_middleware(RateLimitMiddleware(priority=150))   # Fast
+pipeline.add_middleware(ResponseCacheMiddleware(priority=180))   # Fast (can short-circuit)
+pipeline.add_middleware(SafetyGuardrailMiddleware(priority=200)) # Medium
+pipeline.add_middleware(ContextMiddleware(priority=300))     # Slower
 ```
 
 ## Best Practices

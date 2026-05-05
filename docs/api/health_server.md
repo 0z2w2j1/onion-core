@@ -1,6 +1,6 @@
-# Circuit Breaker API Reference
+# Health Server API Reference
 
-::: onion_core.circuit_breaker
+::: onion_core.health_server
     options:
       show_root_heading: true
       show_root_full_path: false

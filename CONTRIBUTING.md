@@ -33,7 +33,7 @@ git clone https://github.com/YOUR_USERNAME/Onion-Core.git
 cd Onion-Core
 
 # Install in editable mode with dev dependencies
-pip install -e ".[dev,openai,anthropic,domestic,observability]"
+pip install -e ".[dev]"
 ```
 
 ---
@@ -89,15 +89,16 @@ onion_core/
 1. Create a class extending `BaseMiddleware` (`onion_core/base.py`)
 2. Implement `async process_request()` / `process_response()` / `process_stream_chunk()`
 3. Set `priority` (lower = runs earlier in request phase)
-4. Add tests in `tests/test_middlewares.py`
+4. Add tests in `tests/` directory
 5. Export in `onion_core/middlewares/__init__.py`
 
 ### Adding a New Provider
 
 1. Create a class extending `LLMProvider` (`onion_core/provider.py`)
-2. Implement `async chat()` and `async chat_stream()`
-3. Add tests using `EchoProvider` pattern from `tests/conftest.py`
-4. Export in `onion_core/providers/__init__.py`
+2. Implement `async complete()` and `async stream()`
+3. Optionally implement `async cleanup()` for resource lifecycle
+4. Add tests in `tests/`
+5. Export in `onion_core/providers/__init__.py`
 
 ---
 
@@ -166,7 +167,7 @@ git clone https://github.com/YOUR_USERNAME/Onion-Core.git
 cd Onion-Core
 
 # 以可编辑模式安装，包含开发依赖
-pip install -e ".[dev,openai,anthropic,domestic,observability]"
+pip install -e ".[dev]"
 ```
 
 ---
@@ -222,15 +223,16 @@ onion_core/
 1. 创建继承自 `BaseMiddleware` 的类（`onion_core/base.py`）
 2. 实现 `async process_request()` / `process_response()` / `process_stream_chunk()`
 3. 设置 `priority`（数值越小，请求阶段越早执行）
-4. 在 `tests/test_middlewares.py` 中添加测试
+4. 在 `tests/` 目录中添加测试
 5. 在 `onion_core/middlewares/__init__.py` 中导出
 
 ### 添加新 Provider
 
 1. 创建继承自 `LLMProvider` 的类（`onion_core/provider.py`）
-2. 实现 `async chat()` 和 `async chat_stream()`
-3. 使用 `tests/conftest.py` 中的 `EchoProvider` 模式添加测试
-4. 在 `onion_core/providers/__init__.py` 中导出
+2. 实现 `async complete()` 和 `async stream()`
+3. 可选实现 `async cleanup()` 用于资源生命周期管理
+4. 在 `tests/` 中添加测试
+5. 在 `onion_core/providers/__init__.py` 中导出
 
 ---
 

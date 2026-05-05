@@ -138,11 +138,11 @@ class DiversityEnforcer:
 ```python
 import asyncio
 
-async def run_with_timeout(agent, prompt, timeout=60):
+async def run_with_timeout(agent, ctx, timeout=60):
     """Run agent with timeout protection."""
     try:
         return await asyncio.wait_for(
-            agent.run_async(prompt),
+            agent.run(ctx),
             timeout=timeout
         )
     except asyncio.TimeoutError:
@@ -253,13 +253,13 @@ class LoopProtectionMiddleware(BaseMiddleware):
         self.loop_detector = LoopDetector()
         self.state_tracker = AgentStateTracker()
     
-    async def process_request(self, request):
+    async def process_request(self, context):
         """Monitor and protect against loops."""
         
         # Record this step
         self.loop_detector.add_step(
-            request.action,
-            request.tool_name if hasattr(request, 'tool_name') else None
+            context.metadata.get("action", ""),
+            context.metadata.get("tool_name")
         )
         
         # Check for loops
@@ -267,19 +267,18 @@ class LoopProtectionMiddleware(BaseMiddleware):
             loop_info = self.loop_detector.get_loop_info()
             logger.warning(f"Potential loop detected: {loop_info}")
             
-            # Take corrective action
-            request.system_prompt += (
+            # Add warning to system prompt
+            context.metadata["_loop_warning"] = (
                 "\n\nWARNING: You appear to be repeating the same action. "
                 "Please try a different approach."
             )
         
         # Check state stagnation
-        self.state_tracker.record_state(request.state)
+        self.state_tracker.record_state(context.metadata.get("state", {}))
         if self.state_tracker.is_stagnant():
             logger.warning("Agent state is stagnant")
         
-        # Continue processing
-        return await self.next.process_request(request)
+        return context
 ```
 
 ## Monitoring
@@ -287,20 +286,20 @@ class LoopProtectionMiddleware(BaseMiddleware):
 ### Track Loop Metrics
 
 ```python
-from onion_core.observability import MetricsCollector
+import logging
 
-metrics = MetricsCollector()
+logger = logging.getLogger(__name__)
 
 def track_loop_metrics(iterations: int, loop_detected: bool):
     """Track agent loop metrics."""
     
-    metrics.histogram('agent.iterations', iterations)
+    logger.info(
+        "Agent iteration metrics",
+        extra={"iterations": iterations, "loop_detected": loop_detected}
+    )
     
-    if loop_detected:
-        metrics.increment('agent.loops.detected')
-    
-    if iterations > 8:  # Close to max
-        metrics.increment('agent.near_max_iterations')
+    if iterations > 8:
+        logger.warning("Agent nearing max iterations", extra={"iterations": iterations})
 ```
 
 ## Best Practices

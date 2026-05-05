@@ -24,9 +24,9 @@ A thread pool is a collection of pre-instantiated worker threads ready to execut
 ### Basic Configuration
 
 ```python
-from onion_core.config import ConcurrencyConfig
+from onion_core.config import OnionConfig
 
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=10,           # Number of worker threads
     task_queue_size=100,      # Maximum pending tasks
     thread_name_prefix="onion"  # Thread naming
@@ -48,7 +48,7 @@ executor = ThreadPoolExecutor(
 )
 
 # Integrate with event loop
-loop = asyncio.get_event_loop()
+loop = asyncio.get_running_loop()
 loop.set_default_executor(executor)
 ```
 
@@ -64,7 +64,7 @@ For CPU-intensive tasks (tokenization, text processing):
 import os
 
 cpu_count = os.cpu_count()
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=cpu_count + 1
 )
 ```
@@ -81,7 +81,7 @@ For I/O-intensive tasks (API calls, database queries):
 import os
 
 cpu_count = os.cpu_count()
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=cpu_count * 5
 )
 ```
@@ -98,7 +98,7 @@ For applications with both CPU and I/O tasks:
 import os
 
 cpu_count = os.cpu_count()
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=cpu_count * 2
 )
 ```
@@ -124,7 +124,7 @@ async def test_threadpool_size(sizes):
         
         # Run benchmark tasks
         tasks = [
-            asyncio.get_event_loop().run_in_executor(executor, cpu_bound_task, i)
+            asyncio.get_running_loop().run_in_executor(executor, cpu_bound_task, i)
             for i in range(100)
         ]
         await asyncio.gather(*tasks)
@@ -178,10 +178,10 @@ monitor_thread.start()
 
 ```python
 # Before
-config = ConcurrencyConfig(max_workers=4)
+config = OnionConfig(max_workers=4)
 
 # After
-config = ConcurrencyConfig(max_workers=12)
+config = OnionConfig(max_workers=12)
 ```
 
 ### Issue 2: Resource Exhaustion
@@ -194,10 +194,10 @@ config = ConcurrencyConfig(max_workers=12)
 
 ```python
 # Before
-config = ConcurrencyConfig(max_workers=50)
+config = OnionConfig(max_workers=50)
 
 # After
-config = ConcurrencyConfig(max_workers=16)
+config = OnionConfig(max_workers=16)
 ```
 
 ### Issue 3: Queue Overflow
@@ -209,7 +209,7 @@ config = ConcurrencyConfig(max_workers=16)
 **Solution**: Increase `task_queue_size` or add backpressure
 
 ```python
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=10,
     task_queue_size=500  # Increased from default 100
 )
@@ -250,7 +250,7 @@ class BoundedExecutor:
     
     async def submit(self, func, *args):
         async with self.semaphore:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self.executor, func, *args)
 
 # Usage
@@ -279,13 +279,13 @@ signal.signal(signal.SIGINT, shutdown)
 ### 4. Monitor and Alert
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 def report_threadpool_metrics():
     active_threads = threading.active_count()
-    metrics.gauge('threadpool.active_threads', active_threads)
+    logger.info("threadpool_metrics", active_threads=active_threads)
     
     if active_threads > WARNING_THRESHOLD:
         logger.warning(f"High thread count: {active_threads}")
@@ -299,7 +299,7 @@ def report_threadpool_metrics():
 ### Small Scale (< 100 RPS)
 
 ```python
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=4,
     task_queue_size=50
 )
@@ -308,7 +308,7 @@ config = ConcurrencyConfig(
 ### Medium Scale (100-1000 RPS)
 
 ```python
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=12,
     task_queue_size=200
 )
@@ -317,7 +317,7 @@ config = ConcurrencyConfig(
 ### Large Scale (> 1000 RPS)
 
 ```python
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=24,
     task_queue_size=500
 )

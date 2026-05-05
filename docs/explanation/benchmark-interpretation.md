@@ -66,7 +66,7 @@ async def benchmark_scenario():
     agent = AgentRuntime(config=config)
     
     start_time = time.time()
-    tasks = [agent.run_async(prompt) for _ in range(100)]
+    tasks = [agent.run(ctx) for _ in range(100)]
     results = await asyncio.gather(*tasks)
     end_time = time.time()
     
@@ -196,9 +196,9 @@ provider = OpenAIProvider(
 Reduce redundant API calls:
 
 ```python
-from onion_core.middlewares import CacheMiddleware
+from onion_core.middlewares import ResponseCacheMiddleware
 
-cache = CacheMiddleware(
+cache = ResponseCacheMiddleware(
     ttl=300,  # 5 minutes
     max_size=1000
 )
@@ -209,9 +209,9 @@ cache = CacheMiddleware(
 Adjust thread pool size:
 
 ```python
-from onion_core.config import ConcurrencyConfig
+from onion_core.config import OnionConfig
 
-config = ConcurrencyConfig(
+config = OnionConfig(
     max_workers=10,
     task_queue_size=100
 )
@@ -230,7 +230,7 @@ config = ConcurrencyConfig(
 ```python
 # Run warm-up requests before measuring
 for _ in range(10):
-    await agent.run_async("warmup")
+    await agent.run(warmup_ctx)
 
 # Now run actual benchmark
 start_benchmark()

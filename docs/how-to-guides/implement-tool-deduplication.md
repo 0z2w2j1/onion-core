@@ -169,39 +169,38 @@ class ToolDeduplicationMiddleware(BaseMiddleware):
     """Prevent duplicate tool calls."""
     
     def __init__(self):
+        super().__init__()
         self.deduplicator = TimeBasedDeduplicator(window_seconds=60)
         self.result_cache = ResultCache()
     
-    async def process_request(self, request):
+    async def on_tool_call(self, context, tool_call):
         """Intercept tool calls and deduplicate."""
+        tool_name = tool_call.name
+        args = tool_call.arguments
         
-        if request.is_tool_call:
-            tool_name = request.tool_name
-            args = request.tool_args
-            
-            # Check cache first
-            cached_result = self.result_cache.get(tool_name, args)
-            if cached_result is not None:
-                logger.info(f"Using cached result for {tool_name}")
-                return cached_result
-            
-            # Check if duplicate
-            if not self.deduplicator.should_execute(tool_name, args):
-                logger.warning(f"Duplicate tool call blocked: {tool_name}")
-                raise DuplicateToolCallError("Duplicate call detected")
+        # Check cache first
+        cached_result = self.result_cache.get(tool_name, args)
+        if cached_result is not None:
+            logger.info(f"Using cached result for {tool_name}")
+            context.metadata["_cached_result"] = cached_result
+            return tool_call
         
-        # Execute normally
-        response = await self.next.process_request(request)
+        # Check if duplicate
+        if not self.deduplicator.should_execute(tool_name, args):
+            logger.warning(f"Duplicate tool call blocked: {tool_name}")
+            raise DuplicateToolCallError("Duplicate call detected")
         
-        # Cache successful results
-        if request.is_tool_call and response.success:
+        return tool_call
+    
+    async def on_tool_result(self, context, result):
+        """Cache successful results."""
+        if result.error is None:
             self.result_cache.set(
-                request.tool_name,
-                request.tool_args,
-                response
+                result.tool_name,
+                result.arguments,
+                result
             )
-        
-        return response
+        return result
 ```
 
 ### Agent Loop Integration
@@ -239,19 +238,23 @@ class DedupAgentLoop(AgentLoop):
 ### Track Deduplication Metrics
 
 ```python
-from onion_core.observability import MetricsCollector
+import logging
 
-metrics = MetricsCollector()
+logger = logging.getLogger(__name__)
 
 def track_deduplication(cache_hits: int, cache_misses: int, duplicates_blocked: int):
     """Track deduplication effectiveness."""
     
-    metrics.increment('tool.cache.hits', cache_hits)
-    metrics.increment('tool.cache.misses', cache_misses)
-    metrics.increment('tool.duplicates.blocked', duplicates_blocked)
-    
     hit_rate = cache_hits / (cache_hits + cache_misses) if (cache_hits + cache_misses) > 0 else 0
-    metrics.gauge('tool.cache.hit_rate', hit_rate)
+    logger.info(
+        "Deduplication stats",
+        extra={
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "duplicates_blocked": duplicates_blocked,
+            "hit_rate": hit_rate,
+        }
+    )
 ```
 
 ## Testing

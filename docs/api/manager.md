@@ -1,6 +1,6 @@
-# Circuit Breaker API Reference
+# Manager API Reference
 
-::: onion_core.circuit_breaker
+::: onion_core.manager
     options:
       show_root_heading: true
       show_root_full_path: false

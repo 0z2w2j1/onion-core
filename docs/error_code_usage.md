@@ -250,7 +250,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 
 # Onion Core - 错误码使用指南
 
-> 版本：0.8.0 | 更新日期：2026-04-26
+> 版本：1.0.0 | 更新日期：2026-04-26
 
 ## 1. 快速开始
 

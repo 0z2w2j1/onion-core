@@ -29,7 +29,7 @@ from onion_core import Pipeline, AgentContext, Message, EchoProvider
 
 async def main():
     # 使用 EchoProvider（无需 API Key，用于测试）
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         # 创建对话上下文
         ctx = AgentContext(messages=[
             Message(role="user", content="你好，Onion Core！")
@@ -52,7 +52,7 @@ python hello_onion.py
 你应该看到：
 
 ```
-回复: Echo: 你好，Onion Core！
+回复: 你好，Onion Core！
 ```
 
 ## 第 3 步：添加中间件
@@ -65,7 +65,7 @@ from onion_core import Pipeline, AgentContext, Message, EchoProvider
 from onion_core.middlewares import ObservabilityMiddleware
 
 async def main():
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         # 添加中间件
         p.add_middleware(ObservabilityMiddleware())
         

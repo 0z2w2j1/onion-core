@@ -25,33 +25,35 @@
 **Onion Core** is a middleware framework for AI Agent applications. It wraps LLM calls with layered "onion skins" — each layer provides **security, reliability, and observability** capabilities for your Agent.
 
 ```
-        User Request
-             │
-             ▼
-    ┌─────────────────────────┐
-    │ [1] Tracing    (50)     │◄── Outer
-    │ [2] Metrics    (90)     │
-    │ [3] Observability(100)  │
-    │ [4] Rate Limit (150)    │
-    │ [5] Safety     (200)    │
-    │ [6] Context    (300)    │
-    └──────────┬──────────────┘
-               │
-               ▼
-          [ LLM Provider ]
-               │
-               ▼
-    ┌─────────────────────────┐
-    │ [6] Context    (300)    │
-    │ [5] Safety     (200)    │
-    │ [4] Rate Limit (150)    │
-    │ [3] Observability(100)   │
-    │ [2] Metrics    (90)     │
-    │ [1] Tracing    (50)     │◄── Inner
-    └──────────┬──────────────┘
-               │
-               ▼
-        Final Response
+         User Request
+              │
+              ▼
+     ┌─────────────────────────┐
+     │ [1] Tracing    (50)     │◄── Outer
+     │ [2] Cache      (75)     │
+     │ [3] Metrics    (90)     │
+     │ [4] Observability(100)  │
+     │ [5] Rate Limit (150)    │
+     │ [6] Safety     (200)    │
+     │ [7] Context    (300)    │
+     └──────────┬──────────────┘
+                │
+                ▼
+           [ LLM Provider ]
+                │
+                ▼
+     ┌─────────────────────────┐
+     │ [7] Context    (300)    │
+     │ [6] Safety     (200)    │
+     │ [5] Rate Limit (150)    │
+     │ [4] Observability(100)   │
+     │ [3] Metrics    (90)     │
+     │ [2] Cache      (75)     │
+     │ [1] Tracing    (50)     │◄── Inner
+     └──────────┬──────────────┘
+                │
+                ▼
+         Final Response
 ```
 
 ---
@@ -65,6 +67,7 @@ Building a simple chatbot is easy. Building a **production-grade** AI applicatio
 | **Security anxiety** — prompt injection, PII leakage | `SafetyGuardrailMiddleware`: keyword blocking, PII masking (email, phone, ID) |
 | **Cost control** — token explosion, context overflow | `ContextWindowMiddleware`: tiktoken-based counting, auto-truncation |
 | **Service instability** — API timeouts, rate limits | Retry with exponential backoff + Fallback Providers + Circuit Breaker |
+| **Repeated calls** — redundant LLM API cost | `ResponseCacheMiddleware`: LRU cache with TTL, SHA-256 key matching |
 | **Black box** — no visibility into what happened | Structured JSON logs, Prometheus metrics, OpenTelemetry tracing |
 
 ---
@@ -100,7 +103,7 @@ from onion_core.middlewares import (
 
 async def main():
     async with Pipeline(
-        provider=EchoProvider(),
+        provider=EchoProvider(reply=None),
         max_retries=2,
         enable_circuit_breaker=True,
     ) as p:
@@ -113,7 +116,7 @@ async def main():
         ])
         response = await p.run(ctx)
         print(response.content)
-        # Output: Echo: My phone is ***127899999
+        # Output: Echo: My phone is ***
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -123,7 +126,7 @@ if __name__ == "__main__":
 
 > **⚠️ Important Limitations:**
 > - Sync methods **cannot** be called from within an async context (will raise `RuntimeError`)
-> - `stream_sync()` collects all chunks in memory before yielding (bounded by `max_stream_chunks`, default 10,000)
+> - `stream_sync()` uses a producer-thread + queue pattern for streaming; chunks are yielded one-by-one (not fully buffered)
 > - For best performance in async applications, always use `await pipeline.run()` and `async for chunk in pipeline.stream()`
 
 ```python
@@ -136,7 +139,7 @@ from onion_core.middlewares import (
 
 # Use synchronous context manager
 with Pipeline(
-    provider=EchoProvider(),
+    provider=EchoProvider(reply=None),
     max_retries=2,
     enable_circuit_breaker=True,
 ) as p:
@@ -149,10 +152,10 @@ with Pipeline(
     ])
     response = p.run_sync(ctx)  # Note: run_sync instead of await p.run()
     print(response.content)
-    # Output: Echo: My phone is ***127899999
+    # Output: Echo: My phone is ***
 
 # Streaming also has sync version
-with Pipeline(provider=EchoProvider()) as p:
+with Pipeline(provider=EchoProvider(reply=None)) as p:
     ctx = AgentContext(messages=[Message(role="user", content="Hello")])
     for chunk in p.stream_sync(ctx):  # Note: stream_sync instead of p.stream()
         if chunk.delta:
@@ -254,9 +257,9 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 - [Use Sync API in Flask/Django](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
 
 #### 📚 [Reference](docs/reference/) - Information-oriented
-- [API Reference](docs/reference/api-reference.md) - Complete API signatures
-- [Error Codes](docs/reference/error-codes.md) - All error codes and retry policies
-- [Configuration Options](docs/reference/configuration.md) - All config fields explained
+- [API Reference](docs/api_reference.md) - Complete API signatures
+- [Error Codes](docs/error_code_usage.md) - All error codes and retry policies
+- [Configuration Options](docs/how-to-guides/load-config-from-file.md) - Config file loading and options
 
 #### 💡 [Explanation](docs/explanation/) - Understanding-oriented
 - [Onion Model Philosophy](docs/explanation/onion-model-philosophy.md) - Why onion architecture?
@@ -340,7 +343,7 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 
 #### Sync API Limitations
 - Synchronous methods (`run_sync()`, `stream_sync()`) **cannot** be called from within an async context (will raise `RuntimeError`).
-- `stream_sync()` collects all chunks in memory before yielding (bounded by `max_stream_chunks`, default 10,000), which may cause higher memory usage for very long responses.
+- `stream_sync()` uses a producer-thread + queue pattern for streaming; chunks are passed one-by-one through a thread-safe queue. The `max_stream_chunks` parameter (default 10,000) acts as a DoS safety limit on total chunk count.
 - **Recommendation**: Always prefer async methods (`await pipeline.run()`, `async for chunk in pipeline.stream()`) in async applications for better performance and lower memory footprint.
 
 ---
@@ -374,12 +377,13 @@ Released under the [MIT License](LICENSE).
              │
              ▼
     ┌─────────────────────────┐
-    │  [1] 链路追踪 (50)       │◄── 外层
-    │  [2] 性能监控 (90)       │
-    │  [3] 可观测   (100)     │
-    │  [4] 限流保护 (150)      │
-    │  [5] 安全护栏 (200)      │
-    │  [6] 上下文   (300)      │
+     │  [1] 链路追踪 (50)       │◄── 外层
+     │  [2] 缓存     (75)      │
+     │  [3] 性能监控 (90)       │
+     │  [4] 可观测   (100)     │
+     │  [5] 限流保护 (150)      │
+     │  [6] 安全护栏 (200)      │
+     │  [7] 上下文   (300)      │
     └──────────┬──────────────┘
                │
                ▼
@@ -387,12 +391,13 @@ Released under the [MIT License](LICENSE).
                │
                ▼
     ┌─────────────────────────┐
-    │  [6] 上下文   (300)      │
-    │  [5] 安全脱敏 (200)      │
-    │  [4] 限流计数 (150)      │
-    │  [3] 耗时统计 (100)      │
-    │  [2] 指标上报 (90)       │
-    │  [1] 链路结束 (50)       │◄── 内层
+     │  [7] 上下文   (300)      │
+     │  [6] 安全脱敏 (200)      │
+     │  [5] 限流计数 (150)      │
+     │  [4] 耗时统计 (100)      │
+     │  [3] 指标上报 (90)       │
+     │  [2] 缓存命中 (75)       │
+     │  [1] 链路结束 (50)       │◄── 内层
     └──────────┬──────────────┘
                │
                ▼
@@ -410,6 +415,7 @@ Released under the [MIT License](LICENSE).
 | **安全焦虑** — 提示词注入、隐私泄露 | `SafetyGuardrailMiddleware`：关键词拦截、PII 脱敏（邮箱、手机号、身份证） |
 | **成本失控** — Token 爆炸、上下文溢出 | `ContextWindowMiddleware`：tiktoken 精准计数、自动裁剪 |
 | **服务不稳定** — API 超时、限流 | 指数退避重试 + Fallback Providers + 熔断机制 |
+| **重复调用** — 冗余的 LLM API 成本 | `ResponseCacheMiddleware`：带 TTL 的 LRU 缓存，SHA-256 键匹配 |
 | **黑盒运行** — 无可见性 | 结构化 JSON 日志、Prometheus 指标、OpenTelemetry 链路追踪 |
 
 ---
@@ -445,7 +451,7 @@ from onion_core.middlewares import (
 
 async def main():
     async with Pipeline(
-        provider=EchoProvider(),
+        provider=EchoProvider(reply=None),
         max_retries=2,
         enable_circuit_breaker=True,
     ) as p:
@@ -468,7 +474,7 @@ if __name__ == "__main__":
 
 > **⚠️ 重要限制：**
 > - 同步方法**不能**在 async 上下文中调用（会抛出 `RuntimeError`）
-> - `stream_sync()` 会在 yield 之前将所有 chunks 收集到内存中（受 `max_stream_chunks` 限制，默认 10,000）
+> - `stream_sync()` 使用生产者线程+队列模式进行流式传输，chunks 逐个产出（非全部缓冲）
 > - 在异步应用中为了最佳性能，请始终使用 `await pipeline.run()` 和 `async for chunk in pipeline.stream()`
 
 ```python
@@ -481,7 +487,7 @@ from onion_core.middlewares import (
 
 # 使用同步上下文管理器
 with Pipeline(
-    provider=EchoProvider(),
+    provider=EchoProvider(reply=None),
     max_retries=2,
     enable_circuit_breaker=True,
 ) as p:
@@ -497,7 +503,7 @@ with Pipeline(
     # 输出：Echo: 我的手机号是 ***127899999
 
 # 流式也有同步版本
-with Pipeline(provider=EchoProvider()) as p:
+with Pipeline(provider=EchoProvider(reply=None)) as p:
     ctx = AgentContext(messages=[Message(role="user", content="你好")])
     for chunk in p.stream_sync(ctx):  # 注意：使用 stream_sync 而非 p.stream()
         if chunk.delta:
@@ -596,9 +602,9 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [在 Flask/Django 中使用同步 API](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
 
 #### 📚 [参考手册](docs/reference/) - 信息导向
-- [API 参考](docs/reference/api-reference.md) - 完整的 API 签名
-- [错误码](docs/reference/error-codes.md) - 所有错误码和重试策略
-- [配置选项](docs/reference/configuration.md) - 所有配置字段说明
+- [API 参考](docs/api_reference.md) - 完整的 API 签名
+- [错误码](docs/error_code_usage.md) - 所有错误码和重试策略
+- [配置选项](docs/how-to-guides/load-config-from-file.md) - 配置文件的加载与选项说明
 
 #### 💡 [背景解释](docs/explanation/) - 理解导向
 - [洋葱模型设计哲学](docs/explanation/onion-model-philosophy.md) - 为什么选择洋葱架构？
@@ -682,7 +688,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 #### 同步 API 限制
 - 同步方法（`run_sync()`、`stream_sync()`）**不能**在 async 上下文中调用（会抛出 `RuntimeError`）。
-- `stream_sync()` 会在 yield 之前将所有 chunks 收集到内存中（受 `max_stream_chunks` 限制，默认 10,000），这可能导致非常长的响应占用更多内存。
+- `stream_sync()` 使用生产者线程+队列模式进行流式传输，chunks 通过线程安全队列逐个传递。`max_stream_chunks` 参数（默认 10,000）作为 DoS 安全限制，限制总 chunk 数量。
 - **建议**：在异步应用中始终优先使用异步方法（`await pipeline.run()`、`async for chunk in pipeline.stream()`）以获得更好的性能和更低的内存占用。
 
 ---

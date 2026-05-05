@@ -220,8 +220,12 @@ pipeline = Pipeline.from_config(
     provider=openai_provider,
     config=cfg,
 )
-# Add Fallback Providers
-pipeline._fallback_providers = [anthropic_provider, local_provider]
+# Add Fallback Providers (pass to constructor instead)
+pipeline = Pipeline.from_config(
+    provider=openai_provider,
+    config=cfg,
+    fallback_providers=[anthropic_provider, local_provider],
+)
 ```
 
 ### 7.2 Strategy Selection for Different Scenarios
@@ -307,6 +311,9 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 | Version | Date | Change Content |
 |------|------|----------|
+| v1.0.0 | 2026-05-05 | Production/Stable release; pipeline hardening, full test coverage |
+| v0.9.x | 2026-04-25 | Added distributed middleware (rate limit, cache, circuit breaker); observability sub-package |
+| v0.8.0 | 2026-04-25 | Architecture consolidation: `src/` removed, imports unified to `onion_core` |
 | v0.7.0 | 2026-04-24 | Added ResponseCacheMiddleware, enhanced sync API, load testing suite |
 | v0.6.0 | 2026-04-24 | Initial version, defined error codes and degradation strategy |
 
@@ -314,7 +321,7 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 # Onion Core - 降级策略文档
 
-> 版本：0.8.0 | 更新日期：2026-04-26
+> 版本：1.0.0 | 更新日期：2026-04-26
 
 ## 1. 概述
 
@@ -534,8 +541,12 @@ pipeline = Pipeline.from_config(
     provider=openai_provider,
     config=cfg,
 )
-# 添加 Fallback Provider
-pipeline._fallback_providers = [anthropic_provider, local_provider]
+# 添加 Fallback Provider（建议通过构造函数传入）
+pipeline = Pipeline(
+    provider=openai_provider,
+    config=cfg,
+    fallback_providers=[anthropic_provider, local_provider],
+)
 ```
 
 ### 7.2 不同场景的策略选择
@@ -621,4 +632,8 @@ pipeline._fallback_providers = [anthropic_provider, local_provider]
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.0.0 | 2026-05-05 | 生产/稳定版；Pipeline 强化，测试覆盖完整 |
+| v0.9.x | 2026-04-25 | 新增分布式中间件（限流、缓存、熔断）；可观测性子包 |
+| v0.8.0 | 2026-04-25 | 架构整合：移除 `src/`，导入统一至 `onion_core` |
+| v0.7.0 | 2026-04-24 | 新增 ResponseCacheMiddleware，增强同步 API，负载测试套件 |
 | v0.6.0 | 2026-04-24 | 初始版本，定义错误码与降级策略 |

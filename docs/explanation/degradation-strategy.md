@@ -9,14 +9,17 @@ Onion Core implements a multi-layered degradation strategy to maintain service a
 First line of defense against transient failures.
 
 ```python
-from tenacity import retry, stop_after_attempt, wait_exponential
+import asyncio
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10)
-)
-async def generate_with_retry(prompt):
-    return await provider.generate(prompt)
+async def generate_with_retry(context):
+    for attempt in range(3):
+        try:
+            return await provider.complete(context)
+        except Exception:
+            if attempt == 2:
+                raise
+            delay = 2 ** attempt
+            await asyncio.sleep(delay)
 ```
 
 ### Level 2: Fallback Providers
@@ -24,14 +27,15 @@ async def generate_with_retry(prompt):
 Switch to alternative providers when primary fails.
 
 ```python
-from onion_core.manager import ProviderManager
+from onion_core import Pipeline
 
-manager = ProviderManager()
-manager.add_provider("primary", primary_provider, priority=1)
-manager.add_provider("fallback", fallback_provider, priority=2)
+pipeline = Pipeline(
+    provider=primary_provider,
+    fallback_providers=[fallback_provider]
+)
 
 # Automatically uses fallback on failure
-response = await manager.generate(prompt)
+response = await pipeline.run(ctx)
 ```
 
 ### Level 3: Reduced Quality
@@ -54,12 +58,12 @@ def select_model(availability: dict) -> str:
 Serve cached responses when all providers fail.
 
 ```python
-async def generate_with_cache_fallback(prompt):
+async def generate_with_cache_fallback(context):
     try:
-        return await provider.generate(prompt)
+        return await provider.complete(context)
     except ProviderError:
         # Try to serve from cache
-        cached = await cache.get(prompt)
+        cached = await cache.get(context)
         if cached:
             logger.info("Serving cached response")
             cached.is_cached = True
@@ -74,7 +78,7 @@ When all else fails, provide helpful error messages.
 
 ```python
 try:
-    response = await agent.run_async(prompt)
+    response = await agent.run(ctx)
 except AllProvidersDownError:
     return Response(
         content="We're experiencing technical difficulties. "
@@ -88,13 +92,18 @@ except AllProvidersDownError:
 Circuit breakers prevent cascading failures:
 
 ```python
-circuit_breaker = CircuitBreakerMiddleware(
+from onion_core.circuit_breaker import CircuitBreaker
+
+circuit_breaker = CircuitBreaker(
     failure_threshold=5,
     recovery_timeout=60
 )
 
 # Automatically stops using failing providers
-pipeline = Pipeline(middlewares=[circuit_breaker])
+pipeline = Pipeline(
+    provider=primary_provider,
+    circuit_breaker=circuit_breaker
+)
 ```
 
 ## Monitoring Degradation
@@ -102,33 +111,16 @@ pipeline = Pipeline(middlewares=[circuit_breaker])
 Track degradation events:
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 def track_degradation(level: int, reason: str):
     """Track degradation events."""
-    metrics.increment('degradation.events', tags={
-        'level': level,
-        'reason': reason
-    })
+    logger.warning("degradation_event", level=level, reason=reason)
     
     if level >= 3:
         send_alert(f"High degradation level: {level}")
-```
-
-## Configuration
-
-```python
-from onion_core.config import DegradationConfig
-
-config = DegradationConfig(
-    max_retries=3,
-    retry_delay=1.0,
-    enable_fallback=True,
-    enable_cache_fallback=True,
-    max_degradation_level=4
-)
 ```
 
 ## Best Practices

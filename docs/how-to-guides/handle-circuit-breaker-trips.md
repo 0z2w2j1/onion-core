@@ -11,9 +11,9 @@ A circuit breaker "trips" (opens) when a provider fails too many times, preventi
 ### Check Circuit State
 
 ```python
-from onion_core.middlewares import CircuitBreakerMiddleware
+from onion_core.circuit_breaker import CircuitBreaker
 
-circuit_breaker = CircuitBreakerMiddleware(
+circuit_breaker = CircuitBreaker(
     failure_threshold=5,
     recovery_timeout=60
 )
@@ -43,19 +43,23 @@ circuit_breaker.on_state_change(on_circuit_change)
 ### Graceful Fallback
 
 ```python
-from onion_core.manager import ProviderManager
+from onion_core.circuit_breaker import CircuitBreaker
+from onion_core.providers import OpenAIProvider
 
-manager = ProviderManager()
+primary = OpenAIProvider(api_key="key1", model="gpt-4")
+fallback = OpenAIProvider(api_key="key2", model="gpt-3.5-turbo")
+cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
 
-async def generate_with_circuit_breaker(prompt):
-    try:
-        return await manager.generate(prompt)
-    except CircuitBreakerOpenError:
-        logger.warning("Primary provider circuit is open, using fallback")
-        
-        # Use fallback provider
-        fallback = manager.get_fallback_provider()
-        return await fallback.generate(prompt)
+async def generate_with_circuit_breaker(context):
+    if not cb.is_open():
+        try:
+            return await primary.complete(context)
+        except Exception as e:
+            cb.record_failure(e)
+            raise
+
+    logger.warning("Primary provider circuit is open, using fallback")
+    return await fallback.complete(context)
 ```
 
 ### Queue Requests for Retry
@@ -102,7 +106,7 @@ class RequestQueue:
 Circuit breaker automatically transitions to HALF_OPEN after timeout:
 
 ```python
-circuit_breaker = CircuitBreakerMiddleware(
+circuit_breaker = CircuitBreaker(
     failure_threshold=5,
     recovery_timeout=60,  # Wait 60s before trying again
     half_open_max_calls=3  # Allow 3 test calls
@@ -159,7 +163,7 @@ logger = logging.getLogger('onion_core.circuit_breaker')
 ### Track Failure Reasons
 
 ```python
-class TrackedCircuitBreaker(CircuitBreakerMiddleware):
+class TrackedCircuitBreaker(CircuitBreaker):
     """Track why failures occur."""
     
     def __init__(self, *args, **kwargs):
@@ -198,7 +202,7 @@ class TrackedCircuitBreaker(CircuitBreakerMiddleware):
 async def test_circuit_breaker():
     """Test circuit breaker behavior."""
     
-    cb = CircuitBreakerMiddleware(failure_threshold=3, recovery_timeout=2)
+    cb = CircuitBreaker(failure_threshold=3, recovery_timeout=2)
     
     # Trip the circuit
     for i in range(3):

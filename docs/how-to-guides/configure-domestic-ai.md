@@ -25,7 +25,10 @@ provider = DeepSeekProvider(
 ### Usage
 
 ```python
-response = await provider.generate("你好，请介绍一下自己")
+from onion_core.models import AgentContext
+
+context = AgentContext(messages=[{"role": "user", "content": "你好，请介绍一下自己"}])
+response = await provider.complete(context)
 print(response.content)
 ```
 
@@ -126,38 +129,29 @@ models = [
 ### Setup Multiple Providers
 
 ```python
-from onion_core.manager import ProviderManager
 from onion_core.providers import (
     DeepSeekProvider,
     ZhipuAIProvider,
     MoonshotProvider
 )
+from onion_core.models import AgentContext
 
-manager = ProviderManager()
+# Define providers with priorities
+providers = [
+    ("deepseek", DeepSeekProvider(api_key="key1", model="deepseek-chat"), 1),
+    ("zhipu", ZhipuAIProvider(api_key="key2", model="glm-4"), 2),
+    ("moonshot", MoonshotProvider(api_key="key3", model="moonshot-v1-8k"), 3),
+]
 
-# Add primary provider
-manager.add_provider(
-    "deepseek",
-    DeepSeekProvider(api_key="key1", model="deepseek-chat"),
-    priority=1
-)
-
-# Add fallback providers
-manager.add_provider(
-    "zhipu",
-    ZhipuAIProvider(api_key="key2", model="glm-4"),
-    priority=2
-)
-
-manager.add_provider(
-    "moonshot",
-    MoonshotProvider(api_key="key3", model="moonshot-v1-8k"),
-    priority=3
-)
-
-# Use manager
-provider = manager.get_best_available()
-response = await provider.generate("你好")
+# Try primary first, fall back to alternates
+async def generate_with_fallback(context):
+    for name, provider, priority in sorted(providers, key=lambda x: x[2]):
+        try:
+            return await provider.complete(context)
+        except Exception as e:
+            logger.warning(f"Provider {name} failed: {e}")
+            continue
+    raise RuntimeError("All providers exhausted")
 ```
 
 ## Environment Variables

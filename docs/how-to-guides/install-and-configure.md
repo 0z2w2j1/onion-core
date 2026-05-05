@@ -38,62 +38,51 @@ print(onion_core.__version__)
 from onion_core.config import OnionConfig
 
 config = OnionConfig(
-    api_key="your-api-key",
-    provider="openai",
-    model="gpt-4"
+    pipeline={
+        "max_retries": 2,
+        "provider_timeout": 30.0,
+    }
 )
 ```
 
 ### Full Configuration
 
 ```python
-from onion_core.config import (
-    OnionConfig,
-    PipelineConfig,
-    SafetyConfig,
-    ContextWindowConfig,
-    ObservabilityConfig,
-    ConcurrencyConfig
-)
+from onion_core.config import OnionConfig
 
 config = OnionConfig(
-    # Provider settings
-    api_key="your-api-key",
-    provider="openai",
-    model="gpt-4",
-    
     # Pipeline configuration
-    pipeline=PipelineConfig(
-        timeout=30.0,
-        max_retries=3,
-        retry_delay=1.0
-    ),
+    pipeline={
+        "timeout": 30.0,
+        "max_retries": 3,
+        "retry_delay": 1.0
+    },
     
     # Safety configuration
-    safety=SafetyConfig(
-        enabled=True,
-        pii_detection=True,
-        blocked_keywords=["password", "secret"]
-    ),
+    safety={
+        "enabled": True,
+        "pii_detection": True,
+        "blocked_keywords": ["password", "secret"]
+    },
     
     # Context window configuration
-    context_window=ContextWindowConfig(
-        max_tokens=8000,
-        max_messages=50
-    ),
+    context_window={
+        "max_tokens": 8000,
+        "max_messages": 50
+    },
     
     # Observability configuration
-    observability=ObservabilityConfig(
-        logging_enabled=True,
-        metrics_enabled=True,
-        tracing_enabled=True
-    ),
+    observability={
+        "logging_enabled": True,
+        "metrics_enabled": True,
+        "tracing_enabled": True,
+    },
     
     # Concurrency configuration
-    concurrency=ConcurrencyConfig(
-        max_workers=10,
-        task_queue_size=100
-    )
+    concurrency={
+        "max_workers": 10,
+        "task_queue_size": 100,
+    },
 )
 ```
 
@@ -102,24 +91,18 @@ config = OnionConfig(
 You can configure Onion Core using environment variables:
 
 ```bash
-export ONION_API_KEY="your-api-key"
-export ONION_PROVIDER="openai"
-export ONION_MODEL="gpt-4"
-export ONION_TIMEOUT="30"
-export ONION_MAX_RETRIES="3"
+export ONION__PIPELINE__MAX_RETRIES="3"
+export ONION__PIPELINE__PROVIDER_TIMEOUT="30"
+export ONION__SAFETY__ENABLE_PII_MASKING="true"
+export ONION__CONTEXT_WINDOW__MAX_TOKENS="8000"
 ```
 
 Then load them in your code:
 
 ```python
-import os
 from onion_core.config import OnionConfig
 
-config = OnionConfig(
-    api_key=os.getenv("ONION_API_KEY"),
-    provider=os.getenv("ONION_PROVIDER", "openai"),
-    model=os.getenv("ONION_MODEL", "gpt-4")
-)
+config = OnionConfig.from_env()
 ```
 
 ## Loading from File
@@ -129,17 +112,12 @@ config = OnionConfig(
 Create `config.yaml`:
 
 ```yaml
-api_key: "your-api-key"
-provider: "openai"
-model: "gpt-4"
-
 pipeline:
   timeout: 30.0
   max_retries: 3
 
 safety:
-  enabled: true
-  pii_detection: true
+  enable_pii_masking: true
 
 context_window:
   max_tokens: 8000
@@ -164,12 +142,12 @@ Create `config.json`:
 
 ```json
 {
-  "api_key": "your-api-key",
-  "provider": "openai",
-  "model": "gpt-4",
   "pipeline": {
     "timeout": 30.0,
     "max_retries": 3
+  },
+  "safety": {
+    "enable_pii_masking": true
   }
 }
 ```
@@ -231,12 +209,14 @@ provider = OllamaProvider(
 
 ```python
 from onion_core.agent import AgentRuntime
+from onion_core import AgentContext, Message
 
 agent = AgentRuntime(config=config)
 
 async def test_connection():
     try:
-        response = await agent.run_async("Hello, world!")
+        ctx = AgentContext(messages=[Message(role="user", content="Hello, world!")])
+        response = await agent.run(ctx)
         print(f"Success: {response}")
     except Exception as e:
         print(f"Error: {e}")
@@ -252,8 +232,9 @@ from onion_core.config import OnionConfig
 
 try:
     config = OnionConfig(
-        api_key="your-key",
-        provider="invalid-provider"  # This will raise an error
+        pipeline={
+            "max_retries": -1,  # This will raise a validation error
+        },
     )
 except ValueError as e:
     print(f"Invalid configuration: {e}")
@@ -289,10 +270,10 @@ os.environ["ONION_API_KEY"] = "your-api-key"
 **Solution**:
 ```python
 config = OnionConfig(
-    pipeline=PipelineConfig(
-        timeout=60.0,  # Increase timeout
-        max_retries=5   # Increase retries
-    )
+    pipeline={
+        "timeout": 60.0,  # Increase timeout
+        "max_retries": 5,   # Increase retries
+    },
 )
 ```
 

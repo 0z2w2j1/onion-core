@@ -21,23 +21,23 @@ from onion_core import (
     # Errors & Retry
     OnionError, SecurityException, RateLimitExceeded,
     ProviderError, RetryPolicy, RetryOutcome,
-    # Error Codes (New)
+    # Error Codes
     ErrorCode, OnionErrorWithCode,
     ERROR_MESSAGES, ERROR_RETRY_POLICY,
     security_error, provider_error, fallback_error,
     # Config
     OnionConfig, PipelineConfig, SafetyConfig,
-    ContextWindowConfig, ObservabilityConfig,
+    ContextWindowConfig, ObservabilityConfig, ConcurrencyConfig,
+    # Middleware
+    ResponseCacheMiddleware,
     # Agent
     AgentLoop, AgentLoopError,
+    # Health
+    HealthServer, start_health_server,
     # Version
     __version__,
 )
 ```
-
-**New in v0.7.0:**
-- Enhanced sync API methods with automatic event loop detection
-- Response caching support via `ResponseCacheMiddleware`
 
 ---
 
@@ -247,7 +247,7 @@ class CircuitBreakerError(OnionError):
     is_fatal: bool = False
 ```
 
-#### `OnionErrorWithCode(Exception)` (New)
+#### `OnionErrorWithCode(Exception)`
 ```python
 class OnionErrorWithCode(Exception):
     def __init__(
@@ -331,7 +331,7 @@ class Pipeline:
         name: str = "default",
         middleware_timeout: Optional[float] = None,
         provider_timeout: Optional[float] = None,
-        total_timeout: Optional[float] = None,  # NEW in v0.9.6
+        total_timeout: Optional[float] = None,  # Available since v1.0.0
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
         fallback_providers: Optional[List[LLMProvider]] = None,
@@ -347,7 +347,7 @@ class Pipeline:
         name: Pipeline identifier for logging and metrics.
         middleware_timeout: Timeout for each middleware step (seconds).
         provider_timeout: Timeout for provider completion (seconds).
-        total_timeout: **NEW** End-to-end request timeout including all middleware + provider calls. Raises clear TimeoutError if exceeded. Prevents indefinite hangs from slow LLM responses.
+        total_timeout: End-to-end request timeout including all middleware + provider calls. Raises clear TimeoutError if exceeded. Prevents indefinite hangs from slow LLM responses.
         max_retries: Number of retry attempts on transient failures.
         retry_base_delay: Base delay for exponential backoff (seconds).
         fallback_providers: List of backup providers to try if primary fails.
@@ -406,32 +406,6 @@ class Pipeline:
 
     def health_check_sync(self) -> Dict[str, Any]:
         """Synchronous version of health_check()."""
-        ...
-
-    # 健康检查
-    def health_check(self) -> Dict[str, Any]:
-        """返回 Pipeline 的健康状态。
-        
-        返回值：
-            {
-                "status": "healthy"（健康）| "not_started"（未启动）| "degraded"（降级）,
-                "name": str,                    # Pipeline 名称
-                "started": bool,                # 是否已启动
-                "middlewares_count": int,       # 中间件数量
-                "provider": str,                # 主 Provider 类型
-                "fallback_providers": List[str],# Fallback Provider 列表
-                "circuit_breakers": Dict[str, str],  # 每个 Provider 的熔断器状态
-            }
-        
-        用法：
-            health = pipeline.health_check()
-            if health["status"] != "healthy":
-                logger.warning("Pipeline 降级: %s", health)
-        """
-        ...
-
-    def health_check_sync(self) -> Dict[str, Any]:
-        """health_check() 的同步版本。"""
         ...
 ```
 
@@ -496,14 +470,14 @@ class OpenAIProvider(LLMProvider):
 
     # Resource management
     async def cleanup(self) -> None: ...
-    async def __aenter__(self) -> "OpenAIProvider": ...  # NEW in v1.1.0
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # NEW in v1.1.0
+    async def __aenter__(self) -> "OpenAIProvider": ...  # Available since v1.0.0
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # Available since v1.0.0
 
 # Pass `client` to share an existing AsyncOpenAI instance (connection pool) across providers.
 # `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
 ```
 
-**Async Context Manager Support (NEW in v1.1.0):**
+**Async Context Manager Support:**
 Providers now support async context managers for automatic resource cleanup:
 ```python
 async with OpenAIProvider(api_key="sk-...") as provider:
@@ -529,8 +503,8 @@ class AnthropicProvider(LLMProvider):
 
     # Resource management
     async def cleanup(self) -> None: ...
-    async def __aenter__(self) -> "AnthropicProvider": ...  # NEW in v1.1.0
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # NEW in v1.1.0
+    async def __aenter__(self) -> "AnthropicProvider": ...  # Available since v1.0.0
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...  # Available since v1.0.0
 
 # Pass `client` to share an existing AsyncAnthropic instance across providers.
 # `max_connections` / `max_keepalive_connections` control the httpx connection pool limits.
@@ -669,39 +643,82 @@ class RateLimitMiddleware(BaseMiddleware):
     def get_usage(self, session_id: str) -> dict: ...
 ```
 
-### `MetricsMiddleware` (priority=90)
+### `DistributedRateLimitMiddleware` (priority=150, mandatory)
 ```python
-class MetricsMiddleware(BaseMiddleware):
-    priority = 90
-
-    def __init__(self, pipeline_name: str = "default") -> None: ...
-```
-
-### `TracingMiddleware` (priority=50)
-```python
-class TracingMiddleware(BaseMiddleware):
-    priority = 50
+class DistributedRateLimitMiddleware(BaseMiddleware):
+    """Redis-backed distributed rate limiting middleware."""
+    priority = 150
+    is_mandatory = True
 
     def __init__(
         self,
-        service_name: str = "onion-core",
-        pipeline_name: str = "default",
+        redis_url: str = "redis://localhost:6379",
+        max_requests: int = 60,
+        window_seconds: float = 60.0,
+        max_tool_calls: Optional[int] = None,
+        tool_call_window: Optional[float] = None,
+        key_prefix: str = "onion:ratelimit",
+        pool_size: int = 10,
+        fallback_allow: bool = False,
     ) -> None: ...
+
+    async def get_usage(self, session_id: str) -> dict: ...
+    async def reset_session(self, session_id: str) -> None: ...
+    async def reset_all(self) -> None: ...
+# Requires: pip install redis>=5.0
+# Import: from onion_core.middlewares import DistributedRateLimitMiddleware
 ```
 
-### `auto_configure_tracing`
+### `DistributedCacheMiddleware` (priority=75)
 ```python
-def auto_configure_tracing(
-    service_name: str = "onion-core",
-    otlp_endpoint: Optional[str] = None,
-) -> bool: ...
-```
-Auto-configures OpenTelemetry from environment variables:
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`.
-Returns `True` if tracing was configured, `False` if optional deps are missing.
-Requires: `pip install opentelemetry-exporter-otlp`
+class DistributedCacheMiddleware(BaseMiddleware):
+    """Redis-backed distributed response cache middleware."""
+    priority = 75
 
-### `ResponseCacheMiddleware` (priority=75) **[NEW in v0.7.0]**
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        ttl_seconds: float = 300.0,
+        max_size: int = 1000,
+        key_prefix: str = "onion:cache",
+        pool_size: int = 10,
+        cache_key_strategy: str = "full",
+    ) -> None: ...
+
+    @property
+    def hits(self) -> int: ...
+    @property
+    def misses(self) -> int: ...
+    @property
+    def hit_rate(self) -> float: ...
+
+    async def clear_cache(self) -> None: ...
+    async def invalidate(self, context: AgentContext) -> bool: ...
+# Requires: pip install redis>=5.0
+# Import: from onion_core.middlewares import DistributedCacheMiddleware
+```
+
+### `DistributedCircuitBreakerMiddleware` (priority=175)
+```python
+class DistributedCircuitBreakerMiddleware(BaseMiddleware):
+    """Redis-backed distributed circuit breaker middleware."""
+    priority = 175
+
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        failure_threshold: int = 5,
+        recovery_timeout: float = 30.0,
+        success_threshold: int = 2,
+        key_prefix: str = "onion:cb",
+        pool_size: int = 10,
+        fallback_allow: bool = True,
+    ) -> None: ...
+# Requires: pip install redis>=5.0
+# Import: from onion_core.middlewares import DistributedCircuitBreakerMiddleware
+```
+
+### `ResponseCacheMiddleware` (priority=75)
 ```python
 class ResponseCacheMiddleware(BaseMiddleware):
     """Response caching middleware with TTL and LRU eviction."""
@@ -751,6 +768,48 @@ cache.clear_cache()
 
 ---
 
+## Module: `onion_core.observability`
+
+### `TracingMiddleware` (priority=50)
+```python
+from onion_core.observability.tracing import TracingMiddleware
+
+class TracingMiddleware(BaseMiddleware):
+    priority = 50
+
+    def __init__(
+        self,
+        service_name: str = "onion-core",
+        pipeline_name: str = "default",
+    ) -> None: ...
+```
+
+### `auto_configure_tracing`
+```python
+from onion_core.observability.tracing import auto_configure_tracing
+
+def auto_configure_tracing(
+    service_name: str = "onion-core",
+    otlp_endpoint: Optional[str] = None,
+) -> bool: ...
+```
+Auto-configures OpenTelemetry from environment variables:
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`.
+Returns `True` if tracing was configured, `False` if optional deps are missing.
+Requires: `pip install opentelemetry-exporter-otlp`
+
+### `MetricsMiddleware` (priority=90)
+```python
+from onion_core.observability.metrics import MetricsMiddleware
+
+class MetricsMiddleware(BaseMiddleware):
+    priority = 90
+
+    def __init__(self, pipeline_name: str = "default") -> None: ...
+```
+
+---
+
 ## Module: `onion_core.tools`
 
 ### `ToolRegistry`
@@ -758,8 +817,8 @@ cache.clear_cache()
 class ToolRegistry:
     def __init__(
         self,
-        max_cache_size: int = 1000,   # NEW in v1.1.0
-        cache_ttl: int = 3600,         # NEW in v1.1.0
+        max_cache_size: int = 1000,   # Available since v1.0.0
+        cache_ttl: int = 3600,         # Available since v1.0.0
     ) -> None:
         """
         Args:
@@ -805,7 +864,7 @@ class ToolRegistry:
     def clear_idempotency_cache(self) -> None: ...
 ```
 
-**Idempotency Cache Features (NEW in v1.1.0):**
+**Idempotency Cache Features:**
 - **TTL-based expiration**: Cache entries automatically expire after `cache_ttl` seconds
 - **Size limit**: Maximum `max_cache_size` entries enforced with LRU eviction
 - **Periodic cleanup**: Expired entries cleaned up every 100 cache writes
@@ -830,7 +889,7 @@ class AgentLoop:
     async def run(
         self,
         context: AgentContext,
-        run_timeout: Optional[float] = None,  # NEW in v1.1.0
+        run_timeout: Optional[float] = None,  # Available since v1.0.0
     ) -> LLMResponse:
         """
         Args:
@@ -846,7 +905,7 @@ Provides a simplified tool-calling loop on top of a Pipeline.
 When `memory` is set, the message list is trimmed by token count
 at the start of each turn to prevent unbounded memory growth.
 
-**Timeout Support (NEW in v1.1.0):**
+**Timeout Support:**
 Use `run_timeout` parameter to enforce hard time limits on agent execution:
 ```python
 # Timeout after 30 seconds
@@ -891,13 +950,13 @@ in real time for typewriter-style output.
 class AgentConfig(BaseModel):
     max_turns: int = Field(default=10, ge=1, le=100)
     raise_on_max_turns: bool = False
-    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # NEW in v0.9.5
+    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # Available since v1.0.0
     # ... other fields
 
     Parameters:
         max_turns: Maximum number of Think-Act cycles before stopping.
         raise_on_max_turns: If True, raise exception when max_turns exceeded.
-        tool_result_max_chars: **NEW** Maximum characters allowed per tool result. 
+        tool_result_max_chars: Maximum characters allowed per tool result. 
             Results exceeding this limit are truncated with '...[truncated]' suffix.
             Protects against malicious tools returning GB-scale data that could cause
             memory explosion in context.messages. Default: 50KB per tool result.
@@ -945,12 +1004,23 @@ class PipelineConfig(BaseModel):
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
     max_stream_chunks: int = 10000
+    tool_call_dedup_policy: str = "relaxed"
+    agent_progress_window: int = 3
+
+class ConcurrencyConfig(BaseModel):
+    tool_concurrency: int = 5
+    llm_max_connections: int = 100
+    llm_max_keepalive: int = 20
+    retry_max_attempts: int = 3
+    retry_min_wait: float = 1.0
+    retry_max_wait: float = 30.0
 
 class OnionConfig(BaseSettings):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "OnionConfig": ...
@@ -1053,15 +1123,19 @@ from onion_core import (
     # 错误与重试
     OnionError, SecurityException, RateLimitExceeded,
     ProviderError, RetryPolicy, RetryOutcome,
-    # 错误码（新增）
+    # 错误码
     ErrorCode, OnionErrorWithCode,
     ERROR_MESSAGES, ERROR_RETRY_POLICY,
     security_error, provider_error, fallback_error,
     # 配置
     OnionConfig, PipelineConfig, SafetyConfig,
-    ContextWindowConfig, ObservabilityConfig,
+    ContextWindowConfig, ObservabilityConfig, ConcurrencyConfig,
+    # 中间件
+    ResponseCacheMiddleware,
     # Agent
     AgentLoop, AgentLoopError,
+    # 健康检查
+    HealthServer, start_health_server,
     # 版本
     __version__,
 )
@@ -1275,7 +1349,7 @@ class CircuitBreakerError(OnionError):
     is_fatal: bool = False
 ```
 
-#### `OnionErrorWithCode(Exception)` (新增)
+#### `OnionErrorWithCode(Exception)`
 ```python
 class OnionErrorWithCode(Exception):
     def __init__(
@@ -1359,7 +1433,7 @@ class Pipeline:
         name: str = "default",
         middleware_timeout: Optional[float] = None,
         provider_timeout: Optional[float] = None,
-        total_timeout: Optional[float] = None,  # v0.9.6 新增
+        total_timeout: Optional[float] = None,  # v1.0.0 起可用
         max_retries: int = 0,
         retry_base_delay: float = 0.5,
         fallback_providers: Optional[List[LLMProvider]] = None,
@@ -1375,7 +1449,7 @@ class Pipeline:
         name: Pipeline 标识符，用于日志和指标。
         middleware_timeout: 每个中间件步骤的超时时间（秒）。
         provider_timeout: Provider 完成的超时时间（秒）。
-        total_timeout: **新增** 端到端请求超时，包括所有中间件 + Provider 调用。如果超过则抛出明确的 TimeoutError。防止因 LLM 响应缓慢而无限期挂起。
+        total_timeout: 端到端请求超时，包括所有中间件 + Provider 调用。如果超过则抛出明确的 TimeoutError。防止因 LLM 响应缓慢而无限期挂起。
         max_retries: 瞬时失败时的重试次数。
         retry_base_delay: 指数退避的基础延迟（秒）。
         fallback_providers: 如果主 Provider 失败，要尝试的备用 Provider 列表。
@@ -1623,16 +1697,137 @@ class RateLimitMiddleware(BaseMiddleware):
     def get_usage(self, session_id: str) -> dict: ...
 ```
 
-### `MetricsMiddleware` (priority=90)
+### `DistributedRateLimitMiddleware` (priority=150, mandatory)
 ```python
-class MetricsMiddleware(BaseMiddleware):
-    priority = 90
+class DistributedRateLimitMiddleware(BaseMiddleware):
+    """基于 Redis 的分布式限流中间件。"""
+    priority = 150
+    is_mandatory = True
 
-    def __init__(self, pipeline_name: str = "default") -> None: ...
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        max_requests: int = 60,
+        window_seconds: float = 60.0,
+        max_tool_calls: Optional[int] = None,
+        tool_call_window: Optional[float] = None,
+        key_prefix: str = "onion:ratelimit",
+        pool_size: int = 10,
+        fallback_allow: bool = False,
+    ) -> None: ...
+
+    async def get_usage(self, session_id: str) -> dict: ...
+    async def reset_session(self, session_id: str) -> None: ...
+    async def reset_all(self) -> None: ...
+# 依赖：pip install redis>=5.0
+# 导入：from onion_core.middlewares import DistributedRateLimitMiddleware
 ```
+
+### `DistributedCacheMiddleware` (priority=75)
+```python
+class DistributedCacheMiddleware(BaseMiddleware):
+    """基于 Redis 的分布式响应缓存中间件。"""
+    priority = 75
+
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        ttl_seconds: float = 300.0,
+        max_size: int = 1000,
+        key_prefix: str = "onion:cache",
+        pool_size: int = 10,
+        cache_key_strategy: str = "full",
+    ) -> None: ...
+
+    @property
+    def hits(self) -> int: ...
+    @property
+    def misses(self) -> int: ...
+    @property
+    def hit_rate(self) -> float: ...
+
+    async def clear_cache(self) -> None: ...
+    async def invalidate(self, context: AgentContext) -> bool: ...
+# 依赖：pip install redis>=5.0
+# 导入：from onion_core.middlewares import DistributedCacheMiddleware
+```
+
+### `DistributedCircuitBreakerMiddleware` (priority=175)
+```python
+class DistributedCircuitBreakerMiddleware(BaseMiddleware):
+    """基于 Redis 的分布式熔断器中间件。"""
+    priority = 175
+
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        failure_threshold: int = 5,
+        recovery_timeout: float = 30.0,
+        success_threshold: int = 2,
+        key_prefix: str = "onion:cb",
+        pool_size: int = 10,
+        fallback_allow: bool = True,
+    ) -> None: ...
+# 依赖：pip install redis>=5.0
+# 导入：from onion_core.middlewares import DistributedCircuitBreakerMiddleware
+```
+
+### `ResponseCacheMiddleware` (priority=75)
+```python
+class ResponseCacheMiddleware(BaseMiddleware):
+    """响应缓存中间件，支持 TTL 和 LRU 淘汰策略。"""
+    priority = 75
+
+    def __init__(
+        self,
+        ttl_seconds: float = 300.0,      # 缓存生存时间（秒）
+        max_size: int = 1000,             # 最大缓存条目数
+        cache_key_strategy: str = "full", # "full" | "user_only" | "custom"
+    ) -> None: ...
+
+    @property
+    def hits(self) -> int:
+        """缓存命中次数。"""
+
+    @property
+    def misses(self) -> int:
+        """缓存未命中次数。"""
+
+    @property
+    def hit_rate(self) -> float:
+        """缓存命中率（0.0 - 1.0）。"""
+
+    def clear_cache(self) -> None:
+        """清空所有缓存条目。"""
+
+    def get_cache_size(self) -> int:
+        """获取当前缓存条目数。"""
+```
+
+**使用示例：**
+```python
+from onion_core.middlewares import ResponseCacheMiddleware
+
+# 基本用法
+cache = ResponseCacheMiddleware(ttl_seconds=600, max_size=500)
+pipeline.add_middleware(cache)
+
+# 监控性能
+print(f"命中率: {cache.hit_rate:.1%}")
+print(f"缓存大小: {cache.get_cache_size()}")
+
+# 按需清空缓存
+cache.clear_cache()
+```
+
+---
+
+## 模块：`onion_core.observability`
 
 ### `TracingMiddleware` (priority=50)
 ```python
+from onion_core.observability.tracing import TracingMiddleware
+
 class TracingMiddleware(BaseMiddleware):
     priority = 50
 
@@ -1645,6 +1840,8 @@ class TracingMiddleware(BaseMiddleware):
 
 ### `auto_configure_tracing`
 ```python
+from onion_core.observability.tracing import auto_configure_tracing
+
 def auto_configure_tracing(
     service_name: str = "onion-core",
     otlp_endpoint: Optional[str] = None,
@@ -1654,6 +1851,16 @@ def auto_configure_tracing(
 读取 `OTEL_EXPORTER_OTLP_ENDPOINT`、`OTEL_SERVICE_NAME` 等变量。
 可选依赖：`pip install opentelemetry-exporter-otlp`
 
+### `MetricsMiddleware` (priority=90)
+```python
+from onion_core.observability.metrics import MetricsMiddleware
+
+class MetricsMiddleware(BaseMiddleware):
+    priority = 90
+
+    def __init__(self, pipeline_name: str = "default") -> None: ...
+```
+
 ---
 
 ## 模块：`onion_core.tools`
@@ -1661,7 +1868,17 @@ def auto_configure_tracing(
 ### `ToolRegistry`
 ```python
 class ToolRegistry:
-    def __init__(self) -> None: ...
+    def __init__(
+        self,
+        max_cache_size: int = 1000,   # v1.0.0 起可用
+        cache_ttl: int = 3600,         # v1.0.0 起可用
+    ) -> None:
+        """
+        参数：
+            max_cache_size: 幂等缓存最大条目数（默认：1000）
+            cache_ttl: 缓存条目 TTL（秒，默认：3600 = 1 小时）
+        """
+        ...
 
     # 注册
     def register(
@@ -1713,7 +1930,20 @@ class AgentLoop:
         memory: Optional[SlidingWindowMemory] = None,
     ) -> None: ...
 
-    async def run(self, context: AgentContext) -> LLMResponse: ...
+    async def run(
+        self,
+        context: AgentContext,
+        run_timeout: Optional[float] = None,  # v1.0.0 起可用
+    ) -> LLMResponse:
+        """
+        参数：
+            context: Agent 执行上下文
+            run_timeout: 可选的总超时时间（秒）。None 表示无限制。
+        
+        抛出：
+            AgentLoopError: 超时或超过 max_turns 时抛出
+        """
+        ...
 
 在 Pipeline 之上提供简化的工具调用循环。
 当传入 `memory` 参数时，每轮循环开始时按 token 数裁剪消息列表，
@@ -1756,13 +1986,13 @@ class AgentRuntime:
 class AgentConfig(BaseModel):
     max_turns: int = Field(default=10, ge=1, le=100)
     raise_on_max_turns: bool = False
-    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # v0.9.5 新增
+    tool_result_max_chars: int = Field(default=50000, ge=100, le=1000000)  # v1.0.0 起可用
     # ... 其他字段
 
     参数说明：
         max_turns: 停止前的最大 Think-Act 循环次数。
         raise_on_max_turns: 如果为 True，当超过 max_turns 时抛出异常。
-        tool_result_max_chars: **新增** 每个工具结果允许的最大字符数。
+        tool_result_max_chars: 每个工具结果允许的最大字符数。
             超过此限制的结果会被截断并添加 '...[truncated]' 后缀。
             防止恶意工具返回 GB 级数据导致 context.messages 内存爆炸。
             默认值：每个工具结果 50KB。
@@ -1809,12 +2039,23 @@ class PipelineConfig(BaseModel):
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
     max_stream_chunks: int = 10000
+    tool_call_dedup_policy: str = "relaxed"
+    agent_progress_window: int = 3
+
+class ConcurrencyConfig(BaseModel):
+    tool_concurrency: int = 5
+    llm_max_connections: int = 100
+    llm_max_keepalive: int = 20
+    retry_max_attempts: int = 3
+    retry_min_wait: float = 1.0
+    retry_max_wait: float = 30.0
 
 class OnionConfig(BaseSettings):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     @classmethod
     def from_file(cls, path: Union[str, Path]) -> "OnionConfig": ...

@@ -1,6 +1,79 @@
 # Migration Guide
 
-> Version: 1.0.0 | Updated: 2026-04-26
+> Version: 1.0.0 | Updated: 2026-05-05
+
+---
+
+## Migrating from v0.9.x to v1.0.0
+
+### Production/Stable Release
+
+v1.0.0 is the first production-stable release with full test coverage and pipeline hardening.
+
+**What changed:**
+- Pipeline retry logic is hand-rolled (tenacity dependency removed in v0.8.0)
+- `CircuitBreaker` (not `CircuitBreakerMiddleware`) is in `onion_core.circuit_breaker`
+- Agent methods use `agent.run()` (not `agent.run_async()`)
+- `ProviderManager` / `onion_core.manager` does not exist; use `Pipeline` directly
+- `DegradationConfig` is not a real config class; degradation is configured via `OnionConfig.pipeline`
+- Fallback providers should be passed to `Pipeline()` constructor, not set via `_fallback_providers`
+- Providers use `provider.complete()` (not `provider.generate()`)
+
+**Migration:**
+```python
+# Old (v0.9.x patterns)
+pipeline._fallback_providers = [fallback_provider]
+
+# New (v1.0.0)
+pipeline = Pipeline(
+    provider=primary_provider,
+    fallback_providers=[fallback_provider],
+)
+
+# Old (v0.9.x)
+agent.run_async("task")
+
+# New (v1.0.0)
+await agent.run("task")
+```
+
+---
+
+## Migrating from v0.8.0 to v0.9.x
+
+### Distributed Middleware & Observability
+
+v0.9.x introduced distributed middleware support and a dedicated observability sub-package.
+
+**What changed:**
+- New distributed middleware: `DistributedRateLimitMiddleware`, `DistributedCacheMiddleware`, `DistributedCircuitBreakerMiddleware`
+- New observability sub-package: `onion_core.observability` (logging, metrics, tracing)
+- Redis-backed coordination for multi-instance deployments
+- Model pricing configuration via environment variables (`ONION_MODEL_PRICING`)
+
+**Migration:**
+```python
+# New imports (v0.9.x)
+from onion_core.middlewares import (
+    DistributedRateLimitMiddleware,
+    DistributedCacheMiddleware,
+    DistributedCircuitBreakerMiddleware,
+)
+from onion_core.observability.metrics import MetricsMiddleware
+
+# Add distributed rate limiting
+pipeline.add_middleware(DistributedRateLimitMiddleware(
+    redis_url="redis://localhost:6379",
+    max_requests=60,
+    window_seconds=60.0,
+))
+
+# Add distributed caching
+pipeline.add_middleware(DistributedCacheMiddleware(
+    redis_url="redis://localhost:6379/1",
+    ttl_seconds=300,
+))
+```
 
 ---
 
@@ -509,12 +582,14 @@ For questions or issues:
 
 ## Summary
 
-v0.7.0 brings:
-- ✅ Enhanced sync API (event loop safe)
-- ✅ Response caching middleware
-- ✅ Comprehensive load testing
-- ✅ Better performance monitoring
-- ✅ 100% backward compatibility
+v1.0.0 is the first production-stable release, building on:
+- ✅ v0.7.0: Enhanced sync API (event loop safe)
+- ✅ v0.7.0: Response caching middleware
+- ✅ v0.7.0: Comprehensive load testing
+- ✅ v0.8.0: Architecture consolidation (src/ removed)
+- ✅ v0.9.x: Distributed middleware (Redis-backed rate limit, cache, circuit breaker)
+- ✅ v0.9.x: Observability sub-package (logging, metrics, tracing)
+- ✅ v1.0.0: Production hardening, full test coverage, stable API
 
 **Next steps:**
 1. Upgrade: `pip install --upgrade onion-core`

@@ -135,9 +135,9 @@ sync_streaming()
 ```
 
 **注意**：
-- ⚠️ `stream_sync()` 会在内存中缓冲所有 chunk
-- ⚠️ 默认最多缓冲 10,000 个 chunk（可通过 `max_stream_chunks` 配置）
-- ✅ 适合短响应，长响应建议使用异步 `stream()`
+- ⚠️ `stream_sync()` 使用生产者线程 + `queue.SimpleQueue` 模式。Chunk 通过线程安全队列逐个传递，不会一次性缓冲所有 chunk。
+- ⚠️ `max_stream_chunks` 参数（默认 10,000）作为 DoS 安全限制，限制总 chunk 数量（而非缓冲区大小）。
+- ✅ 适合短响应，长响应建议使用异步 `stream()`。
 
 ---
 
@@ -169,7 +169,11 @@ def chat_stream():
     ])
     
     def generate():
-        """生成 SSE 事件流"""
+        """生成 SSE 事件流
+        
+        注意：如果使用了 SafetyGuardrailMiddleware，流式模式下的 PII 脱敏
+        会缓冲最多 2 秒或 50 个字符，对 SSE 的首字延迟（TTFT）有轻微影响。
+        """
         try:
             for chunk in pipeline.stream_sync(ctx):
                 if chunk.delta:
@@ -326,16 +330,22 @@ async def test_ttft():
             Message(role="user", content="写一篇文章")
         ])
         
-        # 非流式
+        # 非流式（注意：每次调用应使用全新的 ctx 对象，避免状态污染）
+        ctx1 = AgentContext(messages=[
+            Message(role="user", content="写一篇文章")
+        ])
         start = time.time()
-        response = await p.run(ctx)
+        response = await p.run(ctx1)
         non_streaming_ttft = time.time() - start
         print(f"非流式 TTFT: {non_streaming_ttft:.2f}s")
         
-        # 流式
+        # 流式（创建新 ctx）
+        ctx2 = AgentContext(messages=[
+            Message(role="user", content="写一篇文章")
+        ])
         start = time.time()
         first_token_received = False
-        async for chunk in p.stream(ctx):
+        async for chunk in p.stream(ctx2):
             if chunk.delta and not first_token_received:
                 first_token_received = True
                 streaming_ttft = time.time() - start

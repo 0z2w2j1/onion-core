@@ -1,19 +1,9 @@
 # Pipeline API Reference
 
-::: onion_core.pipeline.Pipeline
+::: onion_core.pipeline
     options:
       show_root_heading: true
       show_root_full_path: false
       show_source: true
-      members:
-        - __init__
-        - add_middleware
-        - add_middleware_async
-        - run
-        - stream
-        - run_sync
-        - stream_sync
-        - startup
-        - shutdown
-        - middlewares
-        - provider
+      members_order: source
+      group_by_category: true

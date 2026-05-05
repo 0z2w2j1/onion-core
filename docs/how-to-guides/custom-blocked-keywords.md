@@ -9,9 +9,9 @@ Blocked keywords prevent specific terms from being used in prompts or responses,
 ## Basic Configuration
 
 ```python
-from onion_core.middlewares import SafetyMiddleware
+from onion_core.middlewares import SafetyGuardrailMiddleware
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     blocked_keywords=[
         "password",
         "secret",
@@ -26,7 +26,7 @@ safety = SafetyMiddleware(
 ### Case-Insensitive Blocking
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     blocked_keywords=[
         "password",
         "PASSWORD",
@@ -41,7 +41,7 @@ safety = SafetyMiddleware(
 ```python
 import re
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     blocked_patterns=[
         r"\b\d{4}-\d{4}-\d{4}-\d{4}\b",  # Credit card numbers
         r"\b\d{3}-\d{2}-\d{4}\b",         # SSN
@@ -69,7 +69,7 @@ def custom_block_checker(text: str, context: dict) -> bool:
     
     return False
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     custom_checker=custom_block_checker
 )
 ```
@@ -87,7 +87,7 @@ def load_blocked_keywords(file_path: str) -> list:
         return json.load(f)
 
 keywords = load_blocked_keywords("blocked_keywords.json")
-safety = SafetyMiddleware(blocked_keywords=keywords)
+safety = SafetyGuardrailMiddleware(blocked_keywords=keywords)
 ```
 
 `blocked_keywords.json`:
@@ -116,7 +116,7 @@ def load_keywords_from_db() -> list:
     return keywords
 
 keywords = load_keywords_from_db()
-safety = SafetyMiddleware(blocked_keywords=keywords)
+safety = SafetyGuardrailMiddleware(blocked_keywords=keywords)
 ```
 
 ## Severity Levels
@@ -188,20 +188,21 @@ async def handle_blocked_content(text: str, severity: SeverityLevel):
 
 ```python
 from onion_core import Pipeline
-from onion_core.middlewares import SafetyMiddleware
+from onion_core.middlewares import SafetyGuardrailMiddleware
 
 # Create safety middleware
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     blocked_keywords=["password", "secret"],
     blocked_patterns=[r"\b\d{4}-\d{4}-\d{4}-\d{4}\b"],
     action="block"  # Options: block, redact, warn
 )
 
 # Add to pipeline
-pipeline = Pipeline(middlewares=[safety])
+pipeline = Pipeline()
+pipeline.add_middleware(safety)
 
 # Use pipeline
-response = await pipeline.execute(request)
+response = await pipeline.run(context)
 ```
 
 ## Monitoring and Logging
@@ -209,17 +210,12 @@ response = await pipeline.execute(request)
 ### Track Blocked Requests
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 async def track_blocked_requests(text: str, keyword: str):
     """Track blocked requests for monitoring."""
-    metrics.increment('safety.blocked_requests', tags={
-        'keyword': keyword,
-        'length': len(text)
-    })
-    
     logger.info(
         f"Request blocked due to keyword: {keyword}",
         extra={
@@ -236,29 +232,35 @@ async def track_blocked_requests(text: str, keyword: str):
 
 ```python
 import pytest
-from onion_core.middlewares import SafetyMiddleware
+from onion_core.middlewares import SafetyGuardrailMiddleware
+from onion_core.models import AgentContext
 
 @pytest.mark.asyncio
 async def test_blocked_keywords():
-    safety = SafetyMiddleware(blocked_keywords=["password"])
+    safety = SafetyGuardrailMiddleware(blocked_keywords=["password"])
+    
+    ctx = AgentContext(messages=[{"role": "user", "content": "My password is 123"}])
     
     # Should block
     with pytest.raises(SecurityError):
-        await safety.process_request("My password is 123")
+        await safety.process_request(ctx)
     
     # Should allow
-    result = await safety.process_request("Hello world")
+    ctx2 = AgentContext(messages=[{"role": "user", "content": "Hello world"}])
+    result = await safety.process_request(ctx2)
     assert result is not None
 
 @pytest.mark.asyncio
 async def test_pattern_blocking():
-    safety = SafetyMiddleware(
+    safety = SafetyGuardrailMiddleware(
         blocked_patterns=[r"\b\d{4}-\d{4}-\d{4}-\d{4}\b"]
     )
     
+    ctx = AgentContext(messages=[{"role": "user", "content": "Card: 1234-5678-9012-3456"}])
+    
     # Should block credit card number
     with pytest.raises(SecurityError):
-        await safety.process_request("Card: 1234-5678-9012-3456")
+        await safety.process_request(ctx)
 ```
 
 ## Best Practices

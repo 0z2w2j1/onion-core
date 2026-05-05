@@ -7,9 +7,9 @@
 ### 核心类
 
 - [Pipeline](pipeline.md) - 中央调度引擎（完整 API 文档）
-- [AgentContext](../api_reference.md#agentcontext) - 请求上下文
+- [AgentContext](../api/models.md) - 请求上下文
 - [BaseMiddleware](middlewares.md#basemiddleware) - 中间件基类
-- [LLMProvider](../api_reference.md#llmprovider) - Provider 抽象接口
+- [LLMProvider](../api/provider.md) - Provider 抽象接口
 
 ### 中间件
 
@@ -60,24 +60,13 @@
 
 所有配置字段说明，请查看 [配置参考](../api/config.md)。
 
-### 主要配置类
-
-- [OnionConfig](../api/config.md) - 根配置
-- [PipelineConfig](../api/config.md) - Pipeline 配置
-- [SafetyConfig](../api/config.md) - 安全配置
-- [ContextWindowConfig](../api/config.md) - 上下文配置
-- [ObservabilityConfig](../api/config.md) - 可观测性配置
-- [ConcurrencyConfig](../api/config.md) - 并发配置
-- [AgentConfig](../api/config.md) - Agent 配置
-
 ### 配置加载方式
 
 ```python
-# 1. 代码中直接配置
-config = OnionConfig(
-    pipeline=PipelineConfig(max_retries=3),
-    safety=SafetyConfig(enable_pii_masking=True),
-)
+# 1. 代码中直接配置（子配置作为 OnionConfig 的嵌套字段）
+config = OnionConfig()
+config.safety.enable_pii_masking = True
+config.pipeline.max_retries = 3
 
 # 2. 从环境变量加载
 config = OnionConfig.from_env()  # 读取 ONION__*

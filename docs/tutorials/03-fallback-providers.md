@@ -78,12 +78,9 @@ async def main():
         response = await p.run(ctx)
         print(f"回复: {response.content[:100]}...")
         
-        # 检查是否触发了 Fallback
-        if "fallback_info" in ctx.metadata:
-            info = ctx.metadata["fallback_info"]
-            print(f"⚠️  主 Provider 失败，使用了 {info['used_provider']}")
-        else:
-            print("✅ 主 Provider 成功响应")
+        # 注意：Pipeline 不会自动写入 fallback_info 或 provider_name 到 metadata。
+        # 如需追踪 fallback，请通过日志或自定义中间件自行实现。
+        print(f"✅ 请求完成")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -115,7 +112,6 @@ async def test_fallback():
         try:
             response = await p.run(ctx)
             print(f"✅ Fallback 成功: {response.content}")
-            print(f"📊 使用的 Provider: {ctx.metadata.get('provider_name')}")
         
         except Exception as e:
             print(f"❌ 所有 Provider 失败: {e}")
@@ -127,8 +123,7 @@ asyncio.run(test_fallback())
 ```
 [WARNING] Primary provider failed: Invalid API key
 [INFO] Switching to fallback provider: DeepSeekProvider#1
-✅ Fallback 成功: Echo: 你好
-📊 使用的 Provider: DeepSeekProvider#1
+✅ Fallback 成功: 你好
 ```
 
 ---
@@ -145,6 +140,8 @@ class FallbackTracker:
     
     def record(self, context: AgentContext):
         self.total_requests += 1
+        # 注意：Pipeline 不会自动写入 fallback_info 到 metadata。
+        # 这里仅展示概念，实际需通过日志或自定义中间件追踪。
         if "fallback_info" in context.metadata:
             self.fallback_count += 1
             provider = context.metadata["fallback_info"]["used_provider"]
@@ -280,7 +277,9 @@ async def health_check_loop():
             health_pipeline.health_status[idx] = is_healthy
         await asyncio.sleep(60)  # 每分钟检查一次
 
-asyncio.create_task(health_check_loop())
+# 注意：asyncio.create_task() 必须在运行中的事件循环内调用。
+# 在模块顶层调用需包装在 async def main() 中，或使用 asyncio.run()。
+# asyncio.create_task(health_check_loop())
 ```
 
 ---
@@ -330,12 +329,7 @@ async def main():
         try:
             response = await p.run(ctx)
             print(f"✅ 成功")
-            print(f"📊 Provider: {ctx.metadata.get('provider_name')}")
             print(f"⏱️  耗时: {ctx.metadata.get('duration_s', 0):.2f}s")
-            
-            if "fallback_info" in ctx.metadata:
-                info = ctx.metadata["fallback_info"]
-                print(f"⚠️  Fallback: {info['used_provider']}")
         
         except Exception as e:
             print(f"❌ 所有 Provider 失败: {e}")

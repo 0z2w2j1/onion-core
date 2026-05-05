@@ -398,14 +398,15 @@ logger.info("Processing started", extra={"span_id": "span-1"})
 # JSON output includes: request_id, trace_id, span_id automatically
 ```
 
-**RequestContext (onion_core library)**: Propagate request context via `ContextVar`:
+**Request Context**: The `ObservabilityMiddleware` propagates request and trace IDs via `contextvars.ContextVar`:
 
 ```python
-from onion_core.observability import RequestContext, current_request_id
+from onion_core.agent import current_agent_request_id, current_agent_trace_id
 
-with RequestContext(request_id="req-1", trace_id="trace-1"):
-    print(current_request_id())  # "req-1"
-    # All nested async calls share the same context
+# These return the current coroutine's request_id and trace_id
+# Set automatically by the ObservabilityMiddleware during pipeline execution
+print(current_agent_request_id())  # e.g., "a1b2c3d4..."
+print(current_agent_trace_id())    # e.g., "e5f6g7h8..."
 ```
 
 ---

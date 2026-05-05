@@ -58,11 +58,10 @@ from onion_core.base import BaseMiddleware
 class TimeoutDiagnosticMiddleware(BaseMiddleware):
     """Diagnose where time is spent."""
     
-    async def process_request(self, request):
+    async def process_request(self, ctx):
         start = time.time()
         
         try:
-            response = await self.next.process_request(request)
             duration = time.time() - start
             
             if duration > 10:  # Log slow requests
@@ -71,7 +70,7 @@ class TimeoutDiagnosticMiddleware(BaseMiddleware):
                     extra={'duration': duration}
                 )
             
-            return response
+            return ctx
         except Exception as e:
             duration = time.time() - start
             logger.error(
@@ -128,13 +127,12 @@ provider = OpenAIProvider(model="gpt-3.5-turbo")  # Faster than GPT-4
 import time
 
 class ProfilingMiddleware(BaseMiddleware):
-    async def process_request(self, request):
+    async def process_request(self, ctx):
         start = time.time()
-        response = await self.next.process_request(request)
         duration = time.time() - start
         
         logger.info(f"{self.__class__.__name__}: {duration*1000:.2f}ms")
-        return response
+        return ctx
 ```
 
 2. **Optimize Slow Middleware**:
@@ -149,7 +147,7 @@ def expensive_computation(data):
 
 3. **Set Per-Middleware Timeouts**:
 ```python
-middleware = SafetyMiddleware(timeout=2.0)  # 2s timeout for safety checks
+middleware = SafetyGuardrailMiddleware(timeout=2.0)  # 2s timeout for safety checks
 ```
 
 ### Scenario 3: Connection Timeout
@@ -175,11 +173,8 @@ provider = OpenAIProvider(connect_timeout=10.0)  # Increase from 5s
 
 3. **Use Retry Logic**:
 ```python
-from tenacity import retry, stop_after_attempt, wait_exponential
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def connect_with_retry():
-    return await provider.generate(prompt)
+    return await provider.complete(context)
 ```
 
 ### Scenario 4: Concurrent Request Timeout
@@ -211,7 +206,7 @@ semaphore = asyncio.Semaphore(10)  # Max 10 concurrent requests
 
 async def limited_request(prompt):
     async with semaphore:
-        return await agent.run_async(prompt)
+        return await agent.run(context)
 ```
 
 3. **Monitor Resource Usage**:
@@ -231,47 +226,45 @@ def check_resources():
 ### Graceful Degradation
 
 ```python
-from onion_core.manager import ProviderManager
+from onion_core.providers import OpenAIProvider
 
-manager = ProviderManager()
+primary = OpenAIProvider(api_key="key1", model="gpt-4")
 
-async def generate_with_fallback(prompt):
-    providers = manager.get_all_providers()
+async def generate_with_fallback(context):
+    try:
+        return await asyncio.wait_for(
+            primary.complete(context),
+            timeout=30.0
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"Provider {primary.model} timed out")
+        raise
     
-    for provider in providers:
-        try:
-            return await asyncio.wait_for(
-                provider.generate(prompt),
-                timeout=provider.timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"Provider {provider.name} timed out, trying next...")
-            continue
-    
-    raise TimeoutError("All providers timed out")
+    raise TimeoutError("Provider timed out")
 ```
 
 ### Circuit Breaker Integration
 
 ```python
-from onion_core.middlewares import CircuitBreakerMiddleware
+from onion_core.circuit_breaker import CircuitBreaker
 
-circuit_breaker = CircuitBreakerMiddleware(
+circuit_breaker = CircuitBreaker(
     failure_threshold=5,
     recovery_timeout=60
 )
 
 # Automatically stop using failing providers
-pipeline = Pipeline(middlewares=[circuit_breaker])
+pipeline = Pipeline()
+pipeline.add_middleware(circuit_breaker)
 ```
 
 ### Timeout with Cancellation
 
 ```python
-async def run_with_cancellation(prompt, timeout=30.0):
+async def run_with_cancellation(context, timeout=30.0):
     try:
         return await asyncio.wait_for(
-            agent.run_async(prompt),
+            agent.run(context),
             timeout=timeout
         )
     except asyncio.TimeoutError:
@@ -286,16 +279,13 @@ async def run_with_cancellation(prompt, timeout=30.0):
 ### Track Timeout Metrics
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
-async def track_timeouts(request, error):
+async def track_timeouts(context, error):
     if isinstance(error, asyncio.TimeoutError):
-        metrics.increment('timeouts.total', tags={
-            'provider': request.provider,
-            'model': request.model
-        })
+        logger.warning(f"Timeout: provider={context.metadata.get('provider')}")
 ```
 
 ### Alert on Timeout Spike
@@ -303,8 +293,8 @@ async def track_timeouts(request, error):
 ```python
 def detect_timeout_spike():
     """Detect unusual timeout patterns."""
-    recent_timeouts = metrics.get('timeouts.last_hour')
-    baseline = metrics.get('timeouts.baseline')
+    recent_timeouts = timeouts_last_hour  # tracked via logging/metrics
+    baseline = timeouts_baseline
     
     if recent_timeouts > baseline * 2:
         send_alert(f"Timeout spike detected: {recent_timeouts} timeouts in last hour")

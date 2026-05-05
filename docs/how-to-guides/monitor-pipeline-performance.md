@@ -17,16 +17,11 @@ Monitoring Pipeline performance helps you:
 
 ```python
 from onion_core.middlewares import ObservabilityMiddleware
-from onion_core.observability import MetricsCollector
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
-observability = ObservabilityMiddleware(
-    metrics_enabled=True,
-    metrics_collector=metrics
-)
-
-pipeline = Pipeline(middlewares=[observability])
+pipeline = Pipeline(provider=provider)
+pipeline.add_middleware(observability)
 ```
 
 ### Key Metrics
@@ -47,33 +42,41 @@ pipeline = Pipeline(middlewares=[observability])
 
 ```python
 import time
+import logging
 from onion_core.base import BaseMiddleware
+
+logger = logging.getLogger(__name__)
 
 class TimingMiddleware(BaseMiddleware):
     """Measure middleware execution time."""
     
-    async def process_request(self, request):
-        start_time = time.time()
-        
-        try:
-            response = await self.next.process_request(request)
-            duration = time.time() - start_time
-            
-            # Record metric
-            metrics.histogram(
-                'middleware.duration',
-                duration * 1000,  # Convert to ms
-                tags={'middleware': self.__class__.__name__}
+    async def process_request(self, context):
+        context.metadata["_timing_start"] = time.monotonic()
+        return context
+    
+    async def process_response(self, context, response):
+        start = context.metadata.pop("_timing_start", None)
+        if start is not None:
+            duration = (time.monotonic() - start) * 1000
+            context.metadata["middleware_duration_ms"] = duration
+            logger.info(
+                "Middleware timing",
+                extra={"middleware": self.__class__.__name__, "duration_ms": duration}
             )
-            
-            return response
-        except Exception as e:
-            duration = time.time() - start_time
-            metrics.increment('middleware.errors', tags={
-                'middleware': self.__class__.__name__,
-                'error': type(e).__name__
-            })
-            raise
+        return response
+    
+    async def on_error(self, context, error):
+        start = context.metadata.pop("_timing_start", None)
+        if start is not None:
+            duration = (time.monotonic() - start) * 1000
+            logger.error(
+                "Middleware error",
+                extra={
+                    "middleware": self.__class__.__name__,
+                    "duration_ms": duration,
+                    "error": type(error).__name__
+                }
+            )
 ```
 
 ### Track Request/Response Sizes
@@ -82,17 +85,16 @@ class TimingMiddleware(BaseMiddleware):
 class SizeTrackingMiddleware(BaseMiddleware):
     """Track request and response sizes."""
     
-    async def process_request(self, request):
-        # Track request size
-        request_size = len(str(request))
-        metrics.histogram('request.size.bytes', request_size)
-        
-        response = await self.next.process_request(request)
-        
-        # Track response size
-        response_size = len(str(response))
-        metrics.histogram('response.size.bytes', response_size)
-        
+    async def process_request(self, context):
+        request_size = len(str(context.messages))
+        context.metadata["_request_size"] = request_size
+        return context
+    
+    async def process_response(self, context, response):
+        request_size = context.metadata.get("_request_size", 0)
+        response_size = len(response.content) if response.content else 0
+        context.metadata["request_size_bytes"] = request_size
+        context.metadata["response_size_bytes"] = response_size
         return response
 ```
 
@@ -175,7 +177,7 @@ async def process_with_tracing(request):
         span.set_attribute("request.prompt_length", len(request.prompt))
         
         try:
-            response = await provider.generate(request)
+            response = await provider.complete(context)
             span.set_attribute("response.tokens", response.usage.total_tokens)
             return response
         except Exception as e:
@@ -229,45 +231,50 @@ import uuid
 class LoggingMiddleware(BaseMiddleware):
     """Log complete request lifecycle."""
     
-    async def process_request(self, request):
+    async def process_request(self, context):
         request_id = str(uuid.uuid4())
-        start_time = time.time()
+        context.metadata["_request_id"] = request_id
+        context.metadata["_log_start"] = time.monotonic()
         
         logger.info(
             "Request started",
             extra={
                 'request_id': request_id,
-                'model': request.model,
-                'prompt_length': len(request.prompt)
+                'message_count': len(context.messages)
             }
         )
-        
-        try:
-            response = await self.next.process_request(request)
-            duration = time.time() - start_time
+        return context
+    
+    async def process_response(self, context, response):
+        request_id = context.metadata.pop("_request_id", "")
+        start = context.metadata.pop("_log_start", None)
+        if start is not None:
+            duration = (time.monotonic() - start) * 1000
             
             logger.info(
                 "Request completed",
                 extra={
                     'request_id': request_id,
-                    'duration_ms': duration * 1000,
-                    'response_length': len(response.content)
+                    'duration_ms': duration,
+                    'response_length': len(response.content) if response.content else 0
                 }
             )
-            
-            return response
-        except Exception as e:
-            duration = time.time() - start_time
+        return response
+    
+    async def on_error(self, context, error):
+        request_id = context.metadata.pop("_request_id", "")
+        start = context.metadata.pop("_log_start", None)
+        if start is not None:
+            duration = (time.monotonic() - start) * 1000
             
             logger.error(
-                f"Request failed: {e}",
+                f"Request failed: {error}",
                 extra={
                     'request_id': request_id,
-                    'duration_ms': duration * 1000,
-                    'error': str(e)
+                    'duration_ms': duration,
+                    'error': str(error)
                 }
             )
-            raise
 ```
 
 ## Alerting

@@ -13,9 +13,9 @@ Streaming PII detection processes text in chunks as it arrives from LLM response
 ## Basic Configuration
 
 ```python
-from onion_core.middlewares import SafetyMiddleware
+from onion_core.middlewares import SafetyGuardrailMiddleware
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     pii_detection=True,
     streaming_buffer_size=100,  # Characters to buffer
     buffer_timeout=1.0  # Seconds before flushing
@@ -38,7 +38,7 @@ safety = SafetyMiddleware(
 **Use Case**: Real-time chat, low-latency requirements
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     streaming_buffer_size=50,
     buffer_timeout=0.5
 )
@@ -58,7 +58,7 @@ safety = SafetyMiddleware(
 **Use Case**: General purpose applications
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     streaming_buffer_size=100,
     buffer_timeout=1.0
 )
@@ -79,7 +79,7 @@ safety = SafetyMiddleware(
 **Use Case**: High-security applications, compliance requirements
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     streaming_buffer_size=200,
     buffer_timeout=2.0
 )
@@ -92,7 +92,7 @@ safety = SafetyMiddleware(
 Flushes buffer quickly even if not full:
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     buffer_timeout=0.5,
     force_flush_on_timeout=True
 )
@@ -105,7 +105,7 @@ safety = SafetyMiddleware(
 Balanced approach:
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     buffer_timeout=1.0,
     force_flush_on_timeout=True
 )
@@ -118,7 +118,7 @@ safety = SafetyMiddleware(
 Waits longer for more context:
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     buffer_timeout=2.0,
     force_flush_on_timeout=False  # Wait for buffer to fill
 )
@@ -133,7 +133,7 @@ safety = SafetyMiddleware(
 Maintains overlap between chunks for better detection:
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     streaming_buffer_size=100,
     overlap_size=20,  # Keep last 20 chars from previous chunk
     use_overlap_for_detection=True
@@ -145,7 +145,7 @@ safety = SafetyMiddleware(
 Different buffer sizes for different PII types:
 
 ```python
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     default_buffer_size=100,
     pattern_buffers={
         'email': 50,      # Emails are short
@@ -171,7 +171,7 @@ def adaptive_buffer_size(context: dict) -> int:
     else:
         return 100  # Default
 
-safety = SafetyMiddleware(
+safety = SafetyGuardrailMiddleware(
     buffer_size_strategy=adaptive_buffer_size
 )
 ```
@@ -181,17 +181,14 @@ safety = SafetyMiddleware(
 ### Track Buffer Metrics
 
 ```python
-from onion_core.observability import MetricsCollector
+from onion_core.middlewares import ObservabilityMiddleware
 
-metrics = MetricsCollector()
+observability = ObservabilityMiddleware()
 
 async def monitor_buffer_performance(buffer_info: dict):
     """Monitor buffer performance metrics."""
     
-    metrics.gauge('pii.buffer.size', buffer_info['current_size'])
-    metrics.gauge('pii.buffer.fill_rate', buffer_info['fill_rate'])
-    metrics.increment('pii.buffer.flushes')
-    metrics.histogram('pii.buffer.latency.ms', buffer_info['flush_latency'] * 1000)
+    logger.info(f"Buffer size: {buffer_info['current_size']}, fill_rate: {buffer_info['fill_rate']}")
 ```
 
 ### Logging Buffer Events
@@ -231,7 +228,7 @@ async def test_buffer_performance(buffer_sizes):
     results = []
     
     for size in buffer_sizes:
-        safety = SafetyMiddleware(streaming_buffer_size=size)
+        safety = SafetyGuardrailMiddleware(streaming_buffer_size=size)
         
         start_time = time.time()
         
@@ -271,7 +268,7 @@ async def test_detection_accuracy(buffer_size: int) -> float:
         ("Hello world", False),
     ]
     
-    safety = SafetyMiddleware(streaming_buffer_size=buffer_size)
+    safety = SafetyGuardrailMiddleware(streaming_buffer_size=buffer_size)
     
     correct = 0
     total = len(test_cases)

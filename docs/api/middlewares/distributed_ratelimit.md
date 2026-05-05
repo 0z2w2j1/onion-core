@@ -1,6 +1,6 @@
-# Circuit Breaker API Reference
+# Distributed Ratelimit API Reference
 
-::: onion_core.circuit_breaker
+::: onion_core.middlewares.distributed_ratelimit
     options:
       show_root_heading: true
       show_root_full_path: false

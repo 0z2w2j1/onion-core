@@ -21,7 +21,7 @@ from onion_core.middlewares import (
 )
 
 async def main():
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         # 按优先级顺序添加中间件
         p.add_middleware(ObservabilityMiddleware())       # priority=100
         p.add_middleware(SafetyGuardrailMiddleware())     # priority=200
@@ -37,7 +37,7 @@ async def main():
         
         response = await p.run(ctx)
         print(f"脱敏后: {response.content}")
-        # 输出: Echo: 我的手机号是 ***，邮箱是 [email]
+        # 输出: 我的手机号是 ***，邮箱是 [email]
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
 ```python
 async def test_injection():
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         p.add_middleware(SafetyGuardrailMiddleware())
         
         # 测试 2: 提示词注入检测
@@ -83,7 +83,7 @@ if __name__ == "__main__":
 async def test_context_trimming():
     from onion_core.models import MessageRole
     
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         p.add_middleware(ContextWindowMiddleware(
             max_tokens=1000,
             keep_rounds=2,
@@ -125,7 +125,7 @@ from onion_core.middlewares.safety import PiiRule
 import re
 
 async def custom_pii_rules():
-    async with Pipeline(provider=EchoProvider()) as p:
+    async with Pipeline(provider=EchoProvider(reply=None)) as p:
         safety_mw = SafetyGuardrailMiddleware()
         
         # 添加自定义规则：脱敏 IP 地址
@@ -145,7 +145,7 @@ async def custom_pii_rules():
         
         response = await p.run(ctx)
         print(response.content)
-        # 输出: Echo: 服务器 IP 是 [IP]
+        # 输出: 服务器 IP 是 [IP]
 
 if __name__ == "__main__":
     asyncio.run(custom_pii_rules())
@@ -158,13 +158,19 @@ if __name__ == "__main__":
 ```python
 async def production_pipeline():
     async with Pipeline(
-        provider=EchoProvider(),
+        provider=EchoProvider(reply=None),
         max_retries=2,                    # 重试 2 次
         enable_circuit_breaker=True,      # 启用熔断器
         total_timeout=30.0                # 总超时 30 秒
     ) as p:
         # 外层：可观测性
         p.add_middleware(ObservabilityMiddleware())
+        
+        # 外层：速率限制（强制中间件，priority=150，防止滥用）
+        # p.add_middleware(RateLimitMiddleware(max_requests_per_minute=60))
+        
+        # 可选：响应缓存（priority=75，减少重复 LLM 调用）
+        # p.add_middleware(ResponseCacheMiddleware(ttl=300))
         
         # 中层：安全防护
         p.add_middleware(SafetyGuardrailMiddleware(

@@ -272,104 +272,9 @@ This is the first production-ready release of Onion Core, marking the completion
 - **Updated `Message`**: Added `tool_call_id`, `tool_calls` optional fields; `content` now accepts `None`.
 - **Clean lint/type**: Full `ruff` and `mypy --strict` compliance with zero errors.
 
-## [Unreleased]
-
-### Added
-
-- **AgentRuntime text-granularity streaming (`run_streaming_text`)**: New method yields `StreamChunk` tokens in real time while maintaining the full ReAct loop internally. Uses `provider.stream()` instead of `provider.complete()` when text streaming is requested. The `_run_think_phase` accepts an optional `on_chunk` callback.
-
-- **AgentRuntime `drain(timeout)` & `is_idle` property**: Graceful shutdown support — tracks in-flight requests via `_active_count`. `drain()` waits for all active tasks to complete. `is_idle` allows external orchestration to check if the agent can be safely shut down.
-
-- **`install_signal_handlers()`**: Registers SIGTERM/SIGINT handlers that call `agent.cancel()` and `agent.drain()`. Double-signal forces `SystemExit(1)`.
-
-- **AgentState `from_snapshot()`**: New `@classmethod` restores state from a dictionary previously produced by `snapshot()`, enabling checkpoint/resume for long-running agents.
-
-- **`ModelTokenLimits` & `MODEL_TOKEN_LIMITS`**: Built-in profiles for 15+ models (GPT-4o, Claude 3.5, DeepSeek, Qwen, Moonshot, etc.). `AgentRuntime._auto_tune_config()` auto-adjusts `max_tokens` and `memory_max_tokens` based on the configured model.
-
-- **`lookup_model_limits(model) -> ModelTokenLimits | None`**: Prefix-based model limit lookup utility.
-
-- **ToolCall `idempotency_key` field**: Added optional `idempotency_key` to `ToolCall` model. `ToolRegistry` caches results for matching keys and returns the cached result on repeat calls, preventing side-effect duplication on network retries.
-
-- **`ToolRegistry.clear_idempotency_cache()`**: Clears the idempotency cache (bounded at 10k entries with LRU eviction).
-
-- **`auto_configure_tracing(service_name, otlp_endpoint)`**: Reads `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, and `OTEL_TRACES_SAMPLER` environment variables to auto-configure OpenTelemetry tracing via `BatchSpanProcessor` + `OTLPSpanExporter`. Gracefully degrades if optional deps are not installed.
-
-- **Test coverage increased from 79% to 92%**: Added comprehensive test suites for previously uncovered modules:
-  - `test_health_server.py` — Full HTTP-level tests for `HealthServer`, `HealthCheckHandler` (all endpoints: liveness, readiness, startup, health, 404), and `start_health_server()` convenience function
-  - `test_agent_runtime.py` — Tests for `AgentRuntime` (init validation, run/run_streaming, hooks, cancel), `StateMachine` (transitions, callbacks, determine_next_action), `DefaultPlanner` (all 6 decision branches), `SlidingWindowMemory` (trim, trim_with_summary, token estimation), and `ToolExecutor` (unknown tool, retry, concurrent execution)
-  - `BaseMiddleware` default implementations — Tests for `process_stream_chunk`, `on_tool_call`, `on_tool_result`, `on_error`, `startup`/`shutdown`, and `name` property defaults
-  - `StructuredLogAdapter` — Full coverage for `_inject_extra`, all log level methods, `with_context`, `logger` property, and `exception` with exc_info
-  - `JsonFormatter` edge cases — trace_id/span_id/error_code from extra fields, request_id override precedence, custom extra passthrough
-  - `configure_logging()` text format path
-  - Pipeline context validation — Too many messages, content too long, Unicode bomb detection, multimodal content
-  - Middleware error isolation chain — `process_response` error isolation, mandatory middleware propagation
-  - Runtime middleware registration via `add_middleware_async()`
-  - Sync API edge case — `run_sync()` from async context raises `RuntimeError`
-  - Safety middleware PII masking (input-side enable, custom PII rules)
-  - `manager.py` backward-compatibility alias test
-  - `Pipeline.from_config()` factory method test
-  - `__init__.py` all-exports importability test
-  - `Pipeline.health_check()` state transitions test
-
-### Fixed
-
-- **HealthServer.stop() not cleaning up server reference**: Added `server_close()`, `self._server = None`, and `self._thread = None` to ensure proper resource cleanup on shutdown
-
-- **P0: AgentLoop Assistant Message Duplication** — `AgentLoop.run()` appended `response.content` as a standalone assistant message after already appending `response.to_assistant_message()` via the pipeline. This caused duplicate assistant entries in conversation history, polluting LLM context. Now uses `response.to_assistant_message()` which correctly includes both content and tool_calls.
-
-- **P0: AgentRuntime run/run_streaming Code Duplication** — `run()` and `run_streaming()` shared 60+ lines of identical loop logic. Extracted into a private `_run_loop()` async generator. Both methods are now thin wrappers: `run()` silently consumes `_run_loop()`, `run_streaming()` re-yields each `StepRecord`.
-
-- **P0: AgentLoop Memory Leak — Unbounded Context Growth** — `AgentLoop.run()` accumulated `Message` objects each turn with no trimming mechanism. Added `memory: SlidingWindowMemory | None` parameter; when provided, `context.messages` is trimmed by token count at the start of every turn.
-
-- **P0: ToolExecutor Undifferentiated Error Retry** — `ToolExecutor.execute()` retried all exceptions identically (including `ValueError`, `TypeError` etc.). Now integrates `RetryPolicy.classify()`: FATAL errors (e.g., `ValueError`, `KeyError`) are reported immediately without retry; only RETRY-classified transient errors use exponential backoff.
-
-- **P0: stream_sync() Thread Safety & Pipeline id() Fragility**
-  - Reduced busy-wait polling from 0.1s to 0.05s for faster shutdown
-  - Added `GeneratorExit` handling in the async producer to prevent silent hangs
-  - Replaced `id(provider)` dictionary keys with a stable counter-based index (`_provider_indices`) to avoid memory-address reuse risks
-
-- **P0: Sync API Thread Safety Fix**
-  - Removed dangerous thread pool nesting in `_run_async_in_sync()` that could cause deadlocks
-  - Now raises clear `RuntimeError` when sync methods are called from async contexts
-  - Refactored `stream_sync()` to collect all chunks in a single thread execution (bounded by `max_stream_chunks`)
-  - Eliminated per-chunk thread switching overhead (10-50μs/chunk performance improvement)
-  - Added proper resource cleanup with `contextlib.suppress()` for loop closing
-  - Updated documentation with clear warnings about sync API limitations
-  
-- **Registered TraceIdFilter in configure_logging()**: The `TraceIdFilter` was defined but never attached to any logging handler, breaking trace_id propagation in structured JSON logs. Now registered in `configure_logging()` via `handler.addFilter(TraceIdFilter())`.
-- **Moved ThreadPoolExecutor outside stream_sync() loop**: `stream_sync()` previously created a new `ThreadPoolExecutor` for every stream chunk, causing excessive thread creation overhead. Now the executor is created once and reused for the entire stream iteration.
-- **Simplified `_run_async_in_sync()` event loop handling**: Removed the broken `loop.run_until_complete(coro)` path on the main thread (which always raised `RuntimeError` when an event loop was running). All live-loop cases now uniformly delegate to `executor.submit(lambda: asyncio.run(coro))`.
-
-- **P0 Critical Issues Resolution**
-  - Fixed stream timeout control: Now uses absolute deadline instead of per-chunk timeout to prevent request hanging
-  - Fixed RateLimitMiddleware memory leak: Added `_MAX_TIMESTAMPS_PER_SESSION` limit (1000) to prevent unbounded deque growth
-  - Fixed distributed cache race condition: Added `asyncio.Lock` for thread-safe statistics counting (`_hits`, `_misses`)
-  - Enhanced prompt injection detection: Added regex pattern matching and Unicode confusion detection to bypass simple keyword checks
-  - Fixed CircuitBreaker state transition: Moved OPEN→HALF_OPEN logic inside lock to ensure atomic state changes
-  - Added AgentLoop duplicate tool call protection: Prevents infinite loops from repeated identical tool calls
-  - Added missing `asyncio` import in `distributed_cache.py`
-  - Replaced `asyncio.TimeoutError` with builtin `TimeoutError` (UP041)
-  - Simplified boolean return in `_detect_unicode_confusion()` (SIM103)
-
-### Changed
-
-- **P1: Unified Token Counting** — `SlidingWindowMemory._TokenEstimator` now uses `tiktoken` for accurate token counting instead of the crude 4-char-per-token heuristic, aligning with `ContextWindowMiddleware`. Falls back to heuristic if tiktoken is unavailable.
-- **Pipeline.shutdown() No Longer Raises in `__aexit__`** — `__aexit__` now catches `shutdown()` exceptions and logs them instead of propagating, which could mask the original exception from the `async with` block.
-- **Removed `tenacity` Dependency** — Listed in `pyproject.toml` but never used anywhere in the codebase (all retry logic is hand-rolled with exponential backoff).
-- **Optional Client Injection for Providers** — `OpenAIProvider` and `AnthropicProvider` now accept an optional `client` parameter, allowing connection pool sharing across multiple provider instances. `cleanup()` only closes the client if owned.
-- **Exported `CircuitBreakerError`** — Added to `__init__.py` exports for users who need to catch this exception type explicitly.
-- **Improved Redis async method handling with runtime type detection**
-- **Enhanced type safety for distributed rate limiter and cache middleware**
-- **Cleaner test code with removed unused imports and variables**
-
-### Code Quality
-
-- All changes pass Ruff linting ✓
-- All changes pass MyPy strict mode ✓
-- Test suite: 393 passed, 1 skipped, 79% coverage
-- No breaking changes to public API
-
 ---
+
+## [0.7.1] - 2026-04-25
 
 ### Added
 
@@ -401,6 +306,10 @@ This is the first production-ready release of Onion Core, marking the completion
 - All sync API methods now use centralized event loop management
 - Improved error messages for validation failures
 - Test coverage increased to 90% (from 85%)
+
+---
+
+## [0.7.0] - 2026-04-25
 
 ### Added
 
@@ -464,6 +373,8 @@ This is the first production-ready release of Onion Core, marking the completion
 - Memory usage bounded by configurable max_size
 
 ---
+
+## [0.6.0] - 2026-04-24
 
 ### Added
 
@@ -573,71 +484,38 @@ This is the first production-ready release of Onion Core, marking the completion
 
 ---
 
-### 新增
+## [1.0.0] - 2026-04-26
 
-- **完整的监控与告警基础设施**
-  - 新增 `docs/monitoring.md` 包含完整的 SLO/SLI 定义
-  - 预定义 Alertmanager 规则（`monitoring/alertmanager_rules.yml`）
-    - 高错误率检测 (>5%)
-    - P95/P99 延迟告警 (>10秒)
-    - 熔断器激活监控
-    - Token 预算超额警告 (>100万 tokens/小时)
-    - 工具调用失败率告警 (>10%)
-    - 服务中断检测（无活跃请求）
-  - 生产就绪的 Grafana 仪表板（`monitoring/grafana_dashboard.json`）
-    - 请求速率和错误率图表
-    - P95/P99 延迟可视化
-    - Token 使用量跟踪（每小时）
-    - 活跃请求数指示器
-    - 错误预算剩余量显示
-    - 工具调用成功率
-    - 结束原因分布饼图
-  - 带燃烧率阈值的错误预算策略（1x, 2x, 5x, 10x, 14x）
-  - 常见告警场景的故障排除手册
-- **同步 API 封装**，适用于非异步环境（Flask/Django/脚本）
-  - 新增 `Pipeline.run_sync()` 方法用于同步调用
-  - 新增 `Pipeline.stream_sync()` 方法用于同步流式调用
-  - 新增 `Pipeline.execute_tool_call_sync()` 和 `execute_tool_result_sync()` 方法
-  - 新增 `Pipeline.startup_sync()` 和 `shutdown_sync()` 方法
-  - 支持同步上下文管理器（`with Pipeline(...) as p:`）
-  - 完整的测试覆盖，新增 9 个测试用例
-  - 示例代码位于 `examples/sync_api_example.py`
-- 新增统一错误码系统 (`onion_core/error_codes.py`)
-  - 定义 `ErrorCode` 枚举，覆盖 Security / RateLimit / CircuitBreaker / Provider / Middleware / Validation / Timeout / Fallback / Internal 九大类错误
-  - 新增 `OnionErrorWithCode` 异常基类，支持错误码、cause 链、extra 字段
-  - 新增 `ERROR_MESSAGES` / `ERROR_RETRY_POLICY` 映射表
-  - 新增 `security_error()` / `provider_error()` / `fallback_error()` 便捷工厂函数
-- 新增降级策略文档 (`docs/degradation_strategy.md`)
-  - 错误分类与处置策略（RETRY / FALLBACK / FATAL）
-  - 指数退避重试算法说明
-  - 熔断器状态机与参数配置
-  - Fallback Provider 链执行顺序
-  - 中间件故障隔离机制
-  - 生产环境配置建议与监控告警指标
-- 新增错误码使用指南 (`docs/error_code_usage.md`)
-  - 快速开始示例（新方式 / 工厂函数 / 向后兼容）
-  - 在中间件和 Provider 中的使用示例
-  - 错误序列化、结构化日志、HTTP API 响应示例
-  - 自定义错误码扩展方法
-  - 完整错误码参考表
-- 集成 Ruff 代码检查工具
-- 更新所有文档日期至 2026-04-24
-- `pyproject.toml` 新增 `Documentation` URL
-- `README.md` 更新新功能和徽章
+### 生产版发布
 
-### 更改
+- 首个生产级版本，所有 API 稳定且向后兼容
+- 集成测试、E2E Agent 测试、故障注入测试、并发测试全套测试体系
+- 测试套件扩展至 390+ 测试，92% 覆盖率
 
-- `onion_core/__init__.py` 新增导出 `ErrorCode`, `OnionErrorWithCode`, `ERROR_MESSAGES`, `ERROR_RETRY_POLICY` 等
-- `onion_core/models.py` 修复 `CircuitState` 类定义位置（此前编辑失误导致结构错误）
-- Python 版本要求更新至 3.11+（从 3.9+）
-- 增强 Pipeline 的熔断器和 Fallback Provider 协调机制
-- 改进中间件故障隔离和错误处理
+---
 
-### 修复
+## [0.9.0] - 2026-04-26
 
-- 修复 `models.py` 与 `error_codes.py` 之间的循环导入问题（通过 `TYPE_CHECKING` + 延迟导入解决）
-- 恢复 `models.py` 中被误删的 `CircuitState` 枚举定义
-- 修复所有文档日期一致性问题
+### 生产级增强
+
+- 分布式熔断器（Redis 后端）——多实例状态共享
+- Token 费用追踪（Prometheus 计数器）——实时成本监控
+- P95/P99 延迟监控（Prometheus Summary）
+- 分层分布式限流（请求 vs 工具调用）
+- Context AgentState 同步修复
+- 异步 Token 计数（ThreadPoolExecutor）
+
+---
+
+## [0.8.0] - 2026-04-26
+
+### 架构整合
+
+- 移除 `src/` 包，统一至 `onion_core/`
+- 统一模型：AgentStatus、ActionType、StepRecord、AgentConfig、AgentState
+- 统一 Agent 运行时：AgentRuntime、StateMachine、DefaultPlanner、ToolExecutor、SlidingWindowMemory
+- 扩展 ToolResult、LLMResponse、ToolCall、Message 数据模型
+- ruff 和 mypy --strict 零错误
 
 ---
 

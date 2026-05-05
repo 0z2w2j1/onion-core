@@ -54,8 +54,8 @@ The pipeline executes middleware and providers asynchronously:
 ```python
 from onion_core import Pipeline
 
-pipeline = Pipeline(middlewares=[...])
-response = await pipeline.execute(request)
+pipeline = Pipeline(provider=...)
+response = await pipeline.run(ctx)
 ```
 
 ### Concurrent Tool Calls
@@ -75,12 +75,12 @@ results = await asyncio.gather(
 Onion Core provides sync wrappers for web frameworks that don't support async:
 
 ```python
-from onion_core.agent import AgentRuntime
+from onion_core import Pipeline
 
-agent = AgentRuntime(config=config)
+pipeline = Pipeline(provider=provider)
 
 # Sync method for Flask, Django, etc.
-response = agent.run_sync(prompt="Hello")
+response = pipeline.run_sync(ctx)
 ```
 
 ### How Sync Wrappers Work
@@ -88,8 +88,8 @@ response = agent.run_sync(prompt="Hello")
 Sync methods use `asyncio.run()` internally:
 
 ```python
-def run_sync(self, prompt: str) -> Response:
-    return asyncio.run(self.run_async(prompt))
+def run_sync(self, ctx: AgentContext) -> LLMResponse:
+    return asyncio.run(self.run(ctx))
 ```
 
 ## Common Pitfalls
@@ -152,7 +152,7 @@ from concurrent.futures import ThreadPoolExecutor
 executor = ThreadPoolExecutor(max_workers=4)
 
 async def process_data(data):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(executor, cpu_bound_function, data)
     return result
 ```
@@ -172,8 +172,8 @@ async def process_data(data):
 ```python
 import asyncio
 
-async def handle_multiple_requests(prompts):
-    tasks = [agent.run_async(prompt) for prompt in prompts]
+async def handle_multiple_requests(contexts):
+    tasks = [agent.run(ctx) for ctx in contexts]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     return results
 ```
