@@ -61,6 +61,9 @@ Changelog = "https://github.com/0z2w2j1/onion-core/blob/main/CHANGELOG.md"
 where = ["."]
 include = ["onion_core*"]
 
+[tool.setuptools.package-data]
+onion_core = ["py.typed"]
+
 # ── pytest ──────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

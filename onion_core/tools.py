@@ -189,6 +189,7 @@ class ToolRegistry:
         self._tools: dict[str, ToolDefinition] = {}
         self._idempotency_cache: dict[str, IdempotencyCacheEntry] = {}
         self._idempotency_lock = asyncio.Lock()
+        self._in_flight: dict[str, asyncio.Future[ToolResult]] = {}
         self._max_cache_size = max_cache_size
         self._cache_ttl = cache_ttl
         self._write_count = 0
@@ -277,7 +278,8 @@ class ToolRegistry:
         同步函数会在线程池中执行，不阻塞事件循环。
 
         幂等性：当 tool_call.idempotency_key 设置时，相同 key 的结果会被缓存，
-        避免幂等操作失败重试时的副作用。
+        避免幂等操作失败重试时的副作用。并发相同 key 的调用会共享同一次执行，
+        保证工具函数对每个 key 最多被执行一次。
         """
         tool_def = self._tools.get(tool_call.name)
         if tool_def is None:
@@ -288,19 +290,69 @@ class ToolRegistry:
                 error=f"Tool '{tool_call.name}' not found in registry",
             )
 
-        if tool_call.idempotency_key is not None:
-            async with self._idempotency_lock:
-                cached = self._idempotency_cache.get(tool_call.idempotency_key)
-                if cached is not None:
-                    if time.time() - cached.timestamp < self._cache_ttl:
-                        logger.info(
-                            "Idempotency hit for key='%s', returning cached result",
-                            tool_call.idempotency_key,
-                        )
-                        return cached.result.model_copy(deep=True)
-                    else:
-                        del self._idempotency_cache[tool_call.idempotency_key]
+        if tool_call.idempotency_key is None:
+            return await self._execute_once(tool_def, tool_call, context)
 
+        key = tool_call.idempotency_key
+
+        async with self._idempotency_lock:
+            cached = self._idempotency_cache.get(key)
+            if cached is not None:
+                if time.time() - cached.timestamp < self._cache_ttl:
+                    logger.info(
+                        "Idempotency hit for key='%s', returning cached result",
+                        key,
+                    )
+                    return cached.result.model_copy(deep=True)
+                del self._idempotency_cache[key]
+
+            in_flight = self._in_flight.get(key)
+            if in_flight is None:
+                in_flight = asyncio.get_running_loop().create_future()
+                self._in_flight[key] = in_flight
+                owner = True
+            else:
+                owner = False
+
+        if not owner:
+            logger.info(
+                "Idempotency in-flight join for key='%s', awaiting shared execution",
+                key,
+            )
+            result = await asyncio.shield(in_flight)
+            return result.model_copy(deep=True)
+
+        try:
+            result = await self._execute_once(tool_def, tool_call, context)
+            async with self._idempotency_lock:
+                if result.error is None:
+                    self._idempotency_cache[key] = IdempotencyCacheEntry(
+                        result=result,
+                        timestamp=time.time(),
+                    )
+                    self._write_count += 1
+                    should_cleanup = self._write_count % self._cleanup_interval == 0
+                else:
+                    should_cleanup = False
+                self._in_flight.pop(key, None)
+            if not in_flight.done():
+                in_flight.set_result(result)
+            if should_cleanup:
+                self._cleanup_expired_cache_entries()
+            return result
+        except BaseException as exc:
+            async with self._idempotency_lock:
+                self._in_flight.pop(key, None)
+            if not in_flight.done():
+                in_flight.set_exception(exc)
+            raise
+
+    async def _execute_once(
+        self,
+        tool_def: ToolDefinition,
+        tool_call: ToolCall,
+        context: AgentContext | None,
+    ) -> ToolResult:
         if context and context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
             return ToolResult(
                 tool_call_id=tool_call.id,
@@ -346,7 +398,7 @@ class ToolRegistry:
             # 统一转为 str 以满足 Pydantic Union[str, Dict, List] 类型约束
             if not isinstance(result, (str, dict, list)):
                 result = str(result)
-            
+
             # 截断过大的工具结果
             max_chars = context.config.get("tool_result_max_chars", 50000) if context else 50000
             if isinstance(result, str) and len(result) > max_chars:
@@ -355,22 +407,12 @@ class ToolRegistry:
                     tool_call.name, len(result), max_chars,
                 )
                 result = result[:max_chars] + "...[truncated]"
-            
-            tool_result = ToolResult(
+
+            return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
                 result=result,
             )
-            if tool_call.idempotency_key is not None:
-                async with self._idempotency_lock:
-                    self._idempotency_cache[tool_call.idempotency_key] = IdempotencyCacheEntry(
-                        result=tool_result,
-                        timestamp=time.time(),
-                    )
-                    self._write_count += 1
-                if self._write_count % self._cleanup_interval == 0:
-                    self._cleanup_expired_cache_entries()
-            return tool_result
         except Exception as exc:
             logger.error(
                 "Tool '%s' raised %s: %s",

@@ -4,17 +4,32 @@
 
 ### Fixed
 
-- **Round 4 Code Review Fixes** — Concurrency safety hardening, streaming sentinel pattern fixes, config defaults for distributed middlewares (connection timeouts, Lua script loading, retry config)
-- **Systematic Code Review Fixes** — Circuit breaker state machine hardening, memory leak prevention (RateLimitMiddleware deque cleanup, distributed cache stats lock), type annotation improvements across all modules
-- **Exception Hierarchy & Type Safety** — Unified exception handling in pipeline retry logic, fixed `ErrorCode | None` type narrowing for `OnionErrorWithCode`, stricter input validation
-- **Metrics & Observability** — Fixed optional import handling for Prometheus metrics, graceful degradation when optional deps unavailable
-- **Config Depth Access** — Hardened 3-layer nesting limit validation in `Pipeline._config_depth`
+- **Tool idempotency — concurrent execution merge** — `ToolRegistry.execute()` now uses a per-key `asyncio.Future` in-flight map. Parallel calls sharing the same `idempotency_key` all join a single execution, so the tool function runs at most once per key even under concurrent load. Failed results are not cached; joiners see the same error and subsequent calls can retry.
+- **Safety injection detection — regression tests for historical messages** — Added regression tests confirming `SafetyGuardrailMiddleware` scans every user message (not only the last), so injection payloads in earlier turns remain blocked.
+
+### Changed
+
+- **Pipeline — validation extracted to `onion_core/_validation.py`** — DoS-prevention checks (message bounds, Unicode bomb detection, metadata size, config nesting depth) are now pure functions in a dedicated module. `Pipeline._validate_context` delegates to `validate_context()`. Behaviour unchanged; the module is independently testable and reusable.
+- **Pipeline — streaming deadline resolution simplified** — Removed `_stream_with_deadline` / `_stream_without_deadline` wrappers. `stream()` now calls `_resolve_stream_deadline()` and forwards directly to `_stream_core`, eliminating duplicated routing logic.
+- **Documentation — project metadata de-drifted** — Line-count tables and stale test counts removed from CLAUDE.md; references to `_config_depth` / `_stream_with_deadline` updated to reflect the new layout.
+
+### Packaging
+
+- **PEP 561 type marker** — Added `onion_core/py.typed` and declared it as package-data in `pyproject.toml`. Downstream projects now receive type information when importing `onion_core`.
+
+### Earlier round-4 fixes (kept for historical context)
+
+- Concurrency safety hardening, streaming sentinel pattern fixes, config defaults for distributed middlewares
+- Circuit breaker state machine hardening, memory leak prevention (RateLimitMiddleware deque cleanup, distributed cache stats lock), type annotation improvements
+- Unified exception handling in pipeline retry logic, fixed `ErrorCode | None` type narrowing, stricter input validation
+- Optional import handling for Prometheus metrics, graceful degradation when optional deps unavailable
+- Hardened 3-layer nesting limit validation (now in `_validation.config_depth`)
 
 ### Quality
 
-- 522 tests passing, 84% coverage
 - mypy strict mode: 0 errors
 - ruff check: 0 errors
+- Full suite green locally; counts drift — run `pytest --collect-only -q` for current number.
 
 ---
 

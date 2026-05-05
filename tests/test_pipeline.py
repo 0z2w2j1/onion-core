@@ -309,7 +309,7 @@ async def test_onion_reverse_order(hook, expected):
 
 @pytest.mark.asyncio
 async def test_validate_context_too_many_messages():
-    from onion_core.pipeline import _MAX_MESSAGES
+    from onion_core._validation import MAX_MESSAGES as _MAX_MESSAGES
     p = Pipeline(provider=EchoProvider())
     ctx = AgentContext(messages=[Message(role="user", content="x")] * (_MAX_MESSAGES + 1))
     with pytest.raises(ValidationError, match="Too many messages"):

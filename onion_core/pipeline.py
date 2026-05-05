@@ -15,22 +15,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import queue
 import random
 import threading
 import types
-import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Iterator
 from typing import Any, TypeVar, cast, overload
 
+from ._validation import validate_context as _validate_context_fn
 from .base import BaseMiddleware
 from .circuit_breaker import CircuitBreaker
 from .config import OnionConfig
 from .error_codes import ErrorCode, OnionErrorWithCode
 from .models import (
-    _MAX_TOOL_CALL_DEPTH,
     AgentContext,
     CacheHitException,
     CircuitBreakerError,
@@ -46,53 +44,9 @@ from .provider import LLMProvider
 
 logger = logging.getLogger("onion_core.pipeline")
 
-# 输入验证常量（防止 DoS）
-_MAX_MESSAGES = 1000  # 最多 1000 条消息，防止内存溢出
-_MAX_CONTENT_LENGTH = 1_000_000  # 单条消息最大 1MB，防止超大 payload
-_MAX_NESTING_LEVEL = 5  # 消息内容最大嵌套层级（用于 config）
-_MAX_CONTENT_BLOCKS = 50  # 单条消息最多 50 个内容块，防止 DoS
-_UNICODE_COMBINING_THRESHOLD = 0.3  # Unicode 组合字符阈值（30%）
-_UNICODE_BOMB_MIN_CHARS = 10  # Unicode 炸弹检测最小字符数
-
 _DEFAULT_RETRY_POLICY = RetryPolicy()
 
 _T = TypeVar("_T")
-
-
-def _detect_unicode_bomb(text: str) -> bool:
-    """
-    检测 Unicode 炸弹（Zalgo 文本等）。
-
-    检查组合字符（combining characters）比例是否超过阈值。
-    Zalgo 文本通过大量组合字符实现"溢出"效果，可能导致渲染引擎崩溃。
-
-    采用提前退出策略：一旦组合字符数量超过阈值所需的最小值即返回 True，
-    避免对正常文本扫描全部字符。
-
-    Args:
-        text: 待检测的文本
-
-    Returns:
-        True 如果检测到 Unicode 炸弹
-    """
-    if not text:
-        return False
-
-    total_chars = len(text)
-    if total_chars == 0:
-        return False
-
-    if total_chars < _UNICODE_BOMB_MIN_CHARS:
-        return False
-
-    threshold_count = max(2, int(total_chars * _UNICODE_COMBINING_THRESHOLD) + 1)
-    combining_count = 0
-    for c in text:
-        if unicodedata.combining(c):
-            combining_count += 1
-            if combining_count >= threshold_count:
-                return True
-    return False
 
 
 class Pipeline:
@@ -342,32 +296,56 @@ class Pipeline:
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
         """流式调用：request → provider.stream → 逐 chunk 过中间件。"""
         self._validate_context(context)
-        
+
         buf_key = f"_safety_buf_{context.request_id}"
         timestamp_key = f"_safety_buf_ts_{context.request_id}"
-        
+
         try:
-            if self._total_timeout is not None:
-                # 使用 deadline 机制实现总超时
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError as exc:
-                    raise RuntimeError(
-                        "stream() must be called from within an async context. "
-                        "Use stream_sync() for synchronous usage."
-                    ) from exc
-                deadline = loop.time() + self._total_timeout
-                
-                async for chunk in self._stream_with_deadline(context, deadline):
-                    yield chunk
-            else:
-                async for chunk in self._stream_without_deadline(context):
-                    yield chunk
+            deadline, timeout_code, timeout_message = self._resolve_stream_deadline(context)
+            async for chunk in self._stream_core(
+                context,
+                deadline=deadline,
+                timeout_code=timeout_code,
+                timeout_message=timeout_message,
+            ):
+                yield chunk
         finally:
             # 确保在任何情况下（包括异常）都清理缓冲区
             context.metadata.pop(buf_key, None)
             context.metadata.pop(timestamp_key, None)
-    
+
+    def _resolve_stream_deadline(
+        self, context: AgentContext
+    ) -> tuple[float | None, ErrorCode | None, str]:
+        """根据 total_timeout / provider_timeout 决定流式调用的 deadline 与超时元数据。
+
+        total_timeout 优先级高于 provider_timeout；两者都未设置时返回 (None, None, "")。
+        """
+        if self._total_timeout is not None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    "stream() must be called from within an async context. "
+                    "Use stream_sync() for synchronous usage."
+                ) from exc
+            return (
+                loop.time() + self._total_timeout,
+                ErrorCode.TIMEOUT_TOTAL_PIPELINE,
+                (
+                    f"Pipeline total timeout ({self._total_timeout}s) "
+                    f"exceeded for stream request {context.request_id}"
+                ),
+            )
+        if self._provider_timeout is not None:
+            loop = asyncio.get_running_loop()
+            return (
+                loop.time() + self._provider_timeout,
+                ErrorCode.TIMEOUT_PROVIDER,
+                f"Stream timeout exceeded ({self._provider_timeout}s)",
+            )
+        return None, None, ""
+
     async def _get_healthy_stream_provider(self, context: AgentContext) -> tuple[LLMProvider, CircuitBreaker | None]:
         """
         选择第一个未被熔断的 provider 用于流式调用。
@@ -399,35 +377,6 @@ class Pipeline:
             return provider, cb
 
         raise CircuitBreakerError("All providers are circuit-broken for streaming")
-
-    async def _stream_with_deadline(self, context: AgentContext, deadline: float) -> AsyncIterator[StreamChunk]:
-        """内部方法：带总超时的流式调用。"""
-        async for chunk in self._stream_core(
-            context,
-            deadline=deadline,
-            timeout_code=ErrorCode.TIMEOUT_TOTAL_PIPELINE,
-            timeout_message=(
-                f"Pipeline total timeout ({self._total_timeout}s) "
-                f"exceeded for stream request {context.request_id}"
-            ),
-        ):
-            yield chunk
-
-    async def _stream_without_deadline(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
-        """内部方法：无总超时的流式调用（原有逻辑）。"""
-        if self._provider_timeout is not None:
-            loop = asyncio.get_running_loop()
-            deadline = loop.time() + self._provider_timeout
-            async for chunk in self._stream_core(
-                context,
-                deadline=deadline,
-                timeout_code=ErrorCode.TIMEOUT_PROVIDER,
-                timeout_message=f"Stream timeout exceeded ({self._provider_timeout}s)",
-            ):
-                yield chunk
-        else:
-            async for chunk in self._stream_core(context):
-                yield chunk
 
     async def _stream_core(
         self,
@@ -643,107 +592,8 @@ class Pipeline:
     # ------------------------------------------------------------------
 
     def _validate_context(self, context: AgentContext) -> None:
-        """
-        验证 AgentContext 的合法性。
-
-        防止恶意用户构造超大 payload、Unicode 炸弹等导致 DoS。
-
-        Raises:
-            ValidationError: 当验证失败时抛出
-        """
-        # 验证消息数量
-        if len(context.messages) > _MAX_MESSAGES:
-            raise ValidationError(
-                f"Too many messages: {len(context.messages)} (max: {_MAX_MESSAGES})",
-                error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-            )
-
-        # 验证每条消息的内容
-        for i, msg in enumerate(context.messages):
-            if isinstance(msg.content, str):
-                # 检查内容长度
-                if len(msg.content) > _MAX_CONTENT_LENGTH:
-                    raise ValidationError(
-                        f"Message {i} content too long: {len(msg.content)} chars "
-                        f"(max: {_MAX_CONTENT_LENGTH})",
-                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-                    )
-
-                # 检查 Unicode 炸弹
-                if _detect_unicode_bomb(msg.content):
-                    raise ValidationError(
-                        f"Message {i} contains suspicious Unicode characters (possible Zalgo text)",
-                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-                    )
-
-            elif isinstance(msg.content, list):
-                # 多模态内容
-                total_length = sum(
-                    len(block.text) if block.text else 0
-                    for block in msg.content
-                    if block.type == "text"
-                )
-                if total_length > _MAX_CONTENT_LENGTH:
-                    raise ValidationError(
-                        f"Message {i} multimodal content too long: {total_length} chars "
-                        f"(max: {_MAX_CONTENT_LENGTH})",
-                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-                    )
-
-                # 检查内容块数量
-                if len(msg.content) > _MAX_CONTENT_BLOCKS:
-                    raise ValidationError(
-                        f"Message {i} has too many content blocks: {len(msg.content)} "
-                        f"(max: {_MAX_CONTENT_BLOCKS})",
-                        error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-                    )
-
-                # 检查每个文本块的 Unicode 炸弹
-                for block_idx, block in enumerate(msg.content):
-                    if block.type == "text" and block.text and _detect_unicode_bomb(block.text):
-                        raise ValidationError(
-                            f"Message {i} block {block_idx} contains suspicious Unicode characters",
-                            error_code=ErrorCode.VALIDATION_INVALID_MESSAGE,
-                        )
-
-        # 验证工具调用的嵌套深度
-        if context.metadata.get("tool_calls_depth", 0) > _MAX_TOOL_CALL_DEPTH:
-            raise ValidationError(
-                f"Tool call nesting depth exceeded: {context.metadata['tool_calls_depth']} "
-                f"(max: {_MAX_TOOL_CALL_DEPTH})",
-                error_code=ErrorCode.VALIDATION_INVALID_TOOL_CALL,
-            )
-
-        # 验证 metadata 总大小（防止 DoS）
-        try:
-            metadata_size = len(json.dumps(context.metadata, default=str))
-        except (TypeError, ValueError):
-            metadata_size = len(str(context.metadata))
-        if metadata_size > 1_000_000:
-            raise ValidationError(
-                f"Metadata too large: {metadata_size} bytes (max: 1MB)",
-                error_code=ErrorCode.VALIDATION_INVALID_CONTEXT,
-            )
-
-        # 验证 metadata key 数量
-        if len(context.metadata) > 100:
-            raise ValidationError(
-                f"Metadata has too many keys: {len(context.metadata)} (max: 100)",
-                error_code=ErrorCode.VALIDATION_INVALID_CONTEXT,
-            )
-
-        # 验证 config 嵌套深度
-        if self._config_depth(context.config) > 3:
-            raise ValidationError(
-                "Config nesting depth exceeds limit (max: 3)",
-                error_code=ErrorCode.VALIDATION_INVALID_CONFIG,
-            )
-
-    @staticmethod
-    def _config_depth(obj: object, depth: int = 0) -> int:
-        if not isinstance(obj, dict) or depth >= 3:
-            return depth
-        return max((Pipeline._config_depth(v, depth + 1) for v in obj.values()), default=depth)
+        """委托至 `onion_core._validation.validate_context`。保留为方法便于子类覆写。"""
+        _validate_context_fn(context)
 
     @overload
     async def _call_middleware(

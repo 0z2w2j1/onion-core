@@ -154,3 +154,8 @@ out.txt
 test_output.txt
 temp_config.json
 *.log
+
+# Personal review / scratchpad notes (not for commit)
+/claude.md
+/proposedFix.md
+/.claude/
