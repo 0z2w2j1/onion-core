@@ -1,6 +1,7 @@
 """Onion Core middlewares package."""
 
 from ..models import RateLimitExceeded, SecurityException
+from .budget import BudgetMiddleware, BudgetUsage
 from .cache import ResponseCacheMiddleware
 from .context import ContextWindowMiddleware
 from .distributed_cache import DistributedCacheMiddleware
@@ -17,6 +18,8 @@ __all__ = [
     "PiiRule",
     "BUILTIN_PII_RULES",
     "ContextWindowMiddleware",
+    "BudgetMiddleware",
+    "BudgetUsage",
     "RateLimitMiddleware",
     "DistributedRateLimitMiddleware",
     "RateLimitExceeded",

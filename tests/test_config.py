@@ -29,10 +29,14 @@ def test_onion_config_defaults():
     cfg = OnionConfig()
     assert cfg.pipeline.max_retries == 0
     assert cfg.pipeline.provider_timeout is None
+    assert cfg.pipeline.total_timeout is None
     assert cfg.safety.enable_pii_masking is True
     assert cfg.context_window.max_tokens == 4000
     assert cfg.context_window.summary_strategy == "rule-based"
     assert cfg.observability.log_level == "INFO"
+    assert cfg.cache.enabled is False
+    assert cfg.rate_limit.enabled is False
+    assert cfg.budget.enabled is False
 
 
 def test_onion_config_code_construction():
@@ -179,8 +183,9 @@ async def test_pipeline_from_config_context_window():
 async def test_pipeline_from_config_pipeline_params():
     """from_config 应将 PipelineConfig 参数传给 Pipeline。"""
     cfg = OnionConfig(
-        pipeline=PipelineConfig(max_retries=2, provider_timeout=5.0)
+        pipeline=PipelineConfig(max_retries=2, provider_timeout=5.0, total_timeout=30.0)
     )
     p = Pipeline.from_config(provider=EchoProvider(), config=cfg)
     assert p._max_retries == 2
     assert p._provider_timeout == 5.0
+    assert p._total_timeout == 30.0

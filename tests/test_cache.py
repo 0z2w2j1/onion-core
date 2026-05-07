@@ -203,6 +203,25 @@ class TestResponseCacheMiddleware:
         key2 = mw._generate_cache_key(ctx2)
         assert key1 != key2
 
+    def test_cache_key_includes_provider_and_model_identity(self):
+        """相同输入在不同 provider/model 下不能串缓存。"""
+        mw = ResponseCacheMiddleware(cache_key_strategy="full")
+        ctx1 = AgentContext(messages=[Message(role="user", content="Hello")])
+        ctx1.metadata["provider_name"] = "provider-a"
+        ctx1.metadata["model"] = "model-a"
+
+        ctx2 = AgentContext(messages=[Message(role="user", content="Hello")])
+        ctx2.metadata["provider_name"] = "provider-b"
+        ctx2.metadata["model"] = "model-b"
+
+        assert mw._generate_cache_key(ctx1) != mw._generate_cache_key(ctx2)
+
+    def test_cache_namespace_isolation(self):
+        ctx = AgentContext(messages=[Message(role="user", content="Hello")])
+        key1 = ResponseCacheMiddleware(namespace="app-a")._generate_cache_key(ctx)
+        key2 = ResponseCacheMiddleware(namespace="app-b")._generate_cache_key(ctx)
+        assert key1 != key2
+
     @pytest.mark.asyncio
     async def test_stream_not_cached(self):
         """测试流式响应不被缓存。"""

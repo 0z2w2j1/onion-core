@@ -6,7 +6,7 @@
 
 ## Migrating from v0.9.x to v1.0.0
 
-### Production/Stable Release
+### Governance-Layer Beta Release
 
 v1.0.0 is the first production-stable release with full test coverage and pipeline hardening.
 

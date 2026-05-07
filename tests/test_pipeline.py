@@ -8,6 +8,7 @@ import pytest
 
 from onion_core import (
     AgentContext,
+    CallableProvider,
     EchoProvider,
     LLMResponse,
     Message,
@@ -29,6 +30,34 @@ async def test_run_returns_llm_response(started_pipeline, simple_context):
     assert isinstance(resp, LLMResponse)
     assert resp.content
     assert resp.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_complete_text_entrypoint():
+    p = Pipeline(provider=EchoProvider(reply=None))
+    resp = await p.complete("Hello", system="You are concise.")
+    assert resp.content == "Echo: Hello"
+
+
+@pytest.mark.asyncio
+async def test_complete_messages_entrypoint_accepts_dicts():
+    p = Pipeline(provider=EchoProvider(reply=None))
+    resp = await p.complete_messages([
+        {"role": "system", "content": "You are concise."},
+        {"role": "user", "content": "Hello from dict"},
+    ])
+    assert resp.content == "Echo: Hello from dict"
+
+
+@pytest.mark.asyncio
+async def test_callable_provider_wraps_existing_call():
+    async def existing_call(context: AgentContext) -> str:
+        return f"wrapped:{context.messages[-1].text_content}"
+
+    p = Pipeline(provider=CallableProvider(existing_call, model="wrapped-model"))
+    resp = await p.complete("hello")
+    assert resp.content == "wrapped:hello"
+    assert resp.model == "wrapped-model"
 
 
 @pytest.mark.asyncio
@@ -441,6 +470,18 @@ async def test_from_config_creates_pipeline():
     assert len(p.middlewares) == 3
     resp = await p.run(make_context())
     assert isinstance(resp, LLMResponse)
+
+
+def test_governed_balanced_preset_installs_governance_middlewares():
+    p = Pipeline.governed(provider=EchoProvider(), preset="balanced")
+    names = [mw.name for mw in p.middlewares]
+    assert names == [
+        "ResponseCacheMiddleware",
+        "ObservabilityMiddleware",
+        "RateLimitMiddleware",
+        "SafetyGuardrailMiddleware",
+        "ContextWindowMiddleware",
+    ]
 
 
 # ── __init__.py imports ──────────────────────────────────────────────────────

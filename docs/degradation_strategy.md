@@ -311,7 +311,7 @@ Throw ONI-F801 FALLBACK_EXHAUSTED (final failure)
 
 | Version | Date | Change Content |
 |------|------|----------|
-| v1.0.0 | 2026-05-05 | Production/Stable release; pipeline hardening, full test coverage |
+| v1.0.0 | 2026-05-05 | Governance-layer beta; pipeline hardening, focused test coverage |
 | v0.9.x | 2026-04-25 | Added distributed middleware (rate limit, cache, circuit breaker); observability sub-package |
 | v0.8.0 | 2026-04-25 | Architecture consolidation: `src/` removed, imports unified to `onion_core` |
 | v0.7.0 | 2026-04-24 | Added ResponseCacheMiddleware, enhanced sync API, load testing suite |
@@ -632,7 +632,7 @@ pipeline = Pipeline(
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
-| v1.0.0 | 2026-05-05 | 生产/稳定版；Pipeline 强化，测试覆盖完整 |
+| v1.0.0 | 2026-05-05 | 治理层 Beta；Pipeline 强化，聚焦测试覆盖 |
 | v0.9.x | 2026-04-25 | 新增分布式中间件（限流、缓存、熔断）；可观测性子包 |
 | v0.8.0 | 2026-04-25 | 架构整合：移除 `src/`，导入统一至 `onion_core` |
 | v0.7.0 | 2026-04-24 | 新增 ResponseCacheMiddleware，增强同步 API，负载测试套件 |

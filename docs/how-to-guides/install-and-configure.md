@@ -4,7 +4,7 @@ This guide walks you through installing and configuring Onion Core for your proj
 
 ## Prerequisites
 
-- Python 3.9 or higher
+- Python 3.11 or higher
 - pip (Python package manager)
 - Virtual environment (recommended)
 
@@ -53,35 +53,47 @@ from onion_core.config import OnionConfig
 config = OnionConfig(
     # Pipeline configuration
     pipeline={
-        "timeout": 30.0,
+        "provider_timeout": 30.0,
+        "total_timeout": 60.0,
         "max_retries": 3,
-        "retry_delay": 1.0
     },
     
     # Safety configuration
     safety={
-        "enabled": True,
-        "pii_detection": True,
+        "enable_pii_masking": True,
         "blocked_keywords": ["password", "secret"]
     },
     
     # Context window configuration
     context_window={
         "max_tokens": 8000,
-        "max_messages": 50
+        "keep_rounds": 3,
     },
     
     # Observability configuration
     observability={
-        "logging_enabled": True,
-        "metrics_enabled": True,
-        "tracing_enabled": True,
+        "enable_metrics": True,
+        "enable_tracing": True,
+    },
+
+    # Optional response cache
+    cache={
+        "enabled": True,
+        "ttl_seconds": 300,
+        "max_size": 1000,
+    },
+
+    # Optional rate limit
+    rate_limit={
+        "enabled": True,
+        "max_requests": 60,
+        "window_seconds": 60,
     },
     
     # Concurrency configuration
     concurrency={
-        "max_workers": 10,
-        "task_queue_size": 100,
+        "tool_concurrency": 10,
+        "llm_max_connections": 100,
     },
 )
 ```
@@ -113,7 +125,7 @@ Create `config.yaml`:
 
 ```yaml
 pipeline:
-  timeout: 30.0
+  provider_timeout: 30.0
   max_retries: 3
 
 safety:
@@ -121,7 +133,7 @@ safety:
 
 context_window:
   max_tokens: 8000
-  max_messages: 50
+  keep_rounds: 3
 ```
 
 Load the configuration:
@@ -143,7 +155,7 @@ Create `config.json`:
 ```json
 {
   "pipeline": {
-    "timeout": 30.0,
+    "provider_timeout": 30.0,
     "max_retries": 3
   },
   "safety": {
@@ -175,7 +187,6 @@ provider = OpenAIProvider(
     api_key="your-openai-key",
     model="gpt-4",
     base_url=None,  # Optional: custom endpoint
-    timeout=30.0
 )
 ```
 
@@ -187,7 +198,6 @@ from onion_core.providers import AnthropicProvider
 provider = AnthropicProvider(
     api_key="your-anthropic-key",
     model="claude-3-opus",
-    timeout=30.0
 )
 ```
 
@@ -197,9 +207,8 @@ provider = AnthropicProvider(
 from onion_core.providers import OllamaProvider
 
 provider = OllamaProvider(
-    base_url="http://localhost:11434",
     model="llama2",
-    timeout=60.0
+    base_url="http://localhost:11434/v1",
 )
 ```
 
@@ -208,16 +217,14 @@ provider = OllamaProvider(
 ### Health Check
 
 ```python
-from onion_core.agent import AgentRuntime
-from onion_core import AgentContext, Message
+from onion_core import EchoProvider, Pipeline
 
-agent = AgentRuntime(config=config)
+pipeline = Pipeline.governed(provider=EchoProvider(), config=config)
 
 async def test_connection():
     try:
-        ctx = AgentContext(messages=[Message(role="user", content="Hello, world!")])
-        response = await agent.run(ctx)
-        print(f"Success: {response}")
+        response = await pipeline.complete("Hello, world!")
+        print(f"Success: {response.content}")
     except Exception as e:
         print(f"Error: {e}")
 
@@ -271,8 +278,8 @@ os.environ["ONION_API_KEY"] = "your-api-key"
 ```python
 config = OnionConfig(
     pipeline={
-        "timeout": 60.0,  # Increase timeout
-        "max_retries": 5,   # Increase retries
+        "provider_timeout": 60.0,  # Increase provider timeout
+        "max_retries": 5,          # Increase retries
     },
 )
 ```

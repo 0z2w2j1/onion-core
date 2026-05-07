@@ -227,7 +227,7 @@ class DistributedRateLimitMiddleware(BaseMiddleware):
             remaining = int(result[0])
             retry_after = float(result[1])
 
-            if remaining < 0:
+            if remaining < 0 or retry_after > 0:
                 # 限流触发
                 logger.warning(
                     "[%s] %s rate limit exceeded for session %s (retry after %.1fs)",

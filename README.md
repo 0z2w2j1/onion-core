@@ -2,9 +2,9 @@
 
 <div align="center">
 
-**Agent Middleware Framework — Onion-Model Pipeline for LLM Applications**
+**Lightweight Embeddable Middleware Layer for LLM Call Governance**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/0z2w2j1/onion-core)
+[![Version](https://img.shields.io/badge/version-1.1.0b1-blue.svg)](https://github.com/0z2w2j1/onion-core)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Test Status](https://github.com/0z2w2j1/onion-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0z2w2j1/onion-core/actions)
@@ -22,7 +22,7 @@
 
 ### Overview
 
-**Onion Core** is a middleware framework for AI Agent applications. It wraps LLM calls with layered "onion skins" — each layer provides **security, reliability, and observability** capabilities for your Agent.
+**Onion Core** is a lightweight middleware layer for governing LLM calls. It wraps an existing provider or SDK call with layered "onion skins" for **safety, rate limiting, caching, budget control, context control, retries, fallback, and observability**.
 
 ```
          User Request
@@ -60,12 +60,12 @@
 
 ### Why Onion Core?
 
-Building a simple chatbot is easy. Building a **production-grade** AI application is hard. Onion Core solves the "heavy lifting":
+Onion Core is for teams that already have an LLM call path and want operational guardrails without adopting a full agent framework:
 
 | Problem | Onion Core Solution |
 |---------|---------------------|
 | **Security anxiety** — prompt injection, PII leakage | `SafetyGuardrailMiddleware`: keyword blocking, PII masking (email, phone, ID) |
-| **Cost control** — token explosion, context overflow | `ContextWindowMiddleware`: tiktoken-based counting, auto-truncation |
+| **Cost control** — token explosion, context overflow | `ContextWindowMiddleware` + `BudgetMiddleware`: token counting, truncation, quota enforcement |
 | **Service instability** — API timeouts, rate limits | Retry with exponential backoff + Fallback Providers + Circuit Breaker |
 | **Repeated calls** — redundant LLM API cost | `ResponseCacheMiddleware`: LRU cache with TTL, SHA-256 key matching |
 | **Black box** — no visibility into what happened | Structured JSON logs, Prometheus metrics, OpenTelemetry tracing |
@@ -90,36 +90,40 @@ pip install "onion-core[anthropic]"
 pip install "onion-core[all]"
 ```
 
-#### Your First Pipeline
+#### Your First Governed Pipeline
 
 ```python
 import asyncio
-from onion_core import Pipeline, AgentContext, Message, EchoProvider
-from onion_core.middlewares import (
-    SafetyGuardrailMiddleware,
-    ContextWindowMiddleware,
-    ObservabilityMiddleware,
-)
+from onion_core import EchoProvider, Pipeline
 
 async def main():
-    async with Pipeline(
+    async with Pipeline.governed(
         provider=EchoProvider(reply=None),
-        max_retries=2,
-        enable_circuit_breaker=True,
+        preset="balanced",  # cache + logging + rate limit + safety + context window
     ) as p:
-        p.add_middleware(ObservabilityMiddleware())
-        p.add_middleware(SafetyGuardrailMiddleware())
-        p.add_middleware(ContextWindowMiddleware(max_tokens=2000))
-
-        ctx = AgentContext(messages=[
-            Message(role="user", content="My phone is 13812345678")
-        ])
-        response = await p.run(ctx)
+        response = await p.complete("My phone is 13812345678")
         print(response.content)
         # Output: Echo: My phone is ***
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+#### Wrap an Existing LLM Call
+
+```python
+from onion_core import AgentContext, CallableProvider, Pipeline
+
+async def existing_llm_call(ctx: AgentContext) -> str:
+    # Call your current SDK/client here.
+    return f"LLM saw: {ctx.messages[-1].text_content}"
+
+pipeline = Pipeline.governed(
+    provider=CallableProvider(existing_llm_call, model="my-existing-model"),
+    preset="balanced",
+)
+
+response = await pipeline.complete("hello")
 ```
 
 #### Synchronous API (for Flask/Django/Scripts)
@@ -195,20 +199,29 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM, etc.
 - Auto-truncation: preserves system prompt + latest N rounds
 - AgentState synchronization: truncated context automatically synced back to agent memory
 
+#### 💸 Budget Governance
+- `BudgetMiddleware` enforces sliding-window token and cost budgets
+- Scope by tenant, session, API key, or any metadata/config key
+- Budget checks happen before provider calls; usage is recorded from provider token stats
+
 #### ⚡ Rate Limiting & Circuit Breaker
 - **Layered rate limiting**: Separate limits for regular requests vs tool calls (prevents tool call storms)
 - Per-session sliding window (in-memory, single-process)
 - Circuit breaker: stops hitting a failing provider (CLOSED → OPEN → HALF_OPEN → CLOSED)
 - **Note**: Redis-backed distributed middlewares are available as optional components
 
-#### 📊 Production Observability
+#### 📊 Operational Observability
 - Structured JSON logging with `request_id`
 - Prometheus metrics (`onion_requests_total`, `onion_request_duration_seconds`, etc.)
 - OpenTelemetry distributed tracing
 
-#### 🤖 Agent Loop
+#### 🤖 Experimental Agent Loop
+
+Onion Core includes a small AgentLoop/AgentRuntime for examples and simple tool loops, but the primary public path is the embeddable middleware pipeline.
+
 ```python
-from onion_core import AgentLoop, ToolRegistry
+from onion_core import AgentLoop
+from onion_core.tools import ToolRegistry
 
 registry = ToolRegistry()
 @registry.register
@@ -274,60 +287,28 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 
 | Item | Status |
 |------|--------|
-| Version | 1.0.0 (Production/Stable) |
+| Version | 1.1.0b1 (Beta, governance-layer focus) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 522 tests, **84%** coverage |
+| Test Coverage | 500+ tests, **84%+** coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | License | MIT |
-| Architecture | Single-process with optional Redis-backed distributed coordination |
-
-### 🚧 Development Progress (Phase 1: Foundation)
-
-- [x] Type hints with mypy strict mode
-- [x] Benchmark tests for middleware latency
-- [x] GitHub Actions CI pipeline
-- [x] Unified error code system (ErrorCode enum + OnionErrorWithCode)
-- [x] Degradation strategy documentation
-- [x] Synchronous API wrapper (for Flask/Django/scripts)
-- [x] Enhanced sync API with event loop safety (v0.7.0)
-- [x] Response cache middleware (v0.7.0)
-- [x] Comprehensive load testing suite (v0.7.0)
-- [x] Migration guide and updated docs (v0.7.0)
-- [x] 92% test coverage (Phase 1 target: 95% for v1.0)
-- [x] Input validation & DoS protection (v0.7.1)
-- [x] Refactored sync API to eliminate code duplication (v0.7.1)
-- [x] Fixed exception chain preservation issue (v0.7.1)
-- [x] Enhanced prompt injection detection with multilingual keywords (v0.7.2)
-- [x] Fixed Python version classifier inconsistency (v0.7.2)
-- [x] Cache short-circuit optimization - skip provider call on cache hit (v0.7.3)
-- [x] Fixed stream_sync memory leak - generator bridge pattern (v0.7.3)
-- [x] Added max_stream_chunks config for DoS protection (v0.7.3)
-- [x] Enhanced input validation - Unicode bomb detection & nesting depth (v0.7.4)
-- [x] Health check HTTP server for Kubernetes probes (v0.7.4)
-- [x] Comprehensive monitoring guide with Grafana dashboard JSON (v0.7.4)
-- [x] **Architecture consolidation: removed `src/`, unified models and runtime into `onion_core/` (v0.8.0)**
-- [x] **Distributed middleware enhancements: token cost tracking, P95/P99 latency, layered rate limiting (v0.9.0)**
-- [x] **Critical stability fixes: Unicode confusion false positives, race conditions, OOM prevention (v0.9.1)**
-- [x] **Redis connection timeouts, context injection, capped backoff (v0.9.2)**
-- [x] **Async improvements: non-blocking tiktoken, cache hit exception safety (v0.9.3)**
-- [x] **Anthropic streaming tool calls, accurate token estimation, TCP leak fix (v0.9.4)**
-- [x] **Tool calls depth tracking, result size limits, trace ID hierarchy (v0.9.5)**
-- [x] **Request total timeout, cache invalidation, TOCTOU documentation (v0.9.6)**
-- [x] **Integration & E2E test suite added (v1.0.0)**
-- [x] **Critical concurrency fixes: exception chain preservation, stream_sync resource cleanup, async safety (v1.0.1)**
+| Architecture | Embeddable single-process middleware layer; optional Redis-backed coordination components |
 
 ### 📋 Roadmap
 
 | Phase | Target | Status |
 |-------|--------|--------|
 | Phase 1 | Foundation & Standardization | ✅ Complete |
-| v1.0 | Production Ready | ✅ Released |
+| Phase 2 | Lightweight governance-layer focus | 🚧 Active |
 
-> ⚠️ **Note:** This is a **Production/Stable** release (v1.0.0). APIs are stable and backward compatible.
+Current focus:
+- Keep the public path centered on `Pipeline`, `LLMProvider`, and governance middleware.
+- Treat AgentLoop/AgentRuntime as optional/experimental helpers, not the main product surface.
+- Improve provider/model-safe caching, budget enforcement, Redis integration tests, and embedding guides.
 > 
-> ⚠️ **Architecture Limitation:** Current version supports **single-process deployment only**. Circuit breaker and rate limiter states are stored in-memory and cannot be shared across multiple instances. Distributed backends (Redis/Etcd) are available via separate middleware classes but require external infrastructure.
+> ⚠️ **Architecture Limitation:** The default middlewares are single-process and in-memory. Redis-backed distributed middlewares are available as optional components and require external infrastructure.
 
 ### Known Limitations
 
@@ -370,7 +351,7 @@ Released under the [MIT License](LICENSE).
 
 ### 概述
 
-**Onion Core** 是一个为 AI Agent 打造的中间件框架。它就像给你的大模型应用穿上了一层层"洋葱皮"，每一层都为你的 Agent 提供 **安全、可靠和可观测** 的能力。
+**Onion Core** 是一个轻量、可嵌入的 LLM 调用治理中间件层。它可以包裹你现有的 Provider 或 SDK 调用，用一层层"洋葱皮"提供 **安全、限流、缓存、预算、上下文控制、重试、降级和可观测** 能力。
 
 ```
         用户请求 (Request)
@@ -408,12 +389,12 @@ Released under the [MIT License](LICENSE).
 
 ### 为什么选择 Onion Core？
 
-开发一个简单的对话机器人很简单，但开发一个**生产级别**的 AI 应用却很难。Onion Core 专门解决这些"脏活累活"：
+Onion Core 适合已经有 LLM 调用链路、但希望低成本加上运行时治理能力的团队：
 
 | 痛点 | Onion Core 解决方案 |
 |------|---------------------|
 | **安全焦虑** — 提示词注入、隐私泄露 | `SafetyGuardrailMiddleware`：关键词拦截、PII 脱敏（邮箱、手机号、身份证） |
-| **成本失控** — Token 爆炸、上下文溢出 | `ContextWindowMiddleware`：tiktoken 精准计数、自动裁剪 |
+| **成本失控** — Token 爆炸、上下文溢出 | `ContextWindowMiddleware` + `BudgetMiddleware`：Token 计数、裁剪、预算拦截 |
 | **服务不稳定** — API 超时、限流 | 指数退避重试 + Fallback Providers + 熔断机制 |
 | **重复调用** — 冗余的 LLM API 成本 | `ResponseCacheMiddleware`：带 TTL 的 LRU 缓存，SHA-256 键匹配 |
 | **黑盒运行** — 无可见性 | 结构化 JSON 日志、Prometheus 指标、OpenTelemetry 链路追踪 |
@@ -438,36 +419,40 @@ pip install "onion-core[anthropic]"
 pip install "onion-core[all]"
 ```
 
-#### 你的第一个安全 Pipeline
+#### 第一个治理型 Pipeline
 
 ```python
 import asyncio
-from onion_core import Pipeline, AgentContext, Message, EchoProvider
-from onion_core.middlewares import (
-    SafetyGuardrailMiddleware,
-    ContextWindowMiddleware,
-    ObservabilityMiddleware,
-)
+from onion_core import EchoProvider, Pipeline
 
 async def main():
-    async with Pipeline(
+    async with Pipeline.governed(
         provider=EchoProvider(reply=None),
-        max_retries=2,
-        enable_circuit_breaker=True,
+        preset="balanced",  # 缓存 + 日志 + 限流 + 安全 + 上下文窗口
     ) as p:
-        p.add_middleware(ObservabilityMiddleware())
-        p.add_middleware(SafetyGuardrailMiddleware())
-        p.add_middleware(ContextWindowMiddleware(max_tokens=2000))
-
-        ctx = AgentContext(messages=[
-            Message(role="user", content="我的手机号是 13812345678")
-        ])
-        response = await p.run(ctx)
+        response = await p.complete("我的手机号是 13812345678")
         print(response.content)
-        # 输出：Echo: 我的手机号是 ***127899999
+        # 输出：Echo: 我的手机号是 ***
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+#### 包裹已有 LLM 调用
+
+```python
+from onion_core import AgentContext, CallableProvider, Pipeline
+
+async def existing_llm_call(ctx: AgentContext) -> str:
+    # 在这里调用你当前已经在用的 SDK/client。
+    return f"LLM saw: {ctx.messages[-1].text_content}"
+
+pipeline = Pipeline.governed(
+    provider=CallableProvider(existing_llm_call, model="my-existing-model"),
+    preset="balanced",
+)
+
+response = await pipeline.complete("hello")
 ```
 
 #### 同步 API（适用于 Flask/Django/脚本）
@@ -541,6 +526,11 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM 等
 - 使用 `tiktoken` 实现与 OpenAI 完全一致的 Token 计数
 - 智能裁剪：自动保留系统提示词 + 最新 N 轮对话
 
+#### 💸 预算治理
+- `BudgetMiddleware` 支持滑动窗口 Token/成本预算
+- 可按租户、session、API key 或自定义 metadata/config key 限额
+- Provider 调用前先检查预算，调用后根据 usage 记录消耗
+
 #### ⚡ 限流与熔断
 - 按用户（Session ID）滑动窗口限流（内存态，单进程）
 - 熔断器：持续故障时自动切断（CLOSED → OPEN → HALF_OPEN → CLOSED）
@@ -551,9 +541,13 @@ provider = LocalProvider(base_url="http://192.168.1.100:8000/v1")  # vLLM 等
 - Prometheus 指标（`onion_requests_total`、`onion_request_duration_seconds` 等）
 - OpenTelemetry 分布式链路追踪
 
-#### 🤖 Agent 循环
+#### 🤖 实验性 Agent 循环
+
+项目保留了轻量的 AgentLoop/AgentRuntime，适合示例和简单工具循环；主要公开路径仍是可嵌入的 middleware pipeline。
+
 ```python
-from onion_core import AgentLoop, ToolRegistry
+from onion_core import AgentLoop
+from onion_core.tools import ToolRegistry
 
 registry = ToolRegistry()
 @registry.register
@@ -619,60 +613,28 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 
 | 项目 | 状态 |
 |------|------|
-| 版本 | 1.0.0（Production/Stable） |
+| 版本 | 1.1.0b1（Beta，聚焦治理层） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 522 个测试，**84%** 覆盖率 |
+| 测试覆盖 | 500+ 个测试，**84%+** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
 | 开源协议 | MIT |
-| 架构限制 | 单进程部署，可选 Redis 分布式协调支持 |
-
-### 🚧 开发进度（第一阶段：基础与标准化）
-
-- [x] mypy 严格类型检查
-- [x] 中间件性能基准测试
-- [x] GitHub Actions CI 流水线
-- [x] 统一错误码系统（ErrorCode 枚举 + OnionErrorWithCode）
-- [x] 降级策略文档
-- [x] 同步 API 封装（适用于 Flask/Django/脚本）
-- [x] 增强同步 API 事件循环安全性（v0.7.0）
-- [x] 响应缓存中间件（v0.7.0）
-- [x] 完整压力测试套件（v0.7.0）
-- [x] 迁移指南和文档更新（v0.7.0）
-- [x] 92% 测试覆盖率（v1.0 目标：95%）
-- [x] 输入验证与 DoS 防护（v0.7.1）
-- [x] 重构同步 API，消除代码重复（v0.7.1）
-- [x] 修复异常链丢失问题（v0.7.1）
-- [x] 增强提示词注入检测，支持多语言关键词（v0.7.2）
-- [x] 修复 Python 版本分类器不一致问题（v0.7.2）
-- [x] 缓存短路优化 - 命中时跳过 Provider 调用（v0.7.3）
-- [x] 修复 stream_sync 内存泄漏 - 生成器桥接模式（v0.7.3）
-- [x] 添加 max_stream_chunks 配置防止 DoS 攻击（v0.7.3）
-- [x] 增强输入验证 - Unicode 炸弹检测和嵌套深度（v0.7.4）
-- [x] Kubernetes 探针健康检查 HTTP 服务器（v0.7.4）
-- [x] 包含 Grafana Dashboard JSON 的完整监控指南（v0.7.4）
-- [x] **架构统一：移除 `src/`，模型和运行时合并到 `onion_core/`（v0.8.0）**
-- [x] **分布式中间件增强：Token 成本跟踪、P95/P99 延迟、分层限流（v0.9.0）**
-- [x] **关键稳定性修复：Unicode 混淆误报、竞态条件、OOM 预防（v0.9.1）**
-- [x] **Redis 连接超时、上下文注入、退避上限（v0.9.2）**
-- [x] **异步改进：非阻塞 tiktoken、缓存命中异常安全（v0.9.3）**
-- [x] **Anthropic 流式工具调用、精准 Token 估算、TCP 泄漏修复（v0.9.4）**
-- [x] **工具调用深度跟踪、结果大小限制、Trace ID 层级统一（v0.9.5）**
-- [x] **请求总超时、缓存失效、TOCTOU 文档化（v0.9.6）**
-- [x] **集成测试和 E2E 测试套件新增（v1.0.0）**
-- [x] **关键并发修复：异常链保留、stream_sync 资源清理、异步安全性（v1.0.1）**
+| 架构限制 | 可嵌入的单进程中间件层，可选 Redis 分布式协调组件 |
 
 ### 📋 路线图
 
 | 阶段 | 目标 | 状态 |
 |------|------|------|
 | 第一阶段 | 基础与标准化 | ✅ 已完成 |
-| v1.0 | 生产就绪 | ✅ 已发布 |
+| 第二阶段 | 轻量 LLM 调用治理层 | 🚧 进行中 |
 
-> ⚠️ **注意：** 当前为 **生产就绪** 版本（v1.0.0）。API 稳定且向后兼容。
+当前重点：
+- 将主要公开路径收敛到 `Pipeline`、`LLMProvider` 和治理中间件。
+- 将 AgentLoop/AgentRuntime 作为可选/实验性能力，而非主产品面。
+- 继续加强 provider/model 安全缓存、预算拦截、Redis 集成测试和嵌入式使用指南。
 >
-> ⚠️ **架构限制：** 当前版本**仅支持单进程部署**。熔断器和限流器状态存储在内存中，无法在多个实例间共享。分布式后端（Redis/Etcd）可通过独立的中间件类使用，但需要外部基础设施。
+> ⚠️ **架构限制：** 默认中间件为单进程内存态。Redis 分布式中间件作为可选组件提供，需要外部基础设施。
 
 ### 已知限制
 

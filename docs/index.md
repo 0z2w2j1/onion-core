@@ -1,6 +1,6 @@
 # Onion Core Documentation
 
-> **Agent middleware framework** — onion-model pipeline for LLM applications
+> **Lightweight embeddable middleware layer** for LLM call governance
 
 [![PyPI version](https://badge.fury.io/py/onion-core.svg)](https://badge.fury.io/py/onion-core)
 [![Python Support](https://img.shields.io/pypi/pyversions/onion-core.svg)](https://pypi.org/project/onion-core/)
@@ -8,7 +8,7 @@
 
 ## 🧅 What is Onion Core?
 
-Onion Core is a **middleware framework** for building reliable, secure, and observable AI Agent applications. It wraps LLM calls with layered protective middleware, following the principle of **defense in depth**.
+Onion Core is a **lightweight embeddable middleware layer** for governing LLM calls. It wraps existing provider or SDK calls with layered protective middleware, following the principle of **defense in depth**.
 
 ```
                     ┌─────────────────────────────┐
@@ -58,15 +58,11 @@ pip install onion-core
 
 ```python
 import asyncio
-from onion_core import Pipeline, AgentContext, Message, EchoProvider
+from onion_core import EchoProvider, Pipeline
 
 async def main():
-    async with Pipeline(provider=EchoProvider()) as p:
-        ctx = AgentContext(messages=[
-            Message(role="user", content="Hello, Onion Core!")
-        ])
-        
-        response = await p.run(ctx)
+    async with Pipeline.governed(provider=EchoProvider(), preset="balanced") as p:
+        response = await p.complete("Hello, Onion Core!")
         print(response.content)
 
 if __name__ == "__main__":

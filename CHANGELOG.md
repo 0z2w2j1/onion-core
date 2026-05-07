@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [1.1.0b1] - 2026-05-07
+
+### Added
+
+- **Governance-layer API** — Added `Pipeline.governed()` presets (`minimal`, `balanced`, `production`, `strict`) for embeddable LLM call governance.
+- **Lightweight completion helpers** — Added `Pipeline.complete()` and `Pipeline.complete_messages()` so callers can use Onion without manually constructing `AgentContext`.
+- **CallableProvider** — Added an adapter for wrapping existing LLM SDK/client calls while keeping Onion middleware around them.
+- **BudgetMiddleware** — Added in-memory sliding-window token and cost budget enforcement scoped by tenant, session, API key, or custom metadata/config keys.
+- **Optional Redis integration tests** — Added real Redis tests gated by `ONION_REDIS_URL`; default local/CI runs skip them when Redis is unavailable.
+- **Open-source project hygiene** — Added issue templates, PR template, `SECURITY.md`, and practical examples for FastAPI, LiteLLM, and tenant budgets.
+
+### Changed
+
+- **Project positioning** — Reframed Onion Core as a lightweight embeddable middleware layer for LLM call governance rather than a full agent framework.
+- **Package metadata** — Downgraded classifier to Beta and updated package description/keywords to match the governance-layer focus.
+- **Provider/model-safe cache keys** — Response cache keys now include namespace, provider, model, selected generation config, and governance fingerprints to avoid cross-provider/model cache reuse.
+- **Config surface** — Added `CacheConfig`, `RateLimitConfig`, `BudgetConfig`, observability toggles, and `PipelineConfig.total_timeout`.
+- **Docs** — Updated README, architecture, API reference, install/config guide, and added a guide for wrapping existing LLM calls.
+
+### Quality
+
+- Full local suite: 536 passed, 4 skipped, 85% coverage.
+- mypy strict mode: 0 errors.
+- ruff check: 0 errors.
+
+---
+
 ### Fixed
 
 - **Tool idempotency — concurrent execution merge** — `ToolRegistry.execute()` now uses a per-key `asyncio.Future` in-flight map. Parallel calls sharing the same `idempotency_key` all join a single execution, so the tool function runs at most once per key even under concurrent load. Failed results are not cached; joiners see the same error and subsequent calls can retry.

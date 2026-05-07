@@ -1,6 +1,6 @@
 # Onion Core - API Reference
 
-> Version: 1.0.0 | Updated: 2026-04-26
+> Version: 1.1.0b1 | Updated: 2026-05-07
 
 This document describes every public class, function, and configuration option in the `onion_core` package.
 
@@ -13,7 +13,7 @@ from onion_core import (
     # Core
     Pipeline, MiddlewareManager, BaseMiddleware,
     # Provider
-    LLMProvider, EchoProvider,
+    LLMProvider, EchoProvider, CallableProvider,
     # Models
     AgentContext, Message, MessageRole,
     LLMResponse, StreamChunk, ToolCall, ToolResult,
@@ -28,8 +28,10 @@ from onion_core import (
     # Config
     OnionConfig, PipelineConfig, SafetyConfig,
     ContextWindowConfig, ObservabilityConfig, ConcurrencyConfig,
+    CacheConfig, RateLimitConfig, BudgetConfig,
     # Middleware
-    ResponseCacheMiddleware,
+    SafetyGuardrailMiddleware, ContextWindowMiddleware, RateLimitMiddleware,
+    BudgetMiddleware, ResponseCacheMiddleware, ObservabilityMiddleware,
     # Agent
     AgentLoop, AgentLoopError,
     # Health
@@ -446,6 +448,25 @@ class EchoProvider(LLMProvider):
     async def complete(self, context: AgentContext) -> LLMResponse: ...
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]: ...
 ```
+
+### `CallableProvider`
+```python
+class CallableProvider(LLMProvider):
+    def __init__(
+        self,
+        complete: Callable[[AgentContext], LLMResponse | str | Awaitable[LLMResponse | str]],
+        *,
+        stream: Optional[Callable[[AgentContext], AsyncIterator[StreamChunk | str]]] = None,
+        model: str = "callable",
+        name: Optional[str] = None,
+    ) -> None: ...
+
+    async def complete(self, context: AgentContext) -> LLMResponse: ...
+    async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]: ...
+```
+
+`CallableProvider` wraps an existing SDK/client call so Onion middleware can be
+embedded without rewriting the application's LLM integration.
 
 ---
 
@@ -995,10 +1016,14 @@ class ContextWindowConfig(BaseModel):
 class ObservabilityConfig(BaseModel):
     log_level: str = "INFO"
     log_tool_args: bool = True
+    enable_metrics: bool = False
+    enable_tracing: bool = False
+    service_name: str = "onion-core"
 
 class PipelineConfig(BaseModel):
     middleware_timeout: Optional[float] = None
     provider_timeout: Optional[float] = None
+    total_timeout: Optional[float] = None
     max_retries: int = 0
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
@@ -1006,6 +1031,30 @@ class PipelineConfig(BaseModel):
     max_stream_chunks: int = 10000
     tool_call_dedup_policy: str = "relaxed"
     agent_progress_window: int = 3
+
+class CacheConfig(BaseModel):
+    enabled: bool = False
+    ttl_seconds: float = 300.0
+    max_size: int = 1000
+    cache_key_strategy: str = "full"
+    namespace: str = "default"
+
+class RateLimitConfig(BaseModel):
+    enabled: bool = False
+    max_requests: int = 60
+    window_seconds: float = 60.0
+    max_tool_calls: Optional[int] = None
+    tool_call_window: Optional[float] = None
+    max_sessions: int = 10000
+
+class BudgetConfig(BaseModel):
+    enabled: bool = False
+    max_prompt_tokens: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
+    max_total_tokens: Optional[int] = None
+    max_cost_usd: Optional[float] = None
+    window_seconds: float = 3600.0
+    scope_key: str = "tenant_id"
 
 class ConcurrencyConfig(BaseModel):
     tool_concurrency: int = 5
@@ -1020,6 +1069,9 @@ class OnionConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     @classmethod
@@ -2030,10 +2082,14 @@ class ContextWindowConfig(BaseModel):
 class ObservabilityConfig(BaseModel):
     log_level: str = "INFO"
     log_tool_args: bool = True
+    enable_metrics: bool = False
+    enable_tracing: bool = False
+    service_name: str = "onion-core"
 
 class PipelineConfig(BaseModel):
     middleware_timeout: Optional[float] = None
     provider_timeout: Optional[float] = None
+    total_timeout: Optional[float] = None
     max_retries: int = 0
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
@@ -2041,6 +2097,30 @@ class PipelineConfig(BaseModel):
     max_stream_chunks: int = 10000
     tool_call_dedup_policy: str = "relaxed"
     agent_progress_window: int = 3
+
+class CacheConfig(BaseModel):
+    enabled: bool = False
+    ttl_seconds: float = 300.0
+    max_size: int = 1000
+    cache_key_strategy: str = "full"
+    namespace: str = "default"
+
+class RateLimitConfig(BaseModel):
+    enabled: bool = False
+    max_requests: int = 60
+    window_seconds: float = 60.0
+    max_tool_calls: Optional[int] = None
+    tool_call_window: Optional[float] = None
+    max_sessions: int = 10000
+
+class BudgetConfig(BaseModel):
+    enabled: bool = False
+    max_prompt_tokens: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
+    max_total_tokens: Optional[int] = None
+    max_cost_usd: Optional[float] = None
+    window_seconds: float = 3600.0
+    scope_key: str = "tenant_id"
 
 class ConcurrencyConfig(BaseModel):
     tool_concurrency: int = 5
@@ -2055,6 +2135,9 @@ class OnionConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     @classmethod

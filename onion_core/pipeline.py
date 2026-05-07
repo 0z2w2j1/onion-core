@@ -33,6 +33,8 @@ from .models import (
     CacheHitException,
     CircuitBreakerError,
     LLMResponse,
+    Message,
+    MessageRole,
     RetryOutcome,
     RetryPolicy,
     StreamChunk,
@@ -259,6 +261,80 @@ class Pipeline:
     # 公开调用入口
     # ------------------------------------------------------------------
 
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        """Lightweight text entry point for embeddable usage."""
+        messages: list[Message] = []
+        if system:
+            messages.append(Message(role=MessageRole.SYSTEM, content=system))
+        messages.append(Message(role=MessageRole.USER, content=prompt))
+        context = self._build_context(
+            messages,
+            session_id=session_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            metadata=metadata,
+            config=config,
+        )
+        return await self.run(context)
+
+    async def complete_messages(
+        self,
+        messages: list[Message | dict[str, Any]],
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        """Run a list of messages without manually constructing AgentContext."""
+        parsed = [
+            message if isinstance(message, Message) else Message.model_validate(message)
+            for message in messages
+        ]
+        context = self._build_context(
+            parsed,
+            session_id=session_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            metadata=metadata,
+            config=config,
+        )
+        return await self.run(context)
+
+    def _build_context(
+        self,
+        messages: list[Message],
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        trace_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> AgentContext:
+        values: dict[str, Any] = {
+            "messages": messages,
+            "metadata": metadata or {},
+            "config": config or {},
+        }
+        if session_id is not None:
+            values["session_id"] = session_id
+        if request_id is not None:
+            values["request_id"] = request_id
+        if trace_id is not None:
+            values["trace_id"] = trace_id
+        return AgentContext.model_validate(values)
+
     async def run(self, context: AgentContext) -> LLMResponse:
         """非流式完整调用：request → provider.complete → response。"""
         self._validate_context(context)
@@ -480,6 +556,7 @@ class Pipeline:
             is_fallback = provider_idx > 0
             cb = self._circuit_breakers.get(provider_idx)
             provider_name = f"{type(provider).__name__}#{provider_idx}"
+            self._set_provider_metadata(context, provider)
 
             if is_fallback:
                 logger.warning(
@@ -634,6 +711,7 @@ class Pipeline:
         return await coro
 
     async def _run_request(self, context: AgentContext) -> AgentContext:
+        self._set_provider_metadata(context, self._provider)
         for mw in self._get_sorted_middlewares():
             try:
                 result = await self._call_middleware(mw.process_request(context), mw)
@@ -663,6 +741,16 @@ class Pipeline:
                     mw.name,
                 )
         return context
+
+    def _set_provider_metadata(self, context: AgentContext, provider: LLMProvider) -> None:
+        try:
+            provider_name = provider.name
+        except AttributeError:
+            provider_name = type(provider).__name__
+        context.metadata["provider_name"] = provider_name
+        model = getattr(provider, "_model", None)
+        if isinstance(model, str) and model:
+            context.metadata["model"] = model
 
     async def _run_response(self, context: AgentContext, response: LLMResponse) -> LLMResponse:
         for mw in reversed(self._get_sorted_middlewares()):
@@ -796,6 +884,7 @@ class Pipeline:
             name=name,
             middleware_timeout=config.pipeline.middleware_timeout,
             provider_timeout=config.pipeline.provider_timeout,
+            total_timeout=config.pipeline.total_timeout,
             max_retries=config.pipeline.max_retries,
             enable_circuit_breaker=config.pipeline.enable_circuit_breaker,
             circuit_failure_threshold=config.pipeline.circuit_failure_threshold,
@@ -809,6 +898,123 @@ class Pipeline:
                 blocked_keywords=config.safety.blocked_keywords or None,
                 blocked_tools=config.safety.blocked_tools or None,
                 enable_builtin_pii=config.safety.enable_pii_masking,
+            )
+        )
+        p.add_middleware(
+            ContextWindowMiddleware(
+                max_tokens=config.context_window.max_tokens,
+                keep_rounds=config.context_window.keep_rounds,
+                encoding_name=config.context_window.encoding_name,
+                summary_strategy=config.context_window.summary_strategy,
+            )
+        )
+        return p
+
+    @classmethod
+    def governed(
+        cls,
+        provider: LLMProvider,
+        config: OnionConfig | None = None,
+        *,
+        preset: str = "balanced",
+        name: str = "default",
+        fallback_providers: list[LLMProvider] | None = None,
+        owns_provider: bool = True,
+    ) -> Pipeline:
+        """
+        Build a pipeline for the lightweight governance-layer use case.
+
+        Presets:
+          - minimal: logging + safety + context window
+          - balanced: minimal + response cache + rate limit
+          - production: balanced + optional budget/metrics/tracing from config
+          - strict: production + input PII masking
+        """
+        preset_name = preset.lower()
+        if preset_name not in {"minimal", "balanced", "production", "strict"}:
+            raise ValueError(
+                "preset must be one of: minimal, balanced, production, strict"
+            )
+
+        from .middlewares.budget import BudgetMiddleware
+        from .middlewares.cache import ResponseCacheMiddleware
+        from .middlewares.context import ContextWindowMiddleware
+        from .middlewares.observability import ObservabilityMiddleware
+        from .middlewares.ratelimit import RateLimitMiddleware
+        from .middlewares.safety import SafetyGuardrailMiddleware
+
+        config = config or OnionConfig()
+        p = cls(
+            provider=provider,
+            name=name,
+            middleware_timeout=config.pipeline.middleware_timeout,
+            provider_timeout=config.pipeline.provider_timeout,
+            total_timeout=config.pipeline.total_timeout,
+            max_retries=config.pipeline.max_retries,
+            enable_circuit_breaker=config.pipeline.enable_circuit_breaker,
+            circuit_failure_threshold=config.pipeline.circuit_failure_threshold,
+            circuit_recovery_timeout=config.pipeline.circuit_recovery_timeout,
+            max_stream_chunks=config.pipeline.max_stream_chunks,
+            fallback_providers=fallback_providers,
+            owns_provider=owns_provider,
+        )
+
+        if config.observability.enable_tracing:
+            from .observability.tracing import TracingMiddleware
+
+            p.add_middleware(
+                TracingMiddleware(
+                    service_name=config.observability.service_name,
+                    pipeline_name=name,
+                )
+            )
+
+        if config.cache.enabled or preset_name in {"balanced", "production", "strict"}:
+            p.add_middleware(
+                ResponseCacheMiddleware(
+                    ttl_seconds=config.cache.ttl_seconds,
+                    max_size=config.cache.max_size,
+                    cache_key_strategy=config.cache.cache_key_strategy,
+                    namespace=config.cache.namespace,
+                )
+            )
+
+        if config.observability.enable_metrics:
+            from .observability.metrics import MetricsMiddleware
+
+            p.add_middleware(MetricsMiddleware(pipeline_name=name))
+
+        p.add_middleware(ObservabilityMiddleware())
+
+        if config.budget.enabled and preset_name in {"production", "strict"}:
+            p.add_middleware(
+                BudgetMiddleware(
+                    max_prompt_tokens=config.budget.max_prompt_tokens,
+                    max_completion_tokens=config.budget.max_completion_tokens,
+                    max_total_tokens=config.budget.max_total_tokens,
+                    max_cost_usd=config.budget.max_cost_usd,
+                    window_seconds=config.budget.window_seconds,
+                    scope_key=config.budget.scope_key,
+                )
+            )
+
+        if config.rate_limit.enabled or preset_name in {"balanced", "production", "strict"}:
+            p.add_middleware(
+                RateLimitMiddleware(
+                    max_requests=config.rate_limit.max_requests,
+                    window_seconds=config.rate_limit.window_seconds,
+                    max_tool_calls=config.rate_limit.max_tool_calls,
+                    tool_call_window=config.rate_limit.tool_call_window,
+                    max_sessions=config.rate_limit.max_sessions,
+                )
+            )
+
+        p.add_middleware(
+            SafetyGuardrailMiddleware(
+                blocked_keywords=config.safety.blocked_keywords or None,
+                blocked_tools=config.safety.blocked_tools or None,
+                enable_builtin_pii=config.safety.enable_pii_masking,
+                enable_input_pii_masking=preset_name == "strict",
             )
         )
         p.add_middleware(

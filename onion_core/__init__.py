@@ -1,9 +1,9 @@
 """
-Onion Core — Agent 中间件框架
+Onion Core — LLM 调用治理中间件层
 
 公开 API：
     from onion_core import Pipeline, BaseMiddleware, AgentContext, Message
-    from onion_core import LLMProvider, LLMResponse, EchoProvider
+    from onion_core import LLMProvider, LLMResponse, EchoProvider, CallableProvider
     from onion_core import OnionError, SecurityException, RateLimitExceeded, RetryPolicy
     from onion_core import ErrorCode, OnionErrorWithCode
     from onion_core.middlewares import ObservabilityMiddleware, SafetyGuardrailMiddleware, ContextWindowMiddleware
@@ -30,11 +30,14 @@ from .agent import (
 )
 from .base import BaseMiddleware
 from .config import (
+    BudgetConfig,
+    CacheConfig,
     ConcurrencyConfig,
     ContextWindowConfig,
     ObservabilityConfig,
     OnionConfig,
     PipelineConfig,
+    RateLimitConfig,
     SafetyConfig,
 )
 from .error_codes import (
@@ -47,6 +50,14 @@ from .error_codes import (
     security_error,
 )
 from .health_server import HealthServer, start_health_server
+from .middlewares import (
+    BudgetMiddleware,
+    ContextWindowMiddleware,
+    ObservabilityMiddleware,
+    RateLimitMiddleware,
+    ResponseCacheMiddleware,
+    SafetyGuardrailMiddleware,
+)
 from .models import (
     ActionType,
     AgentConfig,
@@ -74,12 +85,12 @@ from .models import (
     ValidationError,
 )
 from .pipeline import MiddlewareManager, Pipeline
-from .provider import EchoProvider, LLMProvider
+from .provider import CallableProvider, EchoProvider, LLMProvider
 
 try:
     __version__ = version("onion-core")
 except PackageNotFoundError:
-    __version__ = "1.0.0"
+    __version__ = "1.1.0b1"
 
 __all__ = [
     # 核心
@@ -89,6 +100,14 @@ __all__ = [
     # Provider
     "LLMProvider",
     "EchoProvider",
+    "CallableProvider",
+    # Governance middlewares
+    "SafetyGuardrailMiddleware",
+    "ContextWindowMiddleware",
+    "RateLimitMiddleware",
+    "BudgetMiddleware",
+    "ResponseCacheMiddleware",
+    "ObservabilityMiddleware",
     # 模型
     "AgentContext",
     "AgentConfig",
@@ -141,6 +160,9 @@ __all__ = [
     "OnionConfig",
     "PipelineConfig",
     "ConcurrencyConfig",
+    "CacheConfig",
+    "RateLimitConfig",
+    "BudgetConfig",
     "SafetyConfig",
     "ContextWindowConfig",
     "ObservabilityConfig",

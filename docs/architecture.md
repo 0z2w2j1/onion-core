@@ -1,6 +1,6 @@
 # Onion Core - Architecture Design Document
 
-> Version: 1.0.0 | Date: 2026-04-26
+> Version: 1.1.0b1 | Date: 2026-05-07
 
 ## Changelog (v1.0.0)
 
@@ -32,7 +32,7 @@
 
 ## 1. Overview
 
-Onion Core is an **onion-model middleware framework** for building reliable, secure, and observable AI Agent applications. It wraps LLM calls with layered protective middleware, following the principle of **defense in depth**.
+Onion Core is a **lightweight embeddable middleware layer** for governing LLM calls. It wraps existing provider or SDK calls with layered protective middleware, following the principle of **defense in depth**.
 
 ```
                     ┌─────────────────────────────┐
@@ -425,7 +425,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 | Area | Limitation |
 |------|------------|
 | **Distributed state** | In-memory circuit breaker and rate limiter are the default; distributed (Redis-backed) alternatives available via `DistributedCircuitBreakerMiddleware`, `DistributedRateLimitMiddleware`, and `DistributedCacheMiddleware` |
-| **Version** | 1.0.0 (Production/Stable) |
+| **Version** | 1.1.0b1 (Beta, governance-layer focus) |
 | **Documentation** | Bilingual (English + Chinese) documentation maintained |
 | **CI/CD** | GitHub Actions configured for testing, linting, and benchmarks |
 
@@ -574,7 +574,7 @@ with Pipeline(provider=MyProvider()) as p:
 
 ## 1. 概述
 
-Onion Core 是一个用于构建可靠、安全、可观测的 AI Agent 应用的**洋葱模型中间件框架**。它采用**纵深防御**原则，用分层protective middleware 包裹 LLM 调用。
+Onion Core 是一个轻量、可嵌入的 **LLM 调用治理中间件层**。它采用**纵深防御**原则，用分层 protective middleware 包裹已有 Provider 或 SDK 调用。
 
 ```
                     ┌─────────────────────────────┐
@@ -916,7 +916,7 @@ ERROR_RETRY_POLICY()[MyErrorCode.CUSTOM_BUSINESS_RULE] = RetryOutcome.FATAL
 | 领域 | 限制 |
 |------|------------|
 | **分布式状态** | 默认使用内存熔断器和限流器；分布式（Redis 支持）替代方案可通过 `DistributedCircuitBreakerMiddleware`、`DistributedRateLimitMiddleware`、`DistributedCacheMiddleware` 获取 |
-| **版本** | 1.0.0（生产/稳定） |
+| **版本** | 1.1.0b1（Beta，聚焦治理层） |
 | **文档** | 维护中英双语文档 |
 | **CI/CD** | GitHub Actions 已配置用于测试、代码检查和基准测试 |
 

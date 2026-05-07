@@ -78,6 +78,7 @@ class DistributedCacheMiddleware(BaseMiddleware):
         key_prefix: str = "onion:cache",
         pool_size: int = 10,
         cache_key_strategy: str = "full",
+        namespace: str = "default",
     ) -> None:
         """
         Args:
@@ -90,6 +91,7 @@ class DistributedCacheMiddleware(BaseMiddleware):
                 - "full": 使用完整 messages + config（默认）
                 - "user_only": 仅使用用户消息
                 - "custom": 需要子类重写 _generate_cache_key()
+            namespace: 缓存命名空间，用于隔离不同应用、租户或部署环境
         """
         try:
             import redis.asyncio as redis
@@ -103,6 +105,7 @@ class DistributedCacheMiddleware(BaseMiddleware):
         self._max_size = max_size
         self._key_prefix = key_prefix
         self._cache_key_strategy = cache_key_strategy
+        self._namespace = namespace
         
         # 统计信息（使用锁保护并发访问）
         self._hits = 0
@@ -315,7 +318,12 @@ class DistributedCacheMiddleware(BaseMiddleware):
                 for m in context.messages
                 if m.role == "user"
             ]
-            key_data: dict[str, object] = {"messages": user_messages}
+            key_data: dict[str, object] = {
+                "namespace": self._namespace,
+                "strategy": "user_only",
+                "messages": user_messages,
+                "identity": self._runtime_identity(context),
+            }
         else:
             # 默认：使用完整 messages + 相关配置
             messages_for_key = [
@@ -329,13 +337,36 @@ class DistributedCacheMiddleware(BaseMiddleware):
             config_for_key = {
                 k: v
                 for k, v in context.config.items()
-                if k in ["temperature", "max_tokens", "top_p"]
+                if k in ["temperature", "max_tokens", "top_p", "model", "tools"]
             }
-            key_data = {"messages": messages_for_key, "config": config_for_key}
+            key_data = {
+                "namespace": self._namespace,
+                "strategy": "full",
+                "messages": messages_for_key,
+                "config": config_for_key,
+                "identity": self._runtime_identity(context),
+                "governance": self._governance_fingerprint(context),
+            }
 
         # 生成 MD5 哈希
         key_string = json.dumps(key_data, sort_keys=True, default=str)
         return hashlib.md5(key_string.encode("utf-8")).hexdigest()
+
+    def _runtime_identity(self, context: AgentContext) -> dict[str, object]:
+        return {
+            "provider": context.metadata.get("provider_name", "unknown"),
+            "model": context.metadata.get("model", context.config.get("model", "unknown")),
+        }
+
+    def _governance_fingerprint(self, context: AgentContext) -> dict[str, object]:
+        onion_cfg = context.config.get("onion", {})
+        if not isinstance(onion_cfg, dict):
+            return {}
+        return {
+            key: onion_cfg.get(key)
+            for key in ("safety", "context_window")
+            if key in onion_cfg
+        }
 
     async def _store_in_cache(self, key: str, response: LLMResponse) -> None:
         """

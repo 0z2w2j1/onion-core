@@ -40,12 +40,43 @@ class ContextWindowConfig(BaseModel):
 class ObservabilityConfig(BaseModel):
     log_level: str = "INFO"
     log_tool_args: bool = True
+    enable_metrics: bool = False
+    enable_tracing: bool = False
+    service_name: str = "onion-core"
+
+
+class CacheConfig(BaseModel):
+    enabled: bool = False
+    ttl_seconds: float = Field(default=300.0, ge=0.1)
+    max_size: int = Field(default=1000, ge=1)
+    cache_key_strategy: str = "full"
+    namespace: str = "default"
+
+
+class RateLimitConfig(BaseModel):
+    enabled: bool = False
+    max_requests: int = Field(default=60, ge=1)
+    window_seconds: float = Field(default=60.0, ge=0.1)
+    max_tool_calls: int | None = Field(default=None, ge=1)
+    tool_call_window: float | None = Field(default=None, ge=0.1)
+    max_sessions: int = Field(default=10_000, ge=1)
+
+
+class BudgetConfig(BaseModel):
+    enabled: bool = False
+    max_prompt_tokens: int | None = Field(default=None, ge=1)
+    max_completion_tokens: int | None = Field(default=None, ge=1)
+    max_total_tokens: int | None = Field(default=None, ge=1)
+    max_cost_usd: float | None = Field(default=None, ge=0.0)
+    window_seconds: float = Field(default=3600.0, ge=0.1)
+    scope_key: str = "tenant_id"
 
 
 class PipelineConfig(BaseModel):
     middleware_timeout: float | None = None
     max_retries: int = 0
     provider_timeout: float | None = None
+    total_timeout: float | None = None
     enable_circuit_breaker: bool = True
     circuit_failure_threshold: int = 5
     circuit_recovery_timeout: float = 30.0
@@ -81,6 +112,9 @@ class OnionConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_window: ContextWindowConfig = Field(default_factory=ContextWindowConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     extra: dict[str, Any] = Field(default_factory=dict)
 

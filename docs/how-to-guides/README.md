@@ -15,6 +15,7 @@
 
 ## Provider 管理
 
+- [如何包裹已有 LLM 调用](wrap-existing-llm-call.md) ✅ **新增**
 - [如何配置 OpenAI Provider](configure-openai-provider.md)
 - [如何接入国内 AI（DeepSeek、智谱、Kimi）](configure-domestic-ai.md)
 - [如何使用本地模型（Ollama、LM Studio）](configure-local-models.md)

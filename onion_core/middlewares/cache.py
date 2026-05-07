@@ -48,6 +48,7 @@ class ResponseCacheMiddleware(BaseMiddleware):
         ttl_seconds: float = 300.0,
         max_size: int = 1000,
         cache_key_strategy: str = "full",
+        namespace: str = "default",
     ) -> None:
         """
         Args:
@@ -57,10 +58,12 @@ class ResponseCacheMiddleware(BaseMiddleware):
                 - "full": 使用完整 messages + config（默认）
                 - "user_only": 仅使用用户消息
                 - "custom": 需要子类重写 _generate_cache_key()
+            namespace: 缓存命名空间，用于隔离不同应用、租户或部署环境
         """
         self._ttl_seconds = ttl_seconds
         self._max_size = max_size
         self._cache_key_strategy = cache_key_strategy
+        self._namespace = namespace
         
         # LRU 缓存：{cache_key: (timestamp, LLMResponse)}
         self._cache: OrderedDict[str, tuple[float, LLMResponse]] = OrderedDict()
@@ -210,7 +213,12 @@ class ResponseCacheMiddleware(BaseMiddleware):
                 for m in context.messages
                 if m.role == "user"
             ]
-            key_data: dict[str, object] = {"messages": user_messages}
+            key_data: dict[str, object] = {
+                "namespace": self._namespace,
+                "strategy": "user_only",
+                "messages": user_messages,
+                "identity": self._runtime_identity(context),
+            }
         else:
             # 默认：使用完整 messages + 相关配置
             messages_for_key = [
@@ -220,13 +228,36 @@ class ResponseCacheMiddleware(BaseMiddleware):
             config_for_key = {
                 k: v
                 for k, v in context.config.items()
-                if k in ["temperature", "max_tokens", "top_p"]
+                if k in ["temperature", "max_tokens", "top_p", "model", "tools"]
             }
-            key_data = {"messages": messages_for_key, "config": config_for_key}
+            key_data = {
+                "namespace": self._namespace,
+                "strategy": "full",
+                "messages": messages_for_key,
+                "config": config_for_key,
+                "identity": self._runtime_identity(context),
+                "governance": self._governance_fingerprint(context),
+            }
         
         # 生成 SHA-256 哈希
         key_string = json.dumps(key_data, sort_keys=True, default=str)
         return hashlib.sha256(key_string.encode("utf-8")).hexdigest()
+
+    def _runtime_identity(self, context: AgentContext) -> dict[str, object]:
+        return {
+            "provider": context.metadata.get("provider_name", "unknown"),
+            "model": context.metadata.get("model", context.config.get("model", "unknown")),
+        }
+
+    def _governance_fingerprint(self, context: AgentContext) -> dict[str, object]:
+        onion_cfg = context.config.get("onion", {})
+        if not isinstance(onion_cfg, dict):
+            return {}
+        return {
+            key: onion_cfg.get(key)
+            for key in ("safety", "context_window")
+            if key in onion_cfg
+        }
 
     def _store_in_cache(self, key: str, response: LLMResponse) -> None:
         """
