@@ -507,6 +507,6 @@ Pipeline 调度引擎是 Onion Core 的核心，它通过：
 
 ## 延伸阅读
 
-- [API 参考: Pipeline](../reference/pipeline.md)
+- [API 参考: 核心模块](../api/core.md)
 - [操作指南: 解决超时问题](../how-to-guides/troubleshoot-timeouts.md)
 - [背景解释: 洋葱模型设计哲学](onion-model-philosophy.md)

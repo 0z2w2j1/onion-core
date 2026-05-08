@@ -389,6 +389,6 @@ if __name__ == "__main__":
 
 ## 下一步
 
-- 查看 **[API 参考: Pipeline](../reference/pipeline.md)** 了解完整参数
+- 查看 **[API 参考: 核心模块](../api/core.md)** 了解完整参数
 - 阅读 **[背景解释: 降级策略](../explanation/degradation-strategy.md)** 理解重试和熔断原理
 - 学习 **[操作指南: 解决超时问题](troubleshoot-timeouts.md)** 优化响应速度

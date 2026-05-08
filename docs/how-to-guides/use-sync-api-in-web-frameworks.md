@@ -540,6 +540,6 @@ curl -X POST http://localhost:5000/chat \
 
 ## 下一步
 
-- 查看 **[API 参考: Pipeline.run_sync()](../reference/pipeline.md#run_sync)** 了解详细参数
+- 查看 **[API 参考: 核心模块](../api/core.md)** 了解详细参数
 - 阅读 **[背景解释: 异步编程模型](../explanation/async-programming-model.md)** 理解事件循环机制
 - 学习 **[操作指南: 解决超时问题](troubleshoot-timeouts.md)** 优化响应速度

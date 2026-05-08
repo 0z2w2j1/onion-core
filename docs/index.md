@@ -94,11 +94,9 @@ Problem-oriented guides to help you solve specific tasks.
 ### 📖 [Reference](reference/README.md)
 Information-oriented technical descriptions.
 
-- [Pipeline API](reference/pipeline.md)
-- [Middlewares API](reference/middlewares.md)
-- [API Stability Policy](reference/api-stability.md)
-- [Provider Contract](reference/provider-contract.md)
-- [Auto-generated API Reference](api/pipeline.md)
+- [API 稳定性政策](reference/api-stability.md)
+- [Provider 契约](reference/provider-contract.md)
+- [自动生成 API 参考](api/core.md)
 
 ### 💡 [Explanation](explanation/README.md)
 Understanding-oriented discussions of design decisions.

@@ -1,112 +1,74 @@
-site_name: Onion Core Documentation
-site_description: Agent middleware framework — onion-model pipeline for LLM applications
+site_name: Onion Core 文档
+site_description: Agent 中间件框架 — 洋葱模型的 LLM 应用治理层
 site_author: Onion Core Team
 repo_url: https://github.com/0z2w2j1/onion-core
 repo_name: 0z2w2j1/onion-core
 
-exclude_docs: |
-  api_reference.md
-  architecture.md
-  degradation_strategy.md
-  distributed_usage.md
-  error_code_usage.md
-  migration_guide.md
-  model_pricing_config.md
-  monitoring.md
-  monitoring_guide.md
-  MKDOCS_GUIDE.md
-  DOCUMENTATION_REFACTOR_SUMMARY.md
-
 # 文档目录结构
 nav:
-  - Home: index.md
-  - Tutorials:
-    - Overview: tutorials/README.md
-    - '01. Quick Start': tutorials/01-quick-start.md
-    - '02. Secure Agent': tutorials/02-secure-agent.md
-    - '03. Fallback Providers': tutorials/03-fallback-providers.md
-    - '04. Streaming & Sync API': tutorials/04-streaming-sync.md
-  - How-to Guides:
-    - Overview: how-to-guides/README.md
-    - 'Install and Configure': how-to-guides/install-and-configure.md
-    - 'Load Config from File': how-to-guides/load-config-from-file.md
-    - 'Configure OpenAI Provider': how-to-guides/configure-openai-provider.md
-    - 'Configure Domestic AI': how-to-guides/configure-domestic-ai.md
-    - 'Configure Local Models': how-to-guides/configure-local-models.md
-    - 'Wrap Existing LLM Call': how-to-guides/wrap-existing-llm-call.md
-    - 'Custom Blocked Keywords': how-to-guides/custom-blocked-keywords.md
-    - 'Enable Response Cache': how-to-guides/enable-response-cache.md
-    - 'Configure Distributed Rate Limiting': how-to-guides/configure-distributed-ratelimit.md
-    - 'Customize PII Rules': how-to-guides/custom-pii-rules.md
-    - 'Setup Fallback Providers': how-to-guides/setup-fallback-providers.md
-    - 'Use Sync API in Web Frameworks': how-to-guides/use-sync-api-in-web-frameworks.md
-    - 'Troubleshoot Timeouts': how-to-guides/troubleshoot-timeouts.md
-    - 'Monitor Pipeline Performance': how-to-guides/monitor-pipeline-performance.md
-    - 'Production Deployment': how-to-guides/production-deployment.md
-    - 'Debug Middleware Order': how-to-guides/debug-middleware-order.md
-    - 'Prevent Agent Loops': how-to-guides/prevent-agent-loops.md
-    - 'Implement Tool Deduplication': how-to-guides/implement-tool-deduplication.md
-    - 'Handle Circuit Breaker Trips': how-to-guides/handle-circuit-breaker-trips.md
-    - 'Streaming PII Buffer': how-to-guides/streaming-pii-buffer.md
-  - Reference:
-    - Overview: reference/README.md
-    - Pipeline: reference/pipeline.md
-    - Middlewares: reference/middlewares.md
-    - API Stability Policy: reference/api-stability.md
-    - Provider Contract: reference/provider-contract.md
-    - API Reference (Auto-generated):
-      - Core:
-        - Pipeline: api/pipeline.md
-        - Models: api/models.md
-        - Config: api/config.md
-        - Error Codes: api/error_codes.md
-      - Middlewares:
-        - Base: api/base.md
-        - Safety: api/middlewares/safety.md
-        - Context: api/middlewares/context.md
-        - Observability: api/middlewares/observability.md
-        - Rate Limit: api/middlewares/ratelimit.md
-        - Cache: api/middlewares/cache.md
-        - Circuit Breaker: api/middlewares/circuit_breaker.md
-        - Distributed Cache: api/middlewares/distributed_cache.md
-        - Distributed Circuit Breaker: api/middlewares/distributed_circuit_breaker.md
-        - Distributed Rate Limit: api/middlewares/distributed_ratelimit.md
-      - Infrastructure:
-        - Health Server: api/health_server.md
-        - Manager: api/manager.md
-      - Providers:
-        - Base Provider: api/provider.md
-        - OpenAI: api/providers/openai.md
-        - Anthropic: api/providers/anthropic.md
-        - Domestic: api/providers/domestic.md
-        - Local: api/providers/local.md
-      - Agent:
-        - Agent Runtime: api/agent.md
-        - Tools: api/tools.md
-      - Observability:
-        - Logging: api/observability/logging.md
-        - Metrics: api/observability/metrics.md
-        - Tracing: api/observability/tracing.md
-  - Explanation:
-    - Overview: explanation/README.md
-    - 'Onion Model Philosophy': explanation/onion-model-philosophy.md
-    - 'Pipeline Scheduling': explanation/pipeline-scheduling.md
-    - 'Error Code System': explanation/error-code-system.md
-    - 'Distributed Consistency': explanation/distributed-consistency.md
-    - 'Distributed Architecture': explanation/distributed-architecture.md
-    - 'Degradation Strategy': explanation/degradation-strategy.md
-    - 'Agent State Machine': explanation/agent-state-machine.md
-    - 'Context Management Tradeoffs': explanation/context-management-tradeoffs.md
-    - 'Async Programming Model': explanation/async-programming-model.md
-    - 'Circuit Breaker Transitions': explanation/circuit-breaker-transitions.md
-    - 'Streaming PII Algorithm': explanation/streaming-pii-algorithm.md
-    - 'Benchmark Interpretation': explanation/benchmark-interpretation.md
-    - 'Memory Management': explanation/memory-management.md
-    - 'Threadpool Tuning': explanation/threadpool-tuning.md
+  - 首页: index.md
+  - 教程:
+    - 概览: tutorials/README.md
+    - '01. 快速入门': tutorials/01-quick-start.md
+    - '02. 安全 Agent': tutorials/02-secure-agent.md
+    - '03. 备用 Provider': tutorials/03-fallback-providers.md
+    - '04. 流式与同步 API': tutorials/04-streaming-sync.md
+  - 操作指南:
+    - 概览: how-to-guides/README.md
+    - '安装与配置': how-to-guides/install-and-configure.md
+    - '从文件加载配置': how-to-guides/load-config-from-file.md
+    - '配置 OpenAI Provider': how-to-guides/configure-openai-provider.md
+    - '配置国产 AI': how-to-guides/configure-domestic-ai.md
+    - '配置本地模型': how-to-guides/configure-local-models.md
+    - '配置模型定价': how-to-guides/configure-model-pricing.md
+    - '包装现有 LLM 调用': how-to-guides/wrap-existing-llm-call.md
+    - '自定义拦截关键词': how-to-guides/custom-blocked-keywords.md
+    - '启用响应缓存': how-to-guides/enable-response-cache.md
+    - '配置分布式限流': how-to-guides/configure-distributed-ratelimit.md
+    - '自定义 PII 规则': how-to-guides/custom-pii-rules.md
+    - '设置备用 Provider': how-to-guides/setup-fallback-providers.md
+    - '在 Web 框架中使用同步 API': how-to-guides/use-sync-api-in-web-frameworks.md
+    - '排查超时问题': how-to-guides/troubleshoot-timeouts.md
+    - '监控 Pipeline 性能': how-to-guides/monitor-pipeline-performance.md
+    - '生产环境部署': how-to-guides/production-deployment.md
+    - '调试中间件顺序': how-to-guides/debug-middleware-order.md
+    - '防止 Agent 死循环': how-to-guides/prevent-agent-loops.md
+    - '实现工具去重': how-to-guides/implement-tool-deduplication.md
+    - '处理熔断器跳闸': how-to-guides/handle-circuit-breaker-trips.md
+    - '流式 PII 缓冲区': how-to-guides/streaming-pii-buffer.md
+  - 参考手册:
+    - 概览: reference/README.md
+    - API 稳定性政策: reference/api-stability.md
+    - Provider 契约: reference/provider-contract.md
+    - API 参考（自动生成）:
+      - 核心模块: api/core.md
+      - 中间件: api/middlewares.md
+      - Provider: api/providers.md
+      - Agent: api/agent.md
+      - 可观测性: api/observability.md
+      - 基础设施: api/infrastructure.md
+  - 背景解释:
+    - 概览: explanation/README.md
+    - '洋葱模型设计哲学': explanation/onion-model-philosophy.md
+    - 'Pipeline 调度': explanation/pipeline-scheduling.md
+    - '错误码系统': explanation/error-code-system.md
+    - '分布式一致性': explanation/distributed-consistency.md
+    - '分布式架构': explanation/distributed-architecture.md
+    - '降级策略': explanation/degradation-strategy.md
+    - 'Agent 状态机': explanation/agent-state-machine.md
+    - '上下文管理权衡': explanation/context-management-tradeoffs.md
+    - '异步编程模型': explanation/async-programming-model.md
+    - '熔断器状态转换': explanation/circuit-breaker-transitions.md
+    - '流式 PII 算法': explanation/streaming-pii-algorithm.md
+    - '基准测试解读': explanation/benchmark-interpretation.md
+    - '内存管理': explanation/memory-management.md
+    - '线程池调优': explanation/threadpool-tuning.md
+  - 迁移指南: migration_guide.md
+
 # 主题配置
 theme:
   name: material
-  language: en
+  language: zh
   features:
     - navigation.tabs
     - navigation.sections
@@ -117,20 +79,18 @@ theme:
     - content.code.copy
     - content.code.annotate
   palette:
-    # Palette toggle for light mode
     - scheme: default
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-7
-        name: Switch to dark mode
-    # Palette toggle for dark mode
+        name: 切换到深色模式
     - scheme: slate
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
+        name: 切换到浅色模式
 
 # 插件配置
 plugins:
@@ -138,47 +98,38 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [.]  # 搜索路径
+          paths: [.]
           options:
-            # 文档生成选项
-            show_source: true  # 显示源代码链接
-            show_root_heading: true  # 显示根标题
-            show_root_full_path: false  # 不显示完整路径
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
             show_object_full_path: false
             show_category_heading: false
-            show_bases: true  # 显示基类
-            show_signature: true  # 显示函数签名
-            show_signature_annotations: true  # 显示类型注解
-            separate_signature: true  # 单独显示签名
-            line_length: 80  # 签名行长度
-            merge_init_into_class: true  # 将 __init__ 合并到类中
-            show_docstring_examples: true  # 显示示例
-            
-            # 继承和成员选项
-            inherited_members: true  # 显示继承的成员
-            members_order: source  # 按源代码顺序显示成员
-            group_by_category: true  # 按类别分组
-            
-            # 摘要选项
+            show_bases: true
+            show_signature: true
+            show_signature_annotations: true
+            separate_signature: true
+            line_length: 80
+            merge_init_into_class: true
+            show_docstring_examples: true
+            inherited_members: true
+            members_order: source
+            group_by_category: true
             summary:
               attributes: true
               functions: true
               classes: true
               modules: true
-            
-            # 文档字符串选项
-            docstring_style: google  # Google 风格
-            docstring_section_style: table  # 表格样式
-            show_if_no_docstring: false  # 没有文档字符串时不显示
-            
-            # 过滤选项
+            docstring_style: google
+            docstring_section_style: table
+            show_if_no_docstring: false
             filters:
-              - "!^_"  # 排除私有成员（除了特殊方法）
-              - "^__init__$"  # 但包含 __init__
+              - "!^_"
+              - "^__init__$"
 
 # Markdown 扩展
 markdown_extensions:
-  - admonition  # 提示框
+  - admonition
   - attr_list
   - def_list
   - footnotes
@@ -207,9 +158,6 @@ markdown_extensions:
       repo: onion-core
   - pymdownx.mark
   - pymdownx.smartsymbols
-  - pymdownx.snippets:
-      auto_append:
-        - includes/mkdocs.md
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid

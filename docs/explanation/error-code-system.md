@@ -551,6 +551,6 @@ Onion Core 的错误码系统通过：
 
 ## 延伸阅读
 
-- [API 参考: ErrorCode](../api/error_codes.md)
+- [API 参考: 核心模块](../api/core.md)
 - [操作指南: 设置 Fallback Providers](../how-to-guides/setup-fallback-providers.md)
 - [背景解释: Pipeline 调度引擎](pipeline-scheduling.md)

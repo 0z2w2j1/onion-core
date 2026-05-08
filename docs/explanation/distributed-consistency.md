@@ -442,4 +442,4 @@ Onion Core 的分布式中间件采用**最终一致性**模型：
 
 - [操作指南: 配置 Redis 分布式限流](../how-to-guides/configure-distributed-ratelimit.md)
 - [背景解释: Pipeline 调度引擎](pipeline-scheduling.md)
-- [API 参考: DistributedRateLimitMiddleware](../reference/middlewares.md#distributedratelimitmiddleware)
+- [API 参考: 中间件](../api/middlewares.md)

@@ -206,6 +206,6 @@ async def read_aside_cache(request):
 
 ## Related Topics
 
-- [Distributed Cache](../api/middlewares/cache.md)
+- [Distributed Cache](../api/middlewares.md)
 - [Performance Optimization](../explanation/benchmark-interpretation.md)
 - [Memory Management](../explanation/memory-management.md)

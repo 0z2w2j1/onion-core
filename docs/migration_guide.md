@@ -573,8 +573,8 @@ cache.clear_cache()
 ## Support
 
 For questions or issues:
-- 📖 [API Reference](api_reference.md)
-- 🏗️ [Architecture Docs](architecture.md)
+- 📖 [API 参考](api/core.md)
+- 🏗️ [架构设计](explanation/onion-model-philosophy.md)
 - 🐛 [GitHub Issues](https://github.com/0z2w2j1/onion-core/issues)
 - 💬 [Discussions](https://github.com/0z2w2j1/onion-core/discussions)
 

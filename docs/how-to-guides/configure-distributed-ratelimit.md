@@ -109,4 +109,4 @@ for i in range(100):
 ## 下一步
 
 - 查看 **[分布式中间件架构解释](../explanation/distributed-architecture.md)** 了解实现原理
-- 参考 **[API 参考：DistributedRateLimitMiddleware](../api/middlewares/ratelimit.md)** 查看所有配置选项
+- 参考 **[API 参考：中间件](../api/middlewares.md)** 查看所有配置选项

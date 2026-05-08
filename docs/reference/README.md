@@ -1,48 +1,24 @@
-# Onion Core Reference
+# Onion Core 参考手册
 
-参考手册提供**准确、完整的技术信息**。它们面向需要在开发过程中查阅细节的开发者。
+参考手册提供**准确、完整的技术信息**。面向需要在开发过程中查阅细节的开发者。
 
-## 📚 API 参考
+## API 参考（自动生成）
 
-### 核心类
+完整的 API 文档由源码 docstring 自动生成，请查看以下分类：
 
-- [Pipeline](pipeline.md) - 中央调度引擎（完整 API 文档）
-- [AgentContext](../api/models.md) - 请求上下文
-- [BaseMiddleware](middlewares.md#basemiddleware) - 中间件基类
-- [LLMProvider](../api/provider.md) - Provider 抽象接口
+- [核心模块](../api/core.md) — Pipeline、Models、Config、Error Codes、Base、Provider
+- [中间件](../api/middlewares.md) — Safety、Context、RateLimit、Cache、Observability、CircuitBreaker
+- [Provider](../api/providers.md) — OpenAI、Anthropic、DeepSeek、智谱、Kimi、通义千问、Ollama
+- [Agent](../api/agent.md) — AgentRuntime、AgentLoop、ToolRegistry
+- [可观测性](../api/observability.md) — 日志、指标、追踪
+- [基础设施](../api/infrastructure.md) — Health Server、Manager、Circuit Breaker
 
-### 中间件
+## 策略与约定
 
-- [所有中间件 API](middlewares.md) - 完整的中间件参考
-  - [SafetyGuardrailMiddleware](middlewares.md#safetyguardrailmiddleware) - 安全护栏
-  - [ContextWindowMiddleware](middlewares.md#contextwindowmiddleware) - 上下文窗口管理
-  - [ObservabilityMiddleware](middlewares.md#observabilitymiddleware) - 可观测性
-  - [DistributedRateLimitMiddleware](middlewares.md#distributedratelimitmiddleware) - 分布式限流
-  - [DistributedCacheMiddleware](middlewares.md#distributedcachemiddleware) - 分布式缓存
-  - [DistributedCircuitBreakerMiddleware](middlewares.md#distributedcircuitbreakermiddleware) - 分布式熔断器
+- [API 稳定性政策](api-stability.md) — 哪些 API 可以安全依赖
+- [Provider 契约](provider-contract.md) — 实现自定义 Provider 需要满足的接口
 
-### Provider
-
-- [OpenAIProvider](../api/providers/openai.md) - OpenAI API
-- [AnthropicProvider](../api/providers/anthropic.md) - Anthropic API
-- [DeepSeekProvider](../api/providers/domestic.md) - DeepSeek API
-- [ZhipuAIProvider](../api/providers/domestic.md) - 智谱 GLM
-- [MoonshotProvider](../api/providers/domestic.md) - Kimi
-- [DashScopeProvider](../api/providers/domestic.md) - 通义千问
-- [OllamaProvider](../api/providers/local.md) - Ollama 本地模型
-- [LMStudioProvider](../api/providers/local.md) - LM Studio
-
-### Agent
-
-- [AgentRuntime](../api/agent.md) - Agent 运行时
-- [AgentLoop](../api/agent.md) - ReAct 循环引擎
-- [ToolRegistry](../api/tools.md) - 工具注册表
-
-## 🔢 错误码
-
-完整的错误码列表和重试策略，请查看 [错误码参考](../api/error_codes.md)。
-
-### 错误码分类
+## 错误码速查
 
 | 范围 | 类别 | 示例 |
 |------|------|------|
@@ -56,14 +32,12 @@
 | 800-899 | Fallback 错误 | `ONI-F800`: 触发降级 |
 | 900-999 | 内部错误 | `ONI-I900`: 未预期异常 |
 
-## ⚙️ 配置选项
+完整错误码详情请查看 [API 参考 → Error Codes](../api/core.md)。
 
-所有配置字段说明，请查看 [配置参考](../api/config.md)。
-
-### 配置加载方式
+## 配置加载方式
 
 ```python
-# 1. 代码中直接配置（子配置作为 OnionConfig 的嵌套字段）
+# 1. 代码中直接配置
 config = OnionConfig()
 config.safety.enable_pii_masking = True
 config.pipeline.max_retries = 3
@@ -75,12 +49,8 @@ config = OnionConfig.from_env()  # 读取 ONION__*
 config = OnionConfig.from_file("onion.json")
 ```
 
-## 📖 下一步
+## 下一步
 
 - 查看 **[操作指南](../how-to-guides/README.md)** 学习如何使用这些 API
 - 阅读 **[背景解释](../explanation/README.md)** 理解设计原理
 - 浏览 **[教程](../tutorials/README.md)** 快速上手
-
----
-
-> **注意**: 本文档正在建设中。完整的 API 参考将通过自动化工具从代码注释生成。如需立即查阅详细签名，请参考源代码或 IDE 的类型提示。

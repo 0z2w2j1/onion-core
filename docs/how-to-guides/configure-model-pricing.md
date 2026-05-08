@@ -370,9 +370,9 @@ curl http://localhost:8000/metrics | grep onion_token_cost_usd
 
 ## 📚 相关文档
 
-- [Prometheus 指标文档](monitoring_guide.md)
-- [分布式能力使用指南](distributed_usage.md)
-- [成本优化最佳实践](explanation/benchmark-interpretation.md)
+- [监控 Pipeline 性能](monitor-pipeline-performance.md)
+- [配置分布式限流](configure-distributed-ratelimit.md)
+- [基准测试解读](../explanation/benchmark-interpretation.md)
 
 ---
 

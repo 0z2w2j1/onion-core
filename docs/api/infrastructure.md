@@ -1,17 +1,17 @@
-# Agent API 参考
+# 基础设施 API 参考
 
-## Agent Runtime
+## Health Server
 
-::: onion_core.agent
+::: onion_core.health_server
     options:
       show_root_heading: false
       show_source: true
       members_order: source
       group_by_category: true
 
-## Tool Registry
+## Manager
 
-::: onion_core.tools
+::: onion_core.manager
     options:
       show_root_heading: false
       show_source: true

@@ -339,6 +339,6 @@ safety_mw.add_pii_rule(en_name)
 
 ## 下一步
 
-- 查看 **[API 参考: SafetyGuardrailMiddleware](../reference/middlewares.md#safetyguardrailmiddleware)** 了解完整接口
+- 查看 **[API 参考: 中间件](../api/middlewares.md)** 了解完整接口
 - 阅读 **[背景解释: 流式 PII 脱敏算法](../explanation/streaming-pii-algorithm.md)** 理解实现原理
 - 学习 **[操作指南: 添加自定义关键词拦截](custom-blocked-keywords.md)** 增强安全防护
