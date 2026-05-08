@@ -12,6 +12,6 @@
 ## 下一步
 
 完成教程后，你可以：
-- 查看 **[操作指南](../how-to-guides/)** 解决具体问题
-- 参考 **[API 手册](../reference/)** 了解详细接口
-- 阅读 **[架构解释](../explanation/)** 理解设计原理
+- 查看 **[操作指南](../how-to-guides/README.md)** 解决具体问题
+- 参考 **[API 手册](../reference/README.md)** 了解详细接口
+- 阅读 **[架构解释](../explanation/README.md)** 理解设计原理

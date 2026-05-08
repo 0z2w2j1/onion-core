@@ -553,4 +553,4 @@ pipeline = Pipeline(
 3. ✅ 多 Provider 故障转移
 4. ✅ 流式响应和同步 API
 
-继续探索 **[操作指南](../how-to-guides/)** 和 **[背景解释](../explanation/)** 深入学习！
+继续探索 **[操作指南](../how-to-guides/README.md)** 和 **[背景解释](../explanation/README.md)** 深入学习！

@@ -4,6 +4,19 @@ site_author: Onion Core Team
 repo_url: https://github.com/0z2w2j1/onion-core
 repo_name: 0z2w2j1/onion-core
 
+exclude_docs: |
+  api_reference.md
+  architecture.md
+  degradation_strategy.md
+  distributed_usage.md
+  error_code_usage.md
+  migration_guide.md
+  model_pricing_config.md
+  monitoring.md
+  monitoring_guide.md
+  MKDOCS_GUIDE.md
+  DOCUMENTATION_REFACTOR_SUMMARY.md
+
 # 文档目录结构
 nav:
   - Home: index.md
@@ -20,6 +33,7 @@ nav:
     - 'Configure OpenAI Provider': how-to-guides/configure-openai-provider.md
     - 'Configure Domestic AI': how-to-guides/configure-domestic-ai.md
     - 'Configure Local Models': how-to-guides/configure-local-models.md
+    - 'Wrap Existing LLM Call': how-to-guides/wrap-existing-llm-call.md
     - 'Custom Blocked Keywords': how-to-guides/custom-blocked-keywords.md
     - 'Enable Response Cache': how-to-guides/enable-response-cache.md
     - 'Configure Distributed Rate Limiting': how-to-guides/configure-distributed-ratelimit.md
@@ -28,6 +42,7 @@ nav:
     - 'Use Sync API in Web Frameworks': how-to-guides/use-sync-api-in-web-frameworks.md
     - 'Troubleshoot Timeouts': how-to-guides/troubleshoot-timeouts.md
     - 'Monitor Pipeline Performance': how-to-guides/monitor-pipeline-performance.md
+    - 'Production Deployment': how-to-guides/production-deployment.md
     - 'Debug Middleware Order': how-to-guides/debug-middleware-order.md
     - 'Prevent Agent Loops': how-to-guides/prevent-agent-loops.md
     - 'Implement Tool Deduplication': how-to-guides/implement-tool-deduplication.md
@@ -37,6 +52,8 @@ nav:
     - Overview: reference/README.md
     - Pipeline: reference/pipeline.md
     - Middlewares: reference/middlewares.md
+    - API Stability Policy: reference/api-stability.md
+    - Provider Contract: reference/provider-contract.md
     - API Reference (Auto-generated):
       - Core:
         - Pipeline: api/pipeline.md
@@ -86,7 +103,6 @@ nav:
     - 'Benchmark Interpretation': explanation/benchmark-interpretation.md
     - 'Memory Management': explanation/memory-management.md
     - 'Threadpool Tuning': explanation/threadpool-tuning.md
-
 # 主题配置
 theme:
   name: material

@@ -267,11 +267,14 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 - [Configure Redis Distributed Rate Limiting](docs/how-to-guides/configure-distributed-ratelimit.md)
 - [Customize PII Rules](docs/how-to-guides/custom-pii-rules.md)
 - [Setup Fallback Providers](docs/how-to-guides/setup-fallback-providers.md)
+- [Production Deployment Checklist](docs/how-to-guides/production-deployment.md)
 - [Use Sync API in Flask/Django](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
 
 #### 📚 [Reference](docs/reference/) - Information-oriented
-- [API Reference](docs/api_reference.md) - Complete API signatures
-- [Error Codes](docs/error_code_usage.md) - All error codes and retry policies
+- [API Reference](docs/reference/README.md) - Public API entry points and generated references
+- [API Stability Policy](docs/reference/api-stability.md) - Stable vs beta public APIs
+- [Provider Contract](docs/reference/provider-contract.md) - Requirements for provider adapters
+- [Error Codes](docs/explanation/error-code-system.md) - Error codes and retry policies
 - [Configuration Options](docs/how-to-guides/load-config-from-file.md) - Config file loading and options
 
 #### 💡 [Explanation](docs/explanation/) - Understanding-oriented
@@ -279,7 +282,7 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 - [Pipeline Scheduling](docs/explanation/pipeline-scheduling.md) - How requests flow through middleware
 - [Distributed Consistency](docs/explanation/distributed-consistency.md) - TOCTOU and eventual consistency
 
-> **Legacy docs**: Old documentation has been migrated to the new structure. See [docs/architecture.md](docs/architecture.md) for detailed system design.
+The public documentation is centered on tutorials, how-to guides, reference, and explanation pages. Historical design notes are kept out of the published site.
 
 ---
 
@@ -289,7 +292,7 @@ We organize our documentation following the [Diátaxis framework](https://diatax
 |------|--------|
 | Version | 1.1.0b1 (Beta, governance-layer focus) |
 | Python Support | 3.11, 3.12 |
-| Test Coverage | 500+ tests, **84%+** coverage |
+| Test Coverage | 500+ tests, **86%+** coverage |
 | Type Check | mypy -- strict ✓ |
 | Linting | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |
@@ -596,8 +599,8 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [在 Flask/Django 中使用同步 API](docs/how-to-guides/use-sync-api-in-web-frameworks.md)
 
 #### 📚 [参考手册](docs/reference/) - 信息导向
-- [API 参考](docs/api_reference.md) - 完整的 API 签名
-- [错误码](docs/error_code_usage.md) - 所有错误码和重试策略
+- [API 参考](docs/reference/README.md) - 公共 API 入口和自动生成参考
+- [错误码](docs/explanation/error-code-system.md) - 错误码和重试策略
 - [配置选项](docs/how-to-guides/load-config-from-file.md) - 配置文件的加载与选项说明
 
 #### 💡 [背景解释](docs/explanation/) - 理解导向
@@ -605,7 +608,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 - [Pipeline 调度引擎](docs/explanation/pipeline-scheduling.md) - 请求如何在中间件间流转
 - [分布式一致性](docs/explanation/distributed-consistency.md) - TOCTOU 与最终一致性
 
-> **旧文档**：原有文档已迁移到新结构。查看 [docs/architecture.md](docs/architecture.md) 了解详细系统设计。
+公开文档以教程、操作指南、参考手册和解释文档为主；历史设计笔记不会进入发布站点。
 
 ---
 
@@ -615,7 +618,7 @@ export ONION__SAFETY__ENABLE_PII_MASKING=true
 |------|------|
 | 版本 | 1.1.0b1（Beta，聚焦治理层） |
 | Python 支持 | 3.11、3.12 |
-| 测试覆盖 | 500+ 个测试，**84%+** 覆盖率 |
+| 测试覆盖 | 500+ 个测试，**86%+** 覆盖率 |
 | 类型检查 | mypy -- strict ✓ |
 | 代码检查 | Ruff ✓ |
 | CI/CD | GitHub Actions ✓ |

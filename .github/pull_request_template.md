@@ -21,9 +21,11 @@
 Commands run:
 
 ```bash
-python -m ruff check onion_core tests
-python -m mypy onion_core
-python -m pytest -q
+ruff check .
+mypy onion_core --strict
+pytest
+python -m build
+twine check dist/*
 ```
 
 ## Notes

@@ -49,6 +49,8 @@ coverage.xml
 .anybadge
 .pytest_cache/
 .hypothesis/
+.ruff_cache/
+.benchmarks/
 .terrace/
 
 # Translations

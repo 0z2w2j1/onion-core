@@ -14,8 +14,14 @@ published minor/pre-release line.
 
 Please do not open a public issue for a suspected vulnerability.
 
-Report security issues by emailing the maintainer or by opening a private GitHub
-security advisory when available. Include:
+Use GitHub private vulnerability reporting:
+
+<https://github.com/0z2w2j1/onion-core/security/advisories/new>
+
+If private reporting is unavailable, open a minimal public issue asking for a
+private maintainer contact channel, but do not include exploit details.
+
+Include:
 
 - Affected version or commit
 - Reproduction steps
@@ -24,6 +30,9 @@ security advisory when available. Include:
 
 We aim to acknowledge reports within 7 days. Because this project is in Beta,
 timelines for fixes depend on severity and maintainer availability.
+
+Please allow the maintainers reasonable time to investigate and publish a fix
+before public disclosure.
 
 ## Scope
 

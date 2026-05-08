@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added an API stability policy that separates stable governance APIs from beta agent-runtime APIs.
+- Added a provider contract reference covering `LLMProvider.complete()`, `stream()`, error handling, tool calls, and cleanup behavior.
+- Added a production deployment checklist covering topology, Redis-backed middlewares, fail-open/fail-closed decisions, timeouts, observability, and HTTP error mapping.
+- Added maintainer release process, support policy, code of conduct, Dependabot configuration, and a PyPI publish workflow based on trusted publishing.
+- Added a CI package job that builds source/wheel distributions and runs `twine check`.
+- Added focused mock tests for `DistributedCircuitBreakerMiddleware`, including Pipeline provider-failure notification.
+
+### Fixed
+
+- Closed sync wrapper coroutines before raising inside an async context, removing the `coroutine was never awaited` warning from sync API misuse tests.
+- Provider failures now broadcast to middleware `on_error()` hooks, allowing middleware such as `DistributedCircuitBreakerMiddleware` to record failed provider calls when used inside a `Pipeline`.
+- Cleaned the contributing guide by removing stale duplicated content and repaired MkDocs navigation/link warnings for legacy and directory-style documentation pages.
+
 ## [1.1.0b1] - 2026-05-07
 
 ### Added

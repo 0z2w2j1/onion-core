@@ -9,12 +9,14 @@ import pytest
 from onion_core import (
     AgentContext,
     CacheHitException,
+    CircuitBreakerError,
     EchoProvider,
     Message,
     Pipeline,
 )
 from onion_core.middlewares import (
     DistributedCacheMiddleware,
+    DistributedCircuitBreakerMiddleware,
     DistributedRateLimitMiddleware,
 )
 
@@ -477,6 +479,188 @@ class TestDistributedCacheMiddleware:
         assert restored.finish_reason == FinishReason.STOP
         assert restored.usage.total_tokens == 30
         assert restored.model == "gpt-4"
+
+
+class TestDistributedCircuitBreakerMiddleware:
+    """Test distributed circuit breaker behavior with mocked Redis."""
+
+    @pytest.fixture
+    def mock_redis(self):
+        """Create a mock Redis client for circuit breaker tests."""
+        mock = AsyncMock()
+        mock.ping = AsyncMock(return_value=True)
+        mock.script_load = AsyncMock(side_effect=["update_sha", "check_sha"])
+        mock.evalsha = AsyncMock(return_value=["CLOSED", 1])
+        mock.hget = AsyncMock(side_effect=["OPEN", "2", "1"])
+        mock.delete = AsyncMock(return_value=1)
+        mock.aclose = AsyncMock()
+        return mock
+
+    @pytest.fixture
+    async def circuit_breaker(self, mock_redis):
+        """Create a distributed circuit breaker with mocked Redis."""
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+
+            breaker = DistributedCircuitBreakerMiddleware(
+                redis_url="redis://localhost:6379",
+                key_prefix="onion:test:cb",
+                failure_threshold=2,
+                recovery_timeout=10.0,
+                success_threshold=1,
+            )
+            breaker.add_provider("provider-a")
+            await breaker.startup()
+
+            yield breaker
+
+            await breaker.shutdown()
+
+    async def test_startup_loads_check_and_update_scripts(self, mock_redis):
+        """Startup should load both Lua scripts."""
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+
+            breaker = DistributedCircuitBreakerMiddleware(redis_url="redis://localhost:6379")
+            await breaker.startup()
+
+            mock_redis.ping.assert_called_once()
+            assert mock_redis.script_load.call_count == 2
+
+            await breaker.shutdown()
+
+    async def test_unregistered_provider_bypasses_redis_check(
+        self, circuit_breaker, mock_redis
+    ):
+        """Providers must be explicitly registered before checks apply."""
+        ctx = AgentContext(
+            messages=[Message(role="user", content="hello")],
+            metadata={"provider_name": "unregistered"},
+        )
+
+        result = await circuit_breaker.process_request(ctx)
+
+        assert result is ctx
+        mock_redis.evalsha.assert_not_called()
+
+    async def test_process_request_allows_closed_provider(
+        self, circuit_breaker, mock_redis
+    ):
+        """Closed circuit breaker state should allow the request."""
+        mock_redis.evalsha.return_value = ["CLOSED", 1]
+        ctx = AgentContext(
+            messages=[Message(role="user", content="hello")],
+            metadata={"provider_name": "provider-a"},
+        )
+
+        result = await circuit_breaker.process_request(ctx)
+
+        assert result is ctx
+        assert ctx.metadata["circuit_breaker_state"] == "CLOSED"
+        assert ctx.metadata["circuit_breaker_provider"] == "provider-a"
+
+    async def test_process_request_blocks_open_provider(
+        self, circuit_breaker, mock_redis
+    ):
+        """Open circuit breaker state should block the request."""
+        mock_redis.evalsha.return_value = ["OPEN", 0]
+        ctx = AgentContext(
+            messages=[Message(role="user", content="hello")],
+            metadata={"provider_name": "provider-a"},
+        )
+
+        with pytest.raises(CircuitBreakerError):
+            await circuit_breaker.process_request(ctx)
+
+    async def test_process_response_records_success(self, circuit_breaker, mock_redis):
+        """Successful responses should update Redis breaker state."""
+        from onion_core.models import FinishReason, LLMResponse
+
+        ctx = AgentContext(
+            messages=[Message(role="user", content="hello")],
+            metadata={"circuit_breaker_provider": "provider-a"},
+        )
+        mock_redis.evalsha.reset_mock()
+
+        await circuit_breaker.process_response(
+            ctx,
+            LLMResponse(content="ok", finish_reason=FinishReason.STOP),
+        )
+
+        args = mock_redis.evalsha.call_args.args
+        assert args[0] == "update_sha"
+        assert args[2] == "onion:test:cb:provider-a"
+        assert args[3] == "success"
+
+    async def test_on_error_records_failure(self, circuit_breaker, mock_redis):
+        """Errors should update Redis breaker state."""
+        ctx = AgentContext(
+            messages=[Message(role="user", content="hello")],
+            metadata={"circuit_breaker_provider": "provider-a"},
+        )
+        mock_redis.evalsha.reset_mock()
+        mock_redis.evalsha.return_value = ["OPEN", 2, 0]
+
+        await circuit_breaker.on_error(ctx, RuntimeError("provider failed"))
+
+        args = mock_redis.evalsha.call_args.args
+        assert args[0] == "update_sha"
+        assert args[2] == "onion:test:cb:provider-a"
+        assert args[3] == "failure"
+
+    async def test_get_status_reads_redis_hash(self, circuit_breaker):
+        """Status should be read from Redis hash fields."""
+        status = await circuit_breaker.get_status("provider-a")
+
+        assert status["provider"] == "provider-a"
+        assert status["state"] == "OPEN"
+        assert status["failure_count"] == 2
+        assert status["success_count"] == 1
+
+    async def test_reset_deletes_provider_key(self, circuit_breaker, mock_redis):
+        """Reset should delete the provider key."""
+        await circuit_breaker.reset("provider-a")
+
+        mock_redis.delete.assert_called_once_with("onion:test:cb:provider-a")
+
+    async def test_pipeline_provider_failure_records_circuit_failure(self, mock_redis):
+        """Pipeline provider failures should be broadcast to middleware on_error hooks."""
+        from onion_core.models import ProviderError
+
+        class AlwaysFailingProvider(EchoProvider):
+            async def complete(self, context: AgentContext):
+                raise ProviderError("provider failed")
+
+        mock_redis.evalsha = AsyncMock(side_effect=[
+            ["CLOSED", 1],  # process_request check
+            ["OPEN", 1, 0],  # on_error failure record
+        ])
+
+        with patch("redis.asyncio.Redis") as mock_redis_class:
+            mock_redis_class.return_value = mock_redis
+
+            breaker = DistributedCircuitBreakerMiddleware(
+                redis_url="redis://localhost:6379",
+                key_prefix="onion:test:cb",
+                failure_threshold=1,
+                recovery_timeout=10.0,
+                success_threshold=1,
+            )
+            breaker.add_provider("AlwaysFailingProvider")
+            pipeline = Pipeline(
+                provider=AlwaysFailingProvider(),
+                max_retries=0,
+                enable_circuit_breaker=False,
+            ).add_middleware(breaker)
+
+            async with pipeline:
+                with pytest.raises(ProviderError):
+                    await pipeline.run(AgentContext(
+                        messages=[Message(role="user", content="hello")]
+                    ))
+
+        calls = mock_redis.evalsha.call_args_list
+        assert any(call.args[3] == "failure" for call in calls if len(call.args) > 3)
 
 
 class TestIntegrationWithPipeline:

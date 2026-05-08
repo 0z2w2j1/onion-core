@@ -301,4 +301,4 @@ Located in `benchmarks/` directory:
 
 - [Pipeline Scheduling](pipeline-scheduling.md)
 - [Troubleshoot Timeouts](../how-to-guides/troubleshoot-timeouts.md)
-- [Monitoring Guide](../monitoring_guide.md)
+- [Monitor Pipeline Performance](../how-to-guides/monitor-pipeline-performance.md)

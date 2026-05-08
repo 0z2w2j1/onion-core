@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/0z2w2j1/onion-core/security/advisories/new
+    about: Please report suspected vulnerabilities privately.
+  - name: Questions and usage support
+    url: https://github.com/0z2w2j1/onion-core/blob/main/SUPPORT.md
+    about: Read the support guide before opening an issue.

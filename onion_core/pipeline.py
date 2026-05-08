@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import queue
 import random
@@ -366,7 +367,11 @@ class Pipeline:
             )
             return await self._run_response(context, exc.cached_response)
 
-        raw_response = await self._call_provider_with_retry(context)
+        try:
+            raw_response = await self._call_provider_with_retry(context)
+        except Exception as exc:
+            await self._notify_error(context, exc)
+            raise
         return await self._run_response(context, raw_response)
 
     async def stream(self, context: AgentContext) -> AsyncIterator[StreamChunk]:
@@ -1047,6 +1052,8 @@ class Pipeline:
             return asyncio.run(coro)  # type: ignore[arg-type]
 
         # 已有事件循环，禁止同步调用以避免死锁
+        if inspect.iscoroutine(coro):
+            coro.close()
         raise RuntimeError(
             "Cannot call sync methods from within an async context. "
             "Use 'await pipeline.run()' or other async methods instead. "

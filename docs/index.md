@@ -85,6 +85,7 @@ Learning-oriented lessons that guide you through practical exercises.
 Problem-oriented guides to help you solve specific tasks.
 
 - Configure Redis Distributed Rate Limiting
+- Production Deployment Checklist
 - Customize PII Rules
 - Setup Fallback Providers
 - Use Sync API in Flask/Django
@@ -95,7 +96,9 @@ Information-oriented technical descriptions.
 
 - [Pipeline API](reference/pipeline.md)
 - [Middlewares API](reference/middlewares.md)
-- [Auto-generated API Reference](api/)
+- [API Stability Policy](reference/api-stability.md)
+- [Provider Contract](reference/provider-contract.md)
+- [Auto-generated API Reference](api/pipeline.md)
 
 ### 💡 [Explanation](explanation/README.md)
 Understanding-oriented discussions of design decisions.

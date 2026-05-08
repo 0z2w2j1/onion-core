@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 
 import pytest
 
@@ -408,8 +409,11 @@ async def test_add_middleware_async():
 def test_run_async_in_sync_from_async_raises():
     async def _inner():
         p = Pipeline(provider=EchoProvider())
-        with pytest.raises(RuntimeError, match="Cannot call sync methods"):
-            p.run_sync(make_context())
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always", RuntimeWarning)
+            with pytest.raises(RuntimeError, match="Cannot call sync methods"):
+                p.run_sync(make_context())
+        assert not any("was never awaited" in str(w.message) for w in captured)
 
     asyncio.run(_inner())
 

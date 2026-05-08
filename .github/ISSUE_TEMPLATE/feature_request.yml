@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest an improvement to the governance middleware layer
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What LLM governance problem are you trying to solve?
+      placeholder: "I need to enforce ..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe the API, middleware behavior, or documentation change you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Pipeline
+        - Middleware
+        - Provider
+        - Agent runtime
+        - Redis distributed middleware
+        - Observability
+        - Packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What workarounds or existing projects did you consider?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope Check
+      description: Onion Core focuses on lightweight embeddable LLM call governance.
+      options:
+        - label: This fits the governance middleware scope rather than a full agent framework, RAG system, UI, or workflow engine.
+          required: true
+        - label: I am willing to help test or review the change.
+          required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Context
+      description: Related use cases, examples, constraints, or migration concerns.
