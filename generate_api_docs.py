@@ -99,7 +99,7 @@ def main() -> None:
     print("生成 API Reference 文档...\n")
 
     total_modules = 0
-    for category, info in categories.items():
+    for _category, info in categories.items():
         try:
             generate_api_doc(info["output"], info["title"], info["modules"])
             total_modules += len(info["modules"])
